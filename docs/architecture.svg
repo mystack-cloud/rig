@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">
+  <style>
+    .component { font-family: Arial, sans-serif; }
+    .node { stroke: #333; stroke-width: 2; }
+    .node-text { font-size: 14px; }
+    .arrow { stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+  </style>
+  
+  <!-- Arrowhead definition -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+            refX="0" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+  </defs>
+  
+  <!-- Components -->
+  <rect x="50" y="50" width="150" height="60" class="node" fill="#4CAF50"/>
+  <text x="125" y="85" class="node-text component" text-anchor="middle">User</text>
+  
+  <rect x="250" y="50" width="150" height="60" class="node" fill="#2196F3"/>
+  <text x="325" y="85" class="node-text component" text-anchor="middle">Local CLI</text>
+  
+  <rect x="450" y="50" width="150" height="60" class="node" fill="#FF9800"/>
+  <text x="525" y="85" class="node-text component" text-anchor="middle">Control Plane</text>
+  
+  <rect x="50" y="200" width="150" height="60" class="node" fill="#E91E63"/>
+  <text x="125" y="235" class="node-text component" text-anchor="middle">Provisioning</text>
+  <text x="125" y="250" class="node-text component" text-anchor="middle">Provider</text>
+  
+  <rect x="250" y="200" width="150" height="60" class="node" fill="#9C27B0"/>
+  <text x="325" y="235" class="node-text component" text-anchor="middle">Remote</text>
+  <text x="325" y="250" class="node-text component" text-anchor="middle">Environment</text>
+  
+  <rect x="450" y="200" width="150" height="60" class="node" fill="#795548"/>
+  <text x="525" y="235" class="node-text component" text-anchor="middle">SSH Tunnel</text>
+  
+  <rect x="600" y="200" width="150" height="60" class="node" fill="#607D8B"/>
+  <text x="675" y="235" class="node-text component" text-anchor="middle">VSCode Server</text>
+  
+  <rect x="50" y="350" width="150" height="60" class="node" fill="#FF5722"/>
+  <text x="125" y="385" class="node-text component" text-anchor="middle">Health Monitor</text>
+  
+  <rect x="250" y="350" width="150" height="60" class="node" fill="#8BC34A"/>
+  <text x="325" y="385" class="node-text component" text-anchor="middle">System Metrics</text>
+  
+  <rect x="450" y="350" width="150" height="60" class="node" fill="#00BCD4"/>
+  <text x="525" y="385" class="node-text component" text-anchor="middle">Collaboration</text>
+  <text x="525" y="400" class="node-text component" text-anchor="middle">Manager</text>
+  
+  <rect x="600" y="350" width="150" height="60" class="node" fill="#CDDC39"/>
+  <text x="675" y="385" class="node-text component" text-anchor="middle">Shared Terminals</text>
+  
+  <!-- Arrows -->
+  <line x1="200" y1="80" x2="250" y2="80" class="arrow"/>
+  <line x1="400" y1="80" x2="450" y2="80" class="arrow"/>
+  <line x1="600" y1="80" x2="650" y2="130" class="arrow"/>
+  <line x1="600" y1="130" x2="600" y2="200" class="arrow"/>
+  <line x1="600" y1="260" x2="600" y2="350" class="arrow"/>
+  <line x1="600" y1="350" x2="600" y2="410" class="arrow"/>
+  
+  <!-- Vertical lines connecting components -->
+  <line x1="125" y1="110" x2="125" y2="200" class="arrow"/>
+  <line x1="325" y1="110" x2="325" y2="200" class="arrow"/>
+  <line x1="525" y1="110" x2="525" y2="200" class="arrow"/>
+  <line x1="675" y1="110" x2="675" y2="200" class="arrow"/>
+  
+  <line x1="125" y1="260" x2="125" y2="350" class="arrow"/>
+  <line x1="325" y1="260" x2="325" y2="350" class="arrow"/>
+  <line x1="525" y1="260" x2="525" y2="350" class="arrow"/>
+  <line x1="675" y1="260" x2="675" y2="350" class="arrow"/>
+</svg>

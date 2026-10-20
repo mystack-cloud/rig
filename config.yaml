@@ -1,0 +1,8 @@
+# Configuration file for the CLI
+control_plane_url: http://localhost:5000
+api_token: ""
+default_provider: ansible
+
+# Hetzner Storage Configuration
+hz_token: ""  # Hetzner Cloud API token
+s3_endpoint_url: "https://fsn1.yourdomain.com"  # Default Hetzner endpoint

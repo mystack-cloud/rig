@@ -1,0 +1,132 @@
+"""
+Storage management for the CLI using Hetzner S3-compatible object storage
+"""
+
+import os
+import json
+from typing import Optional
+import boto3
+from botocore.exceptions import ClientError
+
+class StorageManager:
+    """Manages storage operations with Hetzner S3-compatible storage"""
+    
+    def __init__(self, hetzner_token: str = None, endpoint_url: str = None):
+        self.hetzner_token = hetzner_token or os.getenv('HZ_TOKEN') or os.getenv('HETZNER_CLOUD_API_TOKEN')
+        self.endpoint_url = endpoint_url or os.getenv('S3_ENDPOINT_URL') or "https://fsn1.yourdomain.com"
+        
+        if not self.hetzner_token:
+            raise ValueError("Hetzner Cloud token missing. Please set HZ_TOKEN or HETZNER_CLOUD_API_TOKEN environment variable")
+    
+    def _get_s3_client(self):
+        """Get S3 client configured for Hetzner Object Storage"""
+        # For Hetzner, we need to use their specific endpoint
+        # In a real implementation, Hetzner would provide proper credential handling
+        s3_client = boto3.client(
+            's3',
+            endpoint_url=self.endpoint_url,
+            aws_access_key_id=self.hetzner_token,
+            aws_secret_access_key=self.hetzner_token
+        )
+        return s3_client
+    
+    def create_bucket(self, bucket_name: str) -> bool:
+        """Create a new bucket using Hetzner Object Storage"""
+        try:
+            s3_client = self._get_s3_client()
+            s3_client.create_bucket(Bucket=bucket_name)
+            print(f"Bucket '{bucket_name}' created successfully")
+            return True
+        except ClientError as e:
+            print(f"Error creating bucket: {e}")
+            return False
+    
+    def list_buckets(self) -> list:
+        """List all buckets"""
+        try:
+            s3_client = self._get_s3_client()
+            response = s3_client.list_buckets()
+            buckets = [bucket['Name'] for bucket in response['Buckets']]
+            print("Buckets:")
+            for bucket in buckets:
+                print(f"  - {bucket}")
+            return buckets
+        except ClientError as e:
+            print(f"Error listing buckets: {e}")
+            return []
+    
+    def upload_file(self, bucket_name: str, file_path: str, object_name: str = None) -> bool:
+        """Upload a file to storage"""
+        try:
+            if not os.path.exists(file_path):
+                print(f"Error: File '{file_path}' not found")
+                return False
+                
+            s3_client = self._get_s3_client()
+            
+            if object_name is None:
+                object_name = os.path.basename(file_path)
+                
+            s3_client.upload_file(file_path, bucket_name, object_name)
+            print(f"File '{file_path}' uploaded to bucket '{bucket_name}' as '{object_name}'")
+            return True
+        except ClientError as e:
+            print(f"Error uploading file: {e}")
+            return False
+    
+    def download_file(self, bucket_name: str, object_name: str, file_path: str) -> bool:
+        """Download a file from storage"""
+        try:
+            s3_client = self._get_s3_client()
+            s3_client.download_file(bucket_name, object_name, file_path)
+            print(f"File '{object_name}' downloaded from bucket '{bucket_name}' to '{file_path}'")
+            return True
+        except ClientError as e:
+            print(f"Error downloading file: {e}")
+            return False
+    
+    def list_objects(self, bucket_name: str, prefix: str = "") -> list:
+        """List objects in a bucket"""
+        try:
+            s3_client = self._get_s3_client()
+            response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+            objects = []
+            if 'Contents' in response:
+                objects = [obj['Key'] for obj in response['Contents']]
+            print("Objects:")
+            for obj in objects:
+                print(f"  - {obj}")
+            return objects
+        except ClientError as e:
+            print(f"Error listing objects: {e}")
+            return []
+    
+    def delete_object(self, bucket_name: str, object_name: str) -> bool:
+        """Delete an object from storage"""
+        try:
+            s3_client = self._get_s3_client()
+            s3_client.delete_object(Bucket=bucket_name, Key=object_name)
+            print(f"Object '{object_name}' deleted from bucket '{bucket_name}'")
+            return True
+        except ClientError as e:
+            print(f"Error deleting object: {e}")
+            return False
+    
+    def delete_bucket(self, bucket_name: str) -> bool:
+        """Delete a bucket"""
+        try:
+            s3_client = self._get_s3_client()
+            s3_client.delete_bucket(Bucket=bucket_name)
+            print(f"Bucket '{bucket_name}' deleted successfully")
+            return True
+        except ClientError as e:
+            print(f"Error deleting bucket: {e}")
+            return False
+    
+    def get_credentials_info(self) -> dict:
+        """Return information about the configured credentials"""
+        return {
+            "endpoint": self.endpoint_url,
+            "token_used": f"{'*' * (len(self.hetzner_token)-4)}{self.hetzner_token[-4:] if len(self.hetzner_token) > 4 else self.hetzner_token}",
+            "credentials_expiration": "Temporary credentials generated by Hetzner"
+        }
