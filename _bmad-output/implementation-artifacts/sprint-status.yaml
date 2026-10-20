@@ -1,7 +1,7 @@
 ---
 version: 1
 status: initial
-created: 2024-10-20
+created: 2024-10-20T00:00:00Z
 development_status:
   - name: initial_setup
     status: complete
