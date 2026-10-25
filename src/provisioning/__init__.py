@@ -7,27 +7,27 @@ from typing import Dict, Any
 
 class ProvisioningProvider(ABC):
     """Abstract base class for provisioning providers"""
-    
+
     @abstractmethod
     def create_environment(self, name: str, config: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new environment"""
         pass
-    
+
     @abstractmethod
-    def destroy_environment(self, name: str) -> bool:
+    def destroy_environment(self, name: str) -> Dict[str, Any]:
         """Destroy an environment"""
         pass
-    
+
     @abstractmethod
-    def start_environment(self, name: str) -> bool:
+    def start_environment(self, name: str) -> Dict[str, Any]:
         """Start an environment"""
         pass
-    
+
     @abstractmethod
-    def stop_environment(self, name: str) -> bool:
+    def stop_environment(self, name: str) -> Dict[str, Any]:
         """Stop an environment"""
         pass
-    
+
     @abstractmethod
     def get_environment_status(self, name: str) -> Dict[str, Any]:
         """Get environment status"""

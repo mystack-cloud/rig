@@ -10,11 +10,11 @@ from typing import Optional
 
 class EnvironmentManager:
     """Manages remote development environments"""
-    
+
     def __init__(self, config):
         self.config = config
         self.base_url = config.get('control_plane_url', 'http://localhost:5000')
-        
+
     def create_environment(self, name: str, provider: str = "ansible", template: Optional[str] = None):
         """Create a new environment"""
         url = f"{self.base_url}/environments"
@@ -23,7 +23,7 @@ class EnvironmentManager:
             "provider": provider,
             "template": template
         }
-        
+
         try:
             response = requests.post(url, json=payload)
             if response.status_code == 201:
@@ -35,14 +35,14 @@ class EnvironmentManager:
         except Exception as e:
             print(f"Failed to create environment: {str(e)}")
             return None
-    
+
     def list_environments(self, status: Optional[str] = None):
         """List all environments"""
         url = f"{self.base_url}/environments"
         params = {}
         if status:
             params['status'] = status
-            
+
         try:
             response = requests.get(url, params=params)
             if response.status_code == 200:
@@ -57,11 +57,11 @@ class EnvironmentManager:
         except Exception as e:
             print(f"Failed to list environments: {str(e)}")
             return []
-    
+
     def destroy_environment(self, name: str):
         """Destroy an environment"""
         url = f"{self.base_url}/environments/{name}"
-        
+
         try:
             response = requests.delete(url)
             if response.status_code == 200:
@@ -73,11 +73,11 @@ class EnvironmentManager:
         except Exception as e:
             print(f"Failed to destroy environment: {str(e)}")
             return False
-    
+
     def start_environment(self, name: str):
         """Start an environment"""
         url = f"{self.base_url}/environments/{name}/start"
-        
+
         try:
             response = requests.put(url)
             if response.status_code == 200:
@@ -89,11 +89,11 @@ class EnvironmentManager:
         except Exception as e:
             print(f"Failed to start environment: {str(e)}")
             return False
-    
+
     def stop_environment(self, name: str):
         """Stop an environment"""
         url = f"{self.base_url}/environments/{name}/stop"
-        
+
         try:
             response = requests.put(url)
             if response.status_code == 200:
@@ -105,11 +105,11 @@ class EnvironmentManager:
         except Exception as e:
             print(f"Failed to stop environment: {str(e)}")
             return False
-    
+
     def connect_to_environment(self, name: str):
         """Connect to an environment using SSH"""
         url = f"{self.base_url}/environments/{name}/connect"
-        
+
         try:
             response = requests.get(url)
             if response.status_code == 200:

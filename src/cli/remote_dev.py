@@ -6,7 +6,7 @@ import uuid
 import time
 import shutil
 import subprocess
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import requests
 
 # YAML support
@@ -16,19 +16,17 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
     print("Warning: PyYAML not installed, installing it...")
-    import subprocess
-    subprocess.run(['pip', 'install', 'pyyaml'], capture_output=True)
     import yaml
     YAML_AVAILABLE = True
 
 
 class RemoteDevManager:
     """Manages remote development environments on Hetzner Cloud"""
-    
-    def __init__(self, hetzner_token: str = None, storage_manager: object = None, is_test: bool = False):
+
+    def __init__(self, hetzner_token: Optional[str] = None, storage_manager: Optional[Any] = None, is_test: bool = False):
         self.hetzner_token = hetzner_token or os.getenv('HETZNER_CLOUD_API_TOKEN')
         self.base_url = "https://api.hetzner.cloud/v1"
-        
+
         # Storage manager for shared state
         self.storage_manager = storage_manager
         # Use test bucket if is_test is True, otherwise use production bucket
@@ -39,20 +37,20 @@ class RemoteDevManager:
         else:
             self.state_bucket = os.getenv('STATE_BUCKET', 'rig')
         self.state_prefix = "remote-dev/environments"
-        
+
         if not self.hetzner_token:
             raise ValueError("Hetzner Cloud token missing. Please set HETZNER_CLOUD_API_TOKEN")
-    
-    def _request(self, method: str, endpoint: str, data: Dict = None) -> Dict:
+
+    def _request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Make API request to Hetzner Cloud"""
         headers = {
             'Authorization': f'Bearer {self.hetzner_token}',
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         }
-        
+
         url = f"{self.base_url}{endpoint}"
-        
+
         if method == 'GET':
             response = requests.get(url, headers=headers, timeout=30)
         elif method == 'POST':
@@ -61,30 +59,30 @@ class RemoteDevManager:
             response = requests.delete(url, headers=headers, timeout=30)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
-        
+
         response.raise_for_status()
         return response.json()
-    
+
     def create_ssh_key(self, name: str, public_key: str) -> Dict:
         """Create SSH key in Hetzner Cloud"""
         data = {
             'name': name,
             'public_key': public_key
         }
-        
+
         result = self._request('POST', '/ssh_keys', data)
         return result
-    
+
     def get_ssh_key_by_name(self, name: str) -> Optional[Dict]:
         """Find SSH key by name"""
         result = self._request('GET', '/ssh_keys')
-        
+
         for key in result.get('ssh_keys', []):
             if key.get('name') == name:
                 return key
-        
+
         return None
-    
+
     def delete_ssh_key(self, key_id: str) -> bool:
         """Delete SSH key by ID"""
         try:
@@ -92,12 +90,12 @@ class RemoteDevManager:
             return True
         except Exception:
             return False
-    
-    def create_firewall(self, name: str, allowed_ips: list = None) -> Dict:
+
+    def create_firewall(self, name: str, allowed_ips: Optional[list] = None) -> Dict[str, Any]:
         """Create firewall with SSH rules"""
         if allowed_ips is None:
             allowed_ips = ['0.0.0.0/0', '::/0']
-        
+
         rules = [
             {
                 'direction': 'in',
@@ -114,22 +112,22 @@ class RemoteDevManager:
                 'description': 'Allow ICMP'
             }
         ]
-        
+
         data = {
             'name': name,
             'rules': rules
         }
-        
+
         result = self._request('POST', '/firewalls', data)
         return result
-    
-    def create_vm(self, 
-                  name: str, 
-                  vm_type: str, 
-                  region: str, 
+
+    def create_vm(self,
+                  name: str,
+                  vm_type: str,
+                  region: str,
                   image: str,
-                  ssh_key_id: str = None,
-                  firewall_id: str = None,
+                  ssh_key_id: Optional[str] = None,
+                  firewall_id: Optional[str] = None,
                   start_after_create: bool = True) -> Dict:
         """Create a VM for remote development"""
         data = {
@@ -139,31 +137,31 @@ class RemoteDevManager:
             'image': image,
             'start_after_create': start_after_create
         }
-        
+
         if ssh_key_id:
             data['ssh_keys'] = [ssh_key_id]
-        
+
         if firewall_id:
             data['firewall'] = {'id': firewall_id}
-        
+
         result = self._request('POST', '/servers', data)
         return result
-    
+
     def get_vm(self, vm_id: str) -> Dict:
         """Get VM details"""
         result = self._request('GET', f'/servers/{vm_id}')
         return result
-    
+
     def get_vm_by_name(self, name: str) -> Optional[Dict]:
         """Find VM by name"""
         result = self._request('GET', '/servers')
-        
+
         for server in result.get('servers', []):
             if server.get('name') == name:
                 return server
-        
+
         return None
-    
+
     def delete_vm(self, vm_id: str) -> bool:
         """Delete VM"""
         try:
@@ -171,7 +169,7 @@ class RemoteDevManager:
             return True
         except Exception:
             return False
-    
+
     def delete_firewall(self, firewall_id: str) -> bool:
         """Delete firewall"""
         try:
@@ -179,37 +177,37 @@ class RemoteDevManager:
             return True
         except Exception:
             return False
-    
+
     def wait_for_vm_active(self, vm_id: str, timeout: int = 300) -> bool:
         """Wait for VM to become active"""
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
             vm = self.get_vm(vm_id)
             status = vm.get('server', {}).get('status', '')
-            
+
             if status == 'active':
                 return True
-            
+
             if status in ['error', 'unknown']:
                 return False
-            
+
             time.sleep(5)
-        
+
         return False
-    
+
     def get_vm_ip(self, vm_id: str) -> Optional[str]:
         """Get VM's public IP address"""
         vm = self.get_vm(vm_id)
         public_net = vm.get('server', {}).get('public_net', {})
         primary_ipv4 = public_net.get('primary_ipv4', {})
         return primary_ipv4.get('ip')
-    
+
     def _ensure_state_bucket(self) -> bool:
         """Ensure the state bucket exists, create if not"""
         if not self.storage_manager:
             return False
-        
+
         try:
             # List buckets to check if state bucket exists
             buckets = self.storage_manager.list_buckets()
@@ -220,49 +218,49 @@ class RemoteDevManager:
         except Exception as e:
             print(f"Warning: Could not ensure state bucket: {e}")
             return False
-    
+
     def _save_state(self, environment: Dict) -> bool:
         """Save environment state to shared bucket - only basic facts"""
         if not self.storage_manager:
             return False
-        
+
         try:
             # Ensure state bucket exists
             if not self._ensure_state_bucket():
                 print("Warning: Could not ensure state bucket exists")
                 return False
-            
+
             # Get all environments first
             existing = self.list_dev_environments()
-            
+
             # Check if environment already exists
             found = False
             for env in existing:
                 if env.get('name') == environment.get('name'):
                     found = True
                     break
-            
+
             if not found:
                 # Add new environment
                 existing.append(environment)
-            
+
             # Convert to list format for storage (only basic facts)
             state_data = {
                 'environments': existing,
                 'updated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
-            
+
             # Write temp file for upload FIRST
             with open('/tmp/state.yml', 'w') as f:
                 yaml.dump(state_data, f, default_flow_style=False, sort_keys=False)
-            
+
             # Upload state to bucket
             self.storage_manager.upload_file(
                 self.state_bucket,
                 '/tmp/state.yml',
                 f"{self.state_prefix}/state.yml"
             )
-            
+
             # Save detailed environment data to separate file
             env_name = environment.get('name', 'unknown')
             env_data = {
@@ -275,57 +273,57 @@ class RemoteDevManager:
                 'region': environment.get('region'),
                 'updated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
-            
+
             with open(f'/tmp/{env_name}.yml', 'w') as f:
                 yaml.dump(env_data, f, default_flow_style=False, sort_keys=False)
-            
+
             self.storage_manager.upload_file(
                 self.state_bucket,
                 f'/tmp/{env_name}.yml',
                 f"{self.state_prefix}/environments/{env_name}.yml"
             )
-            
+
             return True
         except Exception as e:
             print(f"Warning: Could not save state: {e}")
             return False
-    
+
     def _load_state(self) -> Dict:
         """Load environment state from shared bucket"""
         if not self.storage_manager:
             return {'environments': []}
-        
+
         try:
             # Ensure state bucket exists
             if not self._ensure_state_bucket():
                 return {'environments': []}
-            
+
             # Download state from bucket
             self.storage_manager.download_file(
                 self.state_bucket,
                 f"{self.state_prefix}/state.yml",
                 '/tmp/state.yml'
             )
-            
+
             with open('/tmp/state.yml', 'r') as f:
                 return yaml.safe_load(f) or {'environments': []}
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
             return {'environments': []}
-    
+
     def list_dev_environments(self, prefix: str = "dev-") -> list:
         """List all development environments with given prefix"""
         # First try to load from shared state
         state = self._load_state()
         environments = state.get('environments', [])
-        
+
         # Filter by prefix
         dev_envs = [env for env in environments if env.get('name', '').startswith(prefix)]
-        
+
         # If no state found, fall back to direct API call
         if not dev_envs:
             result = self._request('GET', '/servers')
-            
+
             for server in result.get('servers', []):
                 name = server.get('name', '')
                 if name.startswith(prefix):
@@ -339,82 +337,88 @@ class RemoteDevManager:
                         'type': server.get('server_type'),
                         'region': server.get('location')
                     })
-        
+
         return dev_envs
 
 
 class RemoteDevEnvironment:
     """Manages a complete remote development environment"""
-    
-    def __init__(self, name: str = None, config: Dict = None, storage_manager: object = None):
+
+    def __init__(self, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None, storage_manager: Optional[Any] = None):
         self.name = name or f"dev-{uuid.uuid4().hex[:8]}"
         self.config = config or {}
-        
+
         self.hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
         self.manager = RemoteDevManager(self.hetzner_token, storage_manager)
-        
+
         # VM details
         self.vm_name = self.name
         self.vm_type = self.config.get('vm', {}).get('type', 'cax11')
         self.region = self.config.get('vm', {}).get('region', 'hel1')
         self.image = self.config.get('vm', {}).get('image', 'ubuntu-24.04')
-        
+
         # SSH key
         self.ssh_key_name = f"{self.name}-key"
         self.ssh_key_id = None
         self.ssh_private_key = None
         self.ssh_public_key = None
-        
+
         # Firewall
         self.firewall_name = f"{self.name}-fw"
         self.firewall_id = None
-        
+
         # VM
         self.vm_id = None
         self.vm_ip = None
-    
+
     def generate_ssh_keys(self):
         """Generate SSH key pair for the VM"""
         # In production, use paramiko or subprocess to call ssh-keygen
         # For now, we'll simulate the structure
         import subprocess
-        
+
         try:
             # Generate SSH key
-            result = subprocess.run(
-                ['ssh-keygen', '-t', 'ed25519', '-C', f"{self.ssh_key_name}@rig", '-N', '', '-f', f'/tmp/{self.ssh_key_name}'],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
+            result = subprocess.run(['ssh-keygen',
+                                     '-t',
+                                     'ed25519',
+                                     '-C',
+                                     f"{self.ssh_key_name}@rig",
+                                     '-N',
+                                     '',
+                                     '-f',
+                                     f'/tmp/{self.ssh_key_name}'],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30)
+
             if result.returncode == 0:
                 with open(f'/tmp/{self.ssh_key_name}', 'r') as f:
                     self.ssh_private_key = f.read()
-                
+
                 with open(f'/tmp/{self.ssh_key_name}.pub', 'r') as f:
                     self.ssh_public_key = f.read()
-                
+
                 return True
             else:
                 # Fallback: use a placeholder key (not secure for production)
                 self.ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl dev-key"
                 return True
-                
+
         except Exception as e:
             print(f"Warning: SSH key generation failed: {e}")
             # Fallback
             self.ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl dev-key"
             return True
-    
+
     def setup(self):
         """Set up the complete remote development environment"""
         print(f"\n=== Setting up Remote Dev Environment: {self.name} ===")
-        
+
         # 1. Generate SSH keys
         print("  1. Generating SSH keys...")
         self.generate_ssh_keys()
-        
+
         # 2. Create SSH key in Hetzner
         print("  2. Registering SSH key with Hetzner...")
         try:
@@ -423,7 +427,7 @@ class RemoteDevEnvironment:
             print(f"     ✓ SSH key registered (ID: {self.ssh_key_id})")
         except Exception as e:
             print(f"     ⚠️  SSH key creation failed: {e}")
-        
+
         # 3. Create firewall
         print("  3. Creating firewall...")
         try:
@@ -433,7 +437,7 @@ class RemoteDevEnvironment:
             print(f"     ✓ Firewall created (ID: {self.firewall_id})")
         except Exception as e:
             print(f"     ⚠️  Firewall creation failed: {e}")
-        
+
         # 4. Create VM
         print(f"  4. Creating VM ({self.vm_type} in {self.region})...")
         try:
@@ -450,7 +454,7 @@ class RemoteDevEnvironment:
         except Exception as e:
             print(f"     ✗ VM creation failed: {e}")
             return False
-        
+
         # 5. Wait for VM to be active
         print("  5. Waiting for VM to be active...")
         if self.manager.wait_for_vm_active(self.vm_id):
@@ -458,7 +462,7 @@ class RemoteDevEnvironment:
         else:
             print("     ✗ VM failed to become active")
             return False
-        
+
         # 6. Get VM IP
         print("  6. Getting VM IP address...")
         self.vm_ip = self.manager.get_vm_ip(self.vm_id)
@@ -466,7 +470,7 @@ class RemoteDevEnvironment:
             print(f"     ✓ VM IP: {self.vm_ip}")
         else:
             print("     ⚠️  Could not get VM IP")
-        
+
         # 7. Save state to shared bucket
         print("  7. Saving state to shared bucket...")
         env_state = {
@@ -484,19 +488,19 @@ class RemoteDevEnvironment:
             print("     ✓ State saved to bucket")
         else:
             print("     ⚠️  Could not save state (continuing...)")
-        
+
         print(f"\n✓ Remote dev environment is ready!")
         print(f"  VM Name: {self.vm_name}")
         print(f"  VM IP: {self.vm_ip}")
         print(f"  SSH Key ID: {self.ssh_key_id}")
         print(f"  Firewall ID: {self.firewall_id}")
-        
+
         return True
-    
+
     def cleanup(self):
         """Clean up the remote development environment"""
         print(f"\n=== Cleaning up Remote Dev Environment: {self.name} ===")
-        
+
         # 1. Delete VM
         if self.vm_id:
             print("  1. Deleting VM...")
@@ -504,7 +508,7 @@ class RemoteDevEnvironment:
                 print(f"     ✓ VM deleted")
             else:
                 print(f"     ⚠️  VM deletion failed or already deleted")
-        
+
         # 2. Delete firewall
         if self.firewall_id:
             print("  2. Deleting firewall...")
@@ -512,7 +516,7 @@ class RemoteDevEnvironment:
                 print(f"     ✓ Firewall deleted")
             else:
                 print(f"     ⚠️  Firewall deletion failed or already deleted")
-        
+
         # 3. Delete SSH key
         if self.ssh_key_id:
             print("  3. Deleting SSH key...")
@@ -520,17 +524,17 @@ class RemoteDevEnvironment:
                 print(f"     ✓ SSH key deleted")
             else:
                 print(f"     ⚠️  SSH key deletion failed or already deleted")
-        
+
         # 4. Remove state from shared bucket
         print("  4. Removing state from shared bucket...")
         state = self.manager._load_state()
         environments = [env for env in state.get('environments', []) if env.get('name') != self.name]
         state['environments'] = environments
         state['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        
+
         with open('/tmp/state.yml', 'w') as f:
             yaml.dump(state, f, default_flow_style=False, sort_keys=False)
-        
+
         if self.manager.storage_manager:
             # Ensure state bucket exists before uploading
             if self.manager._ensure_state_bucket():
@@ -545,15 +549,15 @@ class RemoteDevEnvironment:
                     f"{self.manager.state_prefix}/environments/{self.name}.yml"
                 )
         print("     ✓ State removed from bucket")
-        
+
         # 5. Clean up local SSH keys
         print("  5. Cleaning up local SSH keys...")
         import subprocess
         subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}'], capture_output=True)
         subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}.pub'], capture_output=True)
-        
+
         print(f"\n✓ Cleanup complete!")
-    
+
     def get_connection_info(self) -> Dict:
         """Get information needed to connect to the VM"""
         return {
@@ -563,22 +567,22 @@ class RemoteDevEnvironment:
             'vm_name': self.vm_name,
             'region': self.region
         }
-    
+
     def list_environments(self) -> list:
         """List all development environments"""
         return self.manager.list_dev_environments("dev-")
-    
+
     def install_agent(self, agent_type: str = "opencode") -> bool:
         """Install a coding agent on the remote VM"""
         if not self.vm_ip or not self.ssh_key_name:
             print("Error: VM not ready for agent installation")
             return False
-        
+
         print(f"\n=== Installing {agent_type} agent on remote VM ===")
-        
+
         # SSH key path
         ssh_key_path = f'/tmp/{self.ssh_key_name}'
-        
+
         # Agent installation script
         install_script = f"""
 #!/bin/bash
@@ -594,7 +598,7 @@ apt-get install -y curl git python3 python3-pip
 if [ "{agent_type}" = "opencode" ]; then
     echo "Installing OpenCode CLI..."
     curl -fsSL https://opencode.ai/install.sh | sh
-    
+
     # Also install opencode server for remote attachment
     pip3 install opencode-server 2>/dev/null || pip install opencode-server
 fi
@@ -616,39 +620,39 @@ systemctl restart sshd
 
 echo "Agent installation complete!"
 """
-        
+
         try:
             # Write script to temp file
             with open('/tmp/install_agent.sh', 'w') as f:
                 f.write(install_script)
-            
+
             # Copy script to VM
             import subprocess
             subprocess.run([
                 'ssh', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
                 f'root@{self.vm_ip}', 'mkdir -p /tmp'
             ], check=True, capture_output=True)
-            
+
             subprocess.run([
                 'scp', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
                 '/tmp/install_agent.sh', f'root@{self.vm_ip}:/tmp/'
             ], check=True, capture_output=True)
-            
+
             # Execute installation
             subprocess.run([
                 'ssh', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
                 f'root@{self.vm_ip}', 'bash /tmp/install_agent.sh'
             ], check=True, capture_output=True)
-            
+
             print(f"✓ {agent_type} agent installed successfully")
-            
+
             # Update state with agent info
             state = self.manager._load_state()
             state['environments'] = [
                 env for env in state.get('environments', [])
                 if env.get('name') != self.name
             ]
-            
+
             # Add environment with agent info
             env_state = {
                 'name': self.name,
@@ -665,63 +669,63 @@ echo "Agent installation complete!"
             }
             state['environments'].append(env_state)
             state['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            
+
             with open('/tmp/state.yml', 'w') as f:
                 yaml.dump(state, f, default_flow_style=False, sort_keys=False)
-            
+
             if self.manager.storage_manager:
                 self.manager.storage_manager.upload_file(
                     self.manager.state_bucket,
                     '/tmp/state.yml',
                     f"{self.manager.state_prefix}/state.yml"
                 )
-            
+
             return True
-            
+
         except subprocess.CalledProcessError as e:
             print(f"Error installing agent: {e}")
             return False
-    
+
     def attach_to_agent(self, agent_type: str = "opencode") -> bool:
         """Attach to the remote agent using opencode server"""
         if not self.vm_ip or not self.ssh_key_name:
             print("Error: VM not ready for attachment")
             return False
-        
+
         print(f"\n=== Attaching to {agent_type} agent ===")
-        
+
         # SSH key path
         ssh_key_path = f'/tmp/{self.ssh_key_name}'
-        
+
         try:
             # Check if opencode server is running on VM
             import subprocess
-            
+
             # Get agent status
             result = subprocess.run([
                 'ssh', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
                 f'root@{self.vm_ip}', 'opencode status 2>/dev/null || echo "not installed"'
             ], capture_output=True, text=True)
-            
+
             if result.returncode != 0 or "not installed" in result.stdout:
                 print("Agent not installed or not running. Please install first.")
                 return False
-            
+
             # Display agent status
             print("\nAgent Status:")
             print(result.stdout)
-            
+
             # Provide connection instructions
             print(f"\nTo attach to the agent:")
             print(f"  opencode connect --ssh {self.vm_ip}")
             print(f"  (using SSH key: {ssh_key_path})")
-            
+
             return True
-            
+
         except subprocess.CalledProcessError as e:
             print(f"Error attaching to agent: {e}")
             return False
-    
+
     def get_agent_connection_info(self) -> Dict[str, Any]:
         """Get information needed to connect to the remote agent"""
         return {
@@ -735,12 +739,12 @@ echo "Agent installation complete!"
 if __name__ == '__main__':
     # Example usage
     import sys
-    
+
     token = os.getenv('HETZNER_CLOUD_API_TOKEN')
     if not token:
         print("Error: HETZNER_CLOUD_API_TOKEN not set")
         sys.exit(1)
-    
+
     # Example configuration
     config = {
         'vm': {
@@ -753,20 +757,20 @@ if __name__ == '__main__':
             'allowed_ips': ['0.0.0.0/0']  # For testing - use specific IPs in production
         }
     }
-    
+
     env = RemoteDevEnvironment(config=config)
-    
+
     try:
         if env.setup():
             print("\n" + "=" * 50)
             print("Environment is ready!")
             print("=" * 50)
-            
+
             # Get connection info
             conn_info = env.get_connection_info()
             print(f"\nTo connect to your VM:")
             print(f"  ssh -i {conn_info['ssh_key_path']} {conn_info['username']}@{conn_info['vm_ip']}")
-            
+
             input("\nPress Enter to cleanup and exit...")
             env.cleanup()
     except KeyboardInterrupt:
@@ -780,23 +784,23 @@ if __name__ == '__main__':
 
 class ProjectConfig:
     """Manages project-based configuration in .rig folder"""
-    
+
     RIG_DIR = ".rig"
     RIG_YAML = "rig.yml"
     SETUP_YAML = "setup.yml"
     VARS_YAML = "vars.yml"
     REQUIREMENTS_TXT = "requirements.txt"
     ROLES_DIR = "roles"
-    
-    def __init__(self, project_dir: str = None):
+
+    def __init__(self, project_dir: Optional[str] = None):
         self.project_dir = project_dir or os.getcwd()
         self.rig_dir = os.path.join(self.project_dir, self.RIG_DIR)
-        self.config = {}
-        self.setup_config = {}
-        self.vars_config = {}
-        self.requirements = []
-        self.vault_password = None
-    
+        self.config: Dict[str, Any] = {}
+        self.setup_config: Dict[str, Any] = {}
+        self.vars_config: Dict[str, Any] = {}
+        self.requirements: List[str] = []
+        self.vault_password: Optional[str] = None
+
     def _ensure_rig_dir(self) -> bool:
         """Ensure .rig directory exists, create if not"""
         if not os.path.exists(self.rig_dir):
@@ -804,7 +808,7 @@ class ProjectConfig:
             print(f"Created .rig directory at {self.rig_dir}")
             return True
         return True
-    
+
     def load(self) -> bool:
         """Load all project configuration files"""
         try:
@@ -813,56 +817,56 @@ class ProjectConfig:
             if os.path.exists(rig_path):
                 with open(rig_path, 'r') as f:
                     self.config = yaml.safe_load(f) or {}
-            
+
             # Load setup.yml
             setup_path = os.path.join(self.rig_dir, self.SETUP_YAML)
             if os.path.exists(setup_path):
                 with open(setup_path, 'r') as f:
                     self.setup_config = yaml.safe_load(f) or {}
-            
+
             # Load vars.yml
             vars_path = os.path.join(self.rig_dir, self.VARS_YAML)
             if os.path.exists(vars_path):
                 with open(vars_path, 'r') as f:
                     # Try to load with vault support
                     self.vars_config = self._load_vars_with_vault(vars_path)
-            
+
             # Load requirements.txt
             requirements_path = os.path.join(self.rig_dir, self.REQUIREMENTS_TXT)
             if os.path.exists(requirements_path):
                 with open(requirements_path, 'r') as f:
-                    self.requirements = [line.strip() for line in f 
-                                       if line.strip() and not line.startswith('#')]
-            
+                    self.requirements = [line.strip() for line in f
+                                         if line.strip() and not line.startswith('#')]
+
             # Load vault password if .rig/.vault_password exists
             vault_password_path = os.path.join(self.rig_dir, '.vault_password')
             if os.path.exists(vault_password_path):
                 with open(vault_password_path, 'r') as f:
                     self.vault_password = f.read().strip()
-            
+
             return True
         except Exception as e:
             print(f"Warning: Could not load project config: {e}")
             return False
-    
+
     def _load_vars_with_vault(self, vars_path: str) -> Dict:
         """Load vars.yml with optional Ansible Vault encryption support"""
         try:
             with open(vars_path, 'r') as f:
                 content = f.read()
-            
+
             # Check if content is vault encrypted
             if content.startswith('$ANSIBLE_VAULT'):
                 if not self.vault_password:
                     raise ValueError("Vault encrypted file requires vault password. " +
-                                   "Create .rig/.vault_password with your password.")
-                
+                                     "Create .rig/.vault_password with your password.")
+
                 # Use ansible-vault to decrypt
                 import tempfile
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as tmp:
                     tmp.write(content)
                     tmp_path = tmp.name
-                
+
                 try:
                     result = subprocess.run(
                         ['ansible-vault', 'view', '--vault-password', self.vault_password, tmp_path],
@@ -882,43 +886,43 @@ class ProjectConfig:
         except Exception as e:
             print(f"Warning: Could not load vars with vault: {e}")
             return {}
-    
+
     def save(self) -> bool:
         """Save all project configuration files"""
         try:
             self._ensure_rig_dir()
-            
+
             # Save rig.yml
             rig_path = os.path.join(self.rig_dir, self.RIG_YAML)
             with open(rig_path, 'w') as f:
                 yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
-            
+
             # Save setup.yml
             setup_path = os.path.join(self.rig_dir, self.SETUP_YAML)
             with open(setup_path, 'w') as f:
                 yaml.dump(self.setup_config, f, default_flow_style=False, sort_keys=False)
-            
+
             # Save vars.yml (without encryption - user must encrypt manually if needed)
             vars_path = os.path.join(self.rig_dir, self.VARS_YAML)
             with open(vars_path, 'w') as f:
                 yaml.dump(self.vars_config, f, default_flow_style=False, sort_keys=False)
-            
+
             # Save requirements.txt
             requirements_path = os.path.join(self.rig_dir, self.REQUIREMENTS_TXT)
             with open(requirements_path, 'w') as f:
                 for req in self.requirements:
                     f.write(f"{req}\n")
-            
+
             return True
         except Exception as e:
             print(f"Warning: Could not save project config: {e}")
             return False
-    
-    def init(self, name: str = None, ansible_enabled: bool = True) -> bool:
+
+    def init(self, name: Optional[str] = None, ansible_enabled: bool = True) -> bool:
         """Initialize project configuration with defaults"""
         try:
             self._ensure_rig_dir()
-            
+
             # Default rig.yml
             self.config = {
                 'name': name or os.path.basename(self.project_dir),
@@ -926,7 +930,7 @@ class ProjectConfig:
                 'ansible_enabled': ansible_enabled,
                 'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
-            
+
             # Default setup.yml
             self.setup_config = {
                 'bootstrap': {
@@ -936,14 +940,14 @@ class ProjectConfig:
                 },
                 'dependencies': self.requirements
             }
-            
+
             # Default vars.yml
             self.vars_config = {
                 'ansible_user': 'root',
                 'ansible_connection': 'ssh',
                 'ansible_python_interpreter': '/usr/bin/python3'
             }
-            
+
             # Default requirements.txt
             self.requirements = [
                 'community.general',
@@ -951,12 +955,12 @@ class ProjectConfig:
                 'geerlingguy.docker',
                 'geerlingguy.python'
             ]
-            
+
             return self.save()
         except Exception as e:
             print(f"Error initializing project: {e}")
             return False
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value with dot notation support"""
         keys = key.split('.')
@@ -967,7 +971,7 @@ class ProjectConfig:
             else:
                 return default
         return value
-    
+
     def set(self, key: str, value: Any) -> bool:
         """Set configuration value with dot notation support"""
         keys = key.split('.')
@@ -978,8 +982,8 @@ class ProjectConfig:
             config = config[k]
         config[keys[-1]] = value
         return self.save()
-    
-    def get_vars(self, key: str = None, default: Any = None) -> Any:
+
+    def get_vars(self, key: Optional[str] = None, default: Any = None) -> Any:
         """Get variables value"""
         if key:
             keys = key.split('.')
@@ -991,7 +995,7 @@ class ProjectConfig:
                     return default
             return value
         return self.vars_config
-    
+
     def set_vars(self, key: str, value: Any) -> bool:
         """Set variables value"""
         keys = key.split('.')
@@ -1002,26 +1006,26 @@ class ProjectConfig:
             vars_config = vars_config[k]
         vars_config[keys[-1]] = value
         return self.save()
-    
-    def encrypt_vars(self, vars_path: str = None) -> bool:
+
+    def encrypt_vars(self, vars_path: Optional[str] = None) -> bool:
         """Encrypt vars.yml file with Ansible Vault"""
         try:
             vars_path = vars_path or os.path.join(self.rig_dir, self.VARS_YAML)
-            
+
             if not os.path.exists(vars_path):
                 print(f"Error: vars file not found: {vars_path}")
                 return False
-            
+
             if not self.vault_password:
                 print("Error: Vault password not set")
                 return False
-            
+
             # Encrypt the file
             result = subprocess.run([
                 'ansible-vault', 'encrypt', vars_path,
                 '--vault-password', self.vault_password
             ], capture_output=True, text=True, timeout=30)
-            
+
             if result.returncode == 0:
                 print(f"✓ vars.yml encrypted successfully")
                 return True
@@ -1039,46 +1043,49 @@ class ProjectConfig:
 
 class AnsibleManager:
     """Manages Ansible playbook execution for project bootstrap"""
-    
-    def __init__(self, project_config: ProjectConfig = None):
-        self.project_config = project_config
-        self.playbook_path = None
-        self.inventory_path = None
-        self.vault_password = None
-        self.extra_vars = {}
+
+    def __init__(self, project_config: Optional["ProjectConfig"] = None):
+        self.project_config: Optional["ProjectConfig"] = project_config
+        self.playbook_path: Optional[str] = None
+        self.inventory_path: Optional[str] = None
+        self.vault_password: Optional[str] = None
+        self.extra_vars: Dict[str, Any] = {}
         self.ansible_env = os.environ.copy()
-    
+
     def set_project_config(self, config: ProjectConfig):
         """Set project configuration"""
         self.project_config = config
-    
-    def configure(self, project_dir: str = None) -> bool:
+
+    def configure(self, project_dir: Optional[str] = None) -> bool:
         """Configure Ansible manager with project settings"""
         try:
             if not self.project_config:
                 self.project_config = ProjectConfig(project_dir)
-            
+
             if not self.project_config.load():
                 print("Warning: Could not load project config, using defaults")
                 self.project_config.init()
-            
+
             # Set paths from config
             rig_dir = self.project_config.rig_dir
             self.playbook_path = os.path.join(rig_dir, 'playbook.yml')
             self.inventory_path = os.path.join(rig_dir, 'inventory.yml')
             self.vault_password = self.project_config.vault_password
-            
+
             return True
         except Exception as e:
             print(f"Error configuring Ansible manager: {e}")
             return False
-    
+
     def setup_inventory(self, vm_ip: str, ssh_key_path: str, username: str = 'root') -> bool:
         """Create Ansible inventory for the VM"""
         try:
+            if self.project_config is None:
+                print("Error: project_config is not set")
+                return False
             rig_dir = self.project_config.rig_dir
             self.inventory_path = os.path.join(rig_dir, 'inventory.yml')
-            
+
             inventory = {
                 'all': {
                     'hosts': {
@@ -1092,29 +1099,32 @@ class AnsibleManager:
                     }
                 }
             }
-            
+
             # Merge with any existing vars
             if self.project_config.vars_config:
                 inventory['all']['vars'] = self.project_config.vars_config
-            
+
             with open(self.inventory_path, 'w') as f:
                 yaml.dump(inventory, f, default_flow_style=False, sort_keys=False)
-            
+
             print(f"✓ Inventory created at {self.inventory_path}")
             return True
         except Exception as e:
             print(f"Error creating inventory: {e}")
             return False
-    
+
     def setup_requirements(self) -> bool:
         """Create requirements.txt for Ansible roles"""
         try:
+            if self.project_config is None:
+                print("Error: project_config is not set")
+                return False
             requirements_path = os.path.join(self.project_config.rig_dir, 'requirements.txt')
-            
+
             # If requirements already exist, keep them
             if os.path.exists(requirements_path):
                 return True
-            
+
             # Create default requirements
             requirements = self.project_config.requirements if self.project_config.requirements else [
                 'community.general',
@@ -1122,26 +1132,29 @@ class AnsibleManager:
                 'geerlingguy.docker',
                 'geerlingguy.python'
             ]
-            
+
             with open(requirements_path, 'w') as f:
                 f.write('# Ansible Galaxy roles\n')
                 for req in requirements:
                     f.write(f"- {req}\n")
-            
+
             print(f"✓ Requirements created at {requirements_path}")
             return True
         except Exception as e:
             print(f"Error creating requirements: {e}")
             return False
-    
+
     def setup_roles(self) -> bool:
         """Set up roles directory with custom roles"""
         try:
+            if self.project_config is None:
+                print("Error: project_config is not set")
+                return False
             roles_dir = os.path.join(self.project_config.rig_dir, 'roles')
-            
+
             if not os.path.exists(roles_dir):
                 os.makedirs(roles_dir)
-            
+
             # Create role directory structure if empty
             if not os.listdir(roles_dir):
                 # Create a default role structure
@@ -1150,7 +1163,7 @@ class AnsibleManager:
                 os.makedirs(os.path.join(default_role, 'handlers'))
                 os.makedirs(os.path.join(default_role, 'templates'))
                 os.makedirs(os.path.join(default_role, 'files'))
-                
+
                 # Create tasks/main.yml
                 tasks_path = os.path.join(default_role, 'tasks', 'main.yml')
                 with open(tasks_path, 'w') as f:
@@ -1163,7 +1176,7 @@ class AnsibleManager:
       apt:
         update_cache: yes
         cache_valid_time: 3600
-    
+
     - name: Install development tools
       apt:
         name:
@@ -1173,18 +1186,21 @@ class AnsibleManager:
           - vim
         state: present
 """)
-            
+
             print(f"✓ Roles directory set up at {roles_dir}")
             return True
         except Exception as e:
             print(f"Error setting up roles: {e}")
             return False
-    
-    def setup_playbook(self, custom_tasks: list = None) -> bool:
+
+    def setup_playbook(self, custom_tasks: Optional[list] = None) -> bool:
         """Create bootstrap playbook"""
         try:
+            if self.project_config is None:
+                print("Error: project_config is not set")
+                return False
             self.playbook_path = os.path.join(self.project_config.rig_dir, 'playbook.yml')
-            
+
             playbook = [{
                 'name': 'Bootstrap Remote Development Environment',
                 'hosts': 'remote_vm',
@@ -1214,36 +1230,39 @@ class AnsibleManager:
                     }
                 ]
             }]
-            
+
             with open(self.playbook_path, 'w') as f:
                 yaml.dump(playbook, f, default_flow_style=False, sort_keys=False)
-            
+
             print(f"✓ Playbook created at {self.playbook_path}")
             return True
         except Exception as e:
             print(f"Error creating playbook: {e}")
             return False
-    
-    def install_roles(self, requirements_path: str = None) -> bool:
+
+    def install_roles(self, requirements_path: Optional[str] = None) -> bool:
         """Install Ansible Galaxy roles from requirements.txt"""
         try:
+            if self.project_config is None:
+                print("Error: project_config is not set")
+                return False
             requirements_path = requirements_path or os.path.join(
                 self.project_config.rig_dir, 'requirements.txt'
             )
-            
+
             if not os.path.exists(requirements_path):
                 print(f"Warning: Requirements file not found: {requirements_path}")
                 return False
-            
+
             # Set up roles path
             roles_path = os.path.join(self.project_config.rig_dir, 'roles')
             self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_path
-            
+
             # Install roles
             result = subprocess.run([
                 'ansible-galaxy', 'install', '-r', requirements_path, '-p', roles_path
             ], env=self.ansible_env, capture_output=True, text=True, timeout=120)
-            
+
             if result.returncode == 0:
                 print("✓ Ansible roles installed successfully")
                 return True
@@ -1253,42 +1272,45 @@ class AnsibleManager:
         except Exception as e:
             print(f"Error installing roles: {e}")
             return False
-    
-    def run_playbook(self, extra_vars: Dict = None, vault_password: str = None) -> bool:
+
+    def run_playbook(self, extra_vars: Optional[Dict[str, Any]] = None, vault_password: Optional[str] = None) -> bool:
         """Run the bootstrap playbook"""
         try:
             if not self.playbook_path or not self.inventory_path:
                 print("Error: Playbook or inventory not configured")
                 return False
-            
+
             # Set up command
             cmd = [
                 'ansible-playbook', self.playbook_path,
                 '-i', self.inventory_path
             ]
-            
+
             # Add extra variables
             if extra_vars:
                 self.extra_vars.update(extra_vars)
             if self.extra_vars:
                 vars_str = ' '.join([f"{k}={v}" for k, v in self.extra_vars.items()])
                 cmd.extend(['-e', vars_str])
-            
+
             # Add vault password if needed
             if vault_password:
                 cmd.extend(['--vault-password', vault_password])
             elif self.vault_password:
                 cmd.extend(['--vault-password', self.vault_password])
-            
+
             # Set roles path
+            if self.project_config is None:
+                print("Error: project_config is not set")
+                return False
             roles_path = os.path.join(self.project_config.rig_dir, 'roles')
             self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_path
-            
+
             print(f"Running playbook: {self.playbook_path}")
             print(f"Inventory: {self.inventory_path}")
-            
+
             result = subprocess.run(cmd, env=self.ansible_env, capture_output=True, text=True, timeout=300)
-            
+
             if result.returncode == 0:
                 print("✓ Playbook executed successfully")
                 return True
@@ -1299,23 +1321,24 @@ class AnsibleManager:
         except Exception as e:
             print(f"Error running playbook: {e}")
             return False
-    
+
     def setup_bootstrap(self, vm_ip: str, ssh_key_path: str) -> bool:
         """Setup complete bootstrap environment"""
         try:
             print("\n=== Setting up Ansible Bootstrap ===")
-            
+
             # Setup all components
             self.setup_inventory(vm_ip, ssh_key_path)
             self.setup_requirements()
             self.setup_roles()
             self.setup_playbook()
-            
+
             # Install roles if requirements exist
-            requirements_path = os.path.join(self.project_config.rig_dir, 'requirements.txt')
-            if os.path.exists(requirements_path):
-                self.install_roles(requirements_path)
-            
+            if self.project_config is not None:
+                requirements_path = os.path.join(self.project_config.rig_dir, 'requirements.txt')
+                if os.path.exists(requirements_path):
+                    self.install_roles(requirements_path)
+
             return True
         except Exception as e:
             print(f"Error setting up bootstrap: {e}")

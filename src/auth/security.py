@@ -16,11 +16,11 @@ SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-here')
 
 class AuthManager:
     """Manages authentication and authorization for the control plane"""
-    
+
     def __init__(self):
         self.active_tokens = {}
         self.users = {}
-        
+
     def generate_token(self, user_id: str, role: str = 'user') -> str:
         """Generate a JWT token for a user"""
         payload = {
@@ -35,7 +35,7 @@ class AuthManager:
             'expires_at': datetime.utcnow() + timedelta(hours=24)
         }
         return token
-    
+
     def verify_token(self, token: str) -> Optional[Dict]:
         """Verify a JWT token and return user info if valid"""
         try:
@@ -45,14 +45,14 @@ class AuthManager:
             return None
         except jwt.InvalidTokenError:
             return None
-    
+
     def revoke_token(self, token: str) -> bool:
         """Revoke a JWT token"""
         if token in self.active_tokens:
             del self.active_tokens[token]
             return True
         return False
-    
+
     def is_valid_token(self, token: str) -> bool:
         """Check if a token is still valid"""
         if token in self.active_tokens:
@@ -70,15 +70,15 @@ def require_auth(f):
         token = request.headers.get('Authorization')
         if not token:
             return jsonify({'error': 'Missing authorization token'}), 401
-        
+
         # Remove 'Bearer ' prefix if present
         if token.startswith('Bearer '):
             token = token[7:]
-            
+
         user_info = auth_manager.verify_token(token)
         if not user_info:
             return jsonify({'error': 'Invalid or expired token'}), 401
-            
+
         # Add user info to kwargs for use in the decorated function
         kwargs['user_info'] = user_info
         return f(*args, **kwargs)
