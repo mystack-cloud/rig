@@ -1,6 +1,8 @@
-# Remote Development Environment CLI (Storage-Focused)
+[![Tests](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml/badge.svg)](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml)
 
-A CLI tool for managing remote development environments focused on Hetzner S3-compatible object storage.
+# rig
+
+Remote development environments for agents and humans made easy.
 
 ## Features
 
