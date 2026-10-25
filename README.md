@@ -83,19 +83,34 @@ This solution uses Hetzner Cloud Token for authentication. The token is used to 
 
 ## End-to-End Testing
 
-To run end-to-end tests with your Hetzner Cloud token:
+The project uses pytest for comprehensive test coverage.
 
-1. Create a `.env` file with your token:
-   ```bash
-   HETZNER_CLOUD_API_TOKEN="your-hetzner-cloud-token"
-   ```
+### Running Tests
 
-2. Run the test:
-   ```bash
-   ./test_e2e_storage.sh
-   ```
+```bash
+# Run all tests
+python -m pytest tests/
 
-See `TEST_E2E_GUIDE.md` for detailed testing instructions.
+# Run tests excluding credential-dependent tests
+python -m pytest tests/ -m "not requires_credentials"
+
+# Run tests with verbose output
+python -m pytest tests/ -v
+
+# Run tests with coverage
+python -m pytest tests/ --cov=src --cov-report=html
+```
+
+### Test Categories
+
+- **Basic Storage Tests** (`test_storage_basic.py`) - Core storage operations
+- **Credential Security Tests** (`test_credential_security.py`) - Security feature validation
+- **Simulation Tests** (`test_simulation_storage.py`) - Workflow simulations
+- **Real E2E Tests** (`test_real_e2e_storage.py`) - Real API integration (requires credentials)
+- **Integration Tests** (`test_real_e2e_integration.py`) - Complete integration scenarios
+- **Hetzner Tests** (`test_hetzner_storage.py`) - Hetzner-specific functionality
+
+See the [pytest documentation](https://docs.pytest.org/) for more test options.
 
 ## Development
 
@@ -106,12 +121,12 @@ pip install -r requirements.txt
 
 Run tests:
 ```bash
-make test
+python -m pytest tests/
 ```
 
 Run E2E tests:
 ```bash
-make test-e2e
+python -m pytest tests/ -m "not requires_credentials"
 ```
 
 Lint code:
