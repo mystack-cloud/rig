@@ -102,7 +102,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          pytest tests/test_integration.py -v
+          pytest tests/test_remote_dev.py -v -k "not e2e"
 
   e2e-tests:
     name: E2E Tests
@@ -125,4 +125,4 @@ jobs:
 
       - name: Run E2E tests
         run: |
-          pytest tests/test_rig_init.py -v
+          pytest tests/test_real_e2e_integration.py -v
