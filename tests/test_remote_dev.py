@@ -319,11 +319,11 @@ class TestApplySetup(unittest.TestCase):
         sys_module.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         
         # Import the module to verify it loads
-        from cli import remote_dev_cli
+        from cli import remote_dev
         
-        # Verify the main function exists
-        self.assertTrue(hasattr(remote_dev_cli, 'main'))
-        self.assertTrue(callable(remote_dev_cli.main))
+        # Verify the RemoteDevEnvironment class exists (main functionality)
+        self.assertTrue(hasattr(remote_dev, 'RemoteDevEnvironment'))
+        self.assertTrue(callable(remote_dev.RemoteDevEnvironment))
 
 
 class TestStateBucketNaming(unittest.TestCase):
