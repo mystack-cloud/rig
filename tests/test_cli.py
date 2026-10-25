@@ -8,10 +8,10 @@ import sys
 import os
 
 # Add the src directory to the path so we can import our modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.cli.environment import EnvironmentManager
-from src.cli.session import SessionManager
+from cli.environment import EnvironmentManager
+from cli.session import SessionManager
 
 class TestCLIEnvironmentManager(unittest.TestCase):
     """Test cases for the CLI environment manager"""
@@ -53,10 +53,10 @@ class TestCLIEnvironmentManager(unittest.TestCase):
         self.assertIsInstance(result, list)
         
     @patch('requests.delete')
-    def test_delete_environment_success(self, mock_delete):
-        """Test successful environment deletion"""
+    def test_destroy_environment_success(self, mock_delete):
+        """Test successful environment destruction"""
         mock_delete.return_value.status_code = 200
-        result = self.env_manager.delete_environment('test-env')
+        result = self.env_manager.destroy_environment('test-env')
         self.assertTrue(result)
 
 class TestCLISessionManager(unittest.TestCase):

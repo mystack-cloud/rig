@@ -13,31 +13,114 @@ class StorageManager:
     
     def __init__(self, hetzner_token: str = None, endpoint_url: str = None):
         self.hetzner_token = hetzner_token or os.getenv('HZ_TOKEN') or os.getenv('HETZNER_CLOUD_API_TOKEN')
-        self.endpoint_url = endpoint_url or os.getenv('S3_ENDPOINT_URL') or "https://fsn1.yourdomain.com"
+        self.endpoint_url = endpoint_url or os.getenv('S3_ENDPOINT_URL') or "https://fsn1.your-objectstorage.com"
+        
+        # Read S3 credentials from environment variables
+        # Hetzner uses HETZNER_S3_ACCESS_KEY and HETZNER_S3_SECRET_KEY
+        # Also supports HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY and HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY
+        self.s3_access_key = os.getenv('HETZNER_S3_ACCESS_KEY') or os.getenv('HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY')
+        self.s3_secret_key = os.getenv('HETZNER_S3_SECRET_KEY') or os.getenv('HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY')
         
         if not self.hetzner_token:
             raise ValueError("Hetzner Cloud token missing. Please set HZ_TOKEN or HETZNER_CLOUD_API_TOKEN environment variable")
+        
+        if not self.s3_access_key or not self.s3_secret_key:
+            raise ValueError("S3 credentials missing. Please set HETZNER_S3_ACCESS_KEY and HETZNER_S3_SECRET_KEY environment variables")
     
     def _get_s3_client(self):
         """Get S3 client configured for Hetzner Object Storage"""
-        # For Hetzner, we need to use their specific endpoint
-        # In a real implementation, Hetzner would provide proper credential handling
+        # Use the pre-generated S3 credentials from environment variables
+        # Hetzner S3 uses HETZNER_S3_ACCESS_KEY and HETZNER_S3_SECRET_KEY
+        
         s3_client = boto3.client(
             's3',
             endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.hetzner_token,
-            aws_secret_access_key=self.hetzner_token
+            aws_access_key_id=self.s3_access_key,
+            aws_secret_access_key=self.s3_secret_key
         )
         return s3_client
     
-    def create_bucket(self, bucket_name: str) -> bool:
+    def create_bucket(self, bucket_name: str, location: str = None) -> bool:
         """Create a new bucket using Hetzner Object Storage"""
         try:
-            s3_client = self._get_s3_client()
-            s3_client.create_bucket(Bucket=bucket_name)
-            print(f"Bucket '{bucket_name}' created successfully")
-            return True
+            import requests
+            import time
+            import hashlib
+            import hmac
+            
+            # For Hetzner S3, we need to use a direct HTTP PUT request
+            # to avoid boto3's automatic location constraint
+            # The endpoint URL determines the region
+            
+            # Hetzner S3 requires the bucket to be created in the same region as the endpoint
+            # Extract region from endpoint (fsn1, hel1, nbg1)
+            endpoint_region = None
+            if 'hel1' in self.endpoint_url:
+                endpoint_region = 'hel1'
+            elif 'fsn1' in self.endpoint_url:
+                endpoint_region = 'fsn1'
+            elif 'nbg1' in self.endpoint_url:
+                endpoint_region = 'nbg1'
+            
+            # Use requests for direct control over the request
+            url = f"{self.endpoint_url}/{bucket_name}"
+            
+            # Generate signature for AWS S3 v4
+            # For bucket creation, we need to sign an empty PUT request
+            request_timestamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+            canonical_uri = f"/{bucket_name}"
+            canonical_headers = f"host:{self.endpoint_url.replace('https://', '')}\n"
+            signed_headers = "host"
+            payload_hash = hashlib.sha256(b'').hexdigest()
+            
+            canonical_request = f"PUT\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+            
+            # Simple approach: use boto3 but with region that matches endpoint
+            # The issue is that boto3's default region (us-east-1) doesn't match Hetzner's region
+            # We need to override the region in the client
+            region = endpoint_region
+            s3_client = boto3.client(
+                's3',
+                endpoint_url=self.endpoint_url,
+                region_name=region,
+                aws_access_key_id=self.s3_access_key,
+                aws_secret_access_key=self.s3_secret_key
+            )
+            
+            # Try creating without explicit LocationConstraint first
+            # If this fails with LocationConstraintConflict, the issue is that
+            # boto3's session has a default region that doesn't match the endpoint
+            try:
+                s3_client.create_bucket(Bucket=bucket_name)
+                print(f"Bucket '{bucket_name}' created successfully")
+                return True
+            except ClientError as create_error:
+                # If the error is about location constraint, try again with explicit region
+                error_msg = str(create_error)
+                if 'LocationConstraintConflict' in error_msg:
+                    # The endpoint region is correct, but boto3 is using a different region
+                    # We need to explicitly specify the region in the request
+                    s3_client = boto3.client(
+                        's3',
+                        endpoint_url=self.endpoint_url,
+                        region_name=region,
+                        aws_access_key_id=self.s3_access_key,
+                        aws_secret_access_key=self.s3_secret_key,
+                        config=boto3.session.Config(signature_version='s3v4')
+                    )
+                    s3_client.create_bucket(Bucket=bucket_name)
+                    print(f"Bucket '{bucket_name}' created successfully (with region {region})")
+                    return True
+                raise
+            
         except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            
+            # If bucket already exists, that's fine
+            if error_code == 'BucketAlreadyOwnedByYou' or error_code == 'BucketAlreadyExists':
+                print(f"Bucket '{bucket_name}' already exists")
+                return True
+            
             print(f"Error creating bucket: {e}")
             return False
     

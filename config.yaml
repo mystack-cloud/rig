@@ -5,4 +5,4 @@ default_provider: ansible
 
 # Hetzner Storage Configuration
 hz_token: ""  # Hetzner Cloud API token
-s3_endpoint_url: "https://fsn1.yourdomain.com"  # Default Hetzner endpoint
+s3_endpoint_url: "https://fsn1.your-objectstorage.com"  # Default Hetzner endpoint

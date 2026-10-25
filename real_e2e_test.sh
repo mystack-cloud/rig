@@ -24,7 +24,7 @@ echo "Using Hetzner Cloud API token (masked for security): ${HETZNER_CLOUD_API_T
 
 # Set the environment variable for the CLI
 export HZ_TOKEN=$HETZNER_CLOUD_API_TOKEN
-export S3_ENDPOINT_URL="https://fsn1.yourdomain.com"
+export S3_ENDPOINT_URL="https://fsn1.your-objectstorage.com"
 
 # Create a unique test bucket name to avoid conflicts
 TIMESTAMP=$(date +%s)

@@ -106,7 +106,12 @@ pip install -r requirements.txt
 
 Run tests:
 ```bash
-python -m pytest tests/
+make test
+```
+
+Run E2E tests:
+```bash
+make test-e2e
 ```
 
 Lint code:

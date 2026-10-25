@@ -1,4 +1,4 @@
-.PHONY: install test run lint clean
+.PHONY: install test test-e2e test-remote-dev test-remote-dev-e2e run lint clean
 
 # Install dependencies
 install:
@@ -6,15 +6,27 @@ install:
 
 # Run the application
 run:
-	python src/control-plane/api.py
+	python3 src/cli/controller.py
 
 # Run the CLI
 run-cli:
-	python src/cli/main.py
+	python3 src/cli/main.py
 
 # Run tests
 test:
-	python -m pytest tests/
+	python3 -m pytest tests/
+
+# Run E2E tests with Hetzner integration
+test-e2e:
+	python3 test_hetzner_integration.py
+
+# Run remote dev unit tests
+test-remote-dev:
+	python3 -m pytest tests/test_remote_dev.py -v
+
+# Run remote dev E2E tests
+test-remote-dev-e2e:
+	python3 test_remote_dev_e2e.py
 
 # Run linting
 lint:
@@ -35,6 +47,9 @@ docker-run:
 
 # All-in-one development setup
 setup: install clean
+
+# Run all tests
+test-all: test test-e2e test-remote-dev test-remote-dev-e2e
 
 # Default target
 all: install test lint
