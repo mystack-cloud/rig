@@ -1,0 +1,66 @@
+---
+- name: Configure WireGuard VPN Gateway
+  hosts: remote_vm
+  become: yes
+  vars:
+    vpn_gateway_ip: "10.0.0.1/24"
+    vpn_gateway_port: 51820
+    wg_interface_name: "wg0"
+    
+  tasks:
+    - name: Install WireGuard tools
+      apt:
+        name:
+          - wireguard
+          - wireguard-tools
+        state: present
+        update_cache: yes
+
+    - name: Generate WireGuard private key
+      shell: wg genkey
+      register: wg_private_key
+      changed_when: false
+
+    - name: Generate WireGuard public key
+      shell: echo "{{ wg_private_key.stdout }}" | wg pubkey
+      register: wg_public_key
+      changed_when: false
+
+    - name: Create WireGuard configuration directory
+      file:
+        path: /etc/wireguard
+        state: directory
+        mode: '0700'
+
+    - name: Generate WireGuard configuration
+      copy:
+        dest: /etc/wireguard/{{ wg_interface_name }}.conf
+        content: |
+          [Interface]
+          Address = {{ vpn_gateway_ip }}
+          ListenPort = {{ vpn_gateway_port }}
+          PrivateKey = {{ wg_private_key.stdout }}
+          PostUp = iptables -A FORWARD -i {{ wg_interface_name }} -j ACCEPT; iptables -A FORWARD -o {{ wg_interface_name }} -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+          PostDown = iptables -D FORWARD -i {{ wg_interface_name }} -j ACCEPT; iptables -D FORWARD -o {{ wg_interface_name }} -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+        mode: '0600'
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        state: present
+        reload: yes
+
+    - name: Start and enable WireGuard service
+      systemd:
+        name: "wg-quick@{{ wg_interface_name }}"
+        state: started
+        enabled: yes
+
+    - name: Output VPN public key
+      debug:
+        msg: "VPN Gateway Public Key: {{ wg_public_key.stdout }}"
+
+    - name: Output VPN endpoint
+      debug:
+        msg: "VPN Gateway Endpoint: {{ ansible_default_ipv4.address }}:{{ vpn_gateway_port }}"

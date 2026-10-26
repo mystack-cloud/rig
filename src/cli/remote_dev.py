@@ -19,6 +19,13 @@ except ImportError:
     import yaml
     YAML_AVAILABLE = True
 
+# WireGuard VPN support (optional)
+try:
+    from .vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
+    VPN_AVAILABLE = True
+except ImportError:
+    VPN_AVAILABLE = False
+
 
 class RemoteDevManager:
     """Manages remote development environments on Hetzner Cloud"""
@@ -367,6 +374,11 @@ class RemoteDevEnvironment:
         self.firewall_name = f"{self.name}-fw"
         self.firewall_id = None
 
+        # VPN (optional)
+        self.vpn_manager = VPNManager() if VPN_AVAILABLE else None
+        self.vpn_interface = f"{self.name}-wg" if VPN_AVAILABLE else None
+        self.vpn_config = {} if VPN_AVAILABLE else None
+
         # VM
         self.vm_id = None
         self.vm_ip = None
@@ -551,7 +563,7 @@ class RemoteDevEnvironment:
         print("     ✓ State removed from bucket")
 
         # 5. Clean up local SSH keys
-        print("  5. Cleaning up local SSH keys...")
+        print("  4. Cleaning up local SSH keys...")
         import subprocess
         subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}'], capture_output=True)
         subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}.pub'], capture_output=True)
@@ -567,6 +579,92 @@ class RemoteDevEnvironment:
             'vm_name': self.vm_name,
             'region': self.region
         }
+
+    def setup_vpn(self, endpoint: str, peer_public_key: str, allowed_ips: Optional[List[str]] = None) -> bool:
+        """
+        Setup WireGuard VPN tunnel to remote gateway
+        
+        Args:
+            endpoint: VPN gateway endpoint (host:port)
+            peer_public_key: Remote gateway's public key
+            allowed_ips: IPs/ranges accessible through VPN (default: 0.0.0.0/0, ::0/0)
+        
+        Returns:
+            bool: True if VPN tunnel was established successfully
+        """
+        if not VPN_AVAILABLE:
+            print("Error: VPN support not available. Install wireguard-tools to enable.")
+            return False
+        
+        print(f"\n=== Setting up VPN tunnel to {endpoint} ===")
+        
+        # Generate local keys
+        keys = self.vpn_manager.generate_wireguard_keys()
+        self.vpn_config = {
+            'endpoint': endpoint,
+            'private_key': keys['private_key'],
+            'peer_public_key': peer_public_key,
+            'allowed_ips': allowed_ips or ['0.0.0.0/0', '::0/0'],
+            'interface_name': self.vpn_interface
+        }
+        
+        # Setup VPN tunnel
+        success = self.vpn_manager.setup_vpn_with_credentials(
+            name=self.vpn_interface,
+            endpoint=endpoint,
+            private_key=keys['private_key'],
+            peer_public_key=peer_public_key,
+            allowed_ips=allowed_ips
+        )
+        
+        if success:
+            print(f"✓ VPN tunnel '{self.vpn_interface}' established successfully")
+            # Save VPN config for cleanup
+            with open(f'/tmp/{self.vpn_interface}.json', 'w') as f:
+                import json
+                json.dump(self.vpn_config, f, indent=2)
+        else:
+            print(f"✗ Failed to setup VPN tunnel")
+        
+        return success
+
+    def teardown_vpn(self) -> bool:
+        """
+        Tear down WireGuard VPN tunnel
+        
+        Returns:
+            bool: True if VPN tunnel was torn down successfully
+        """
+        if not VPN_AVAILABLE or not self.vpn_interface:
+            print("Error: VPN support not available")
+            return False
+        
+        print(f"\n=== Tearing down VPN tunnel {self.vpn_interface} ===")
+        
+        success = self.vpn_manager.teardown_vpn_tunnel(self.vpn_interface)
+        
+        if success:
+            print(f"✓ VPN tunnel '{self.vpn_interface}' torn down successfully")
+            # Clean up config file
+            import os
+            config_path = f'/tmp/{self.vpn_interface}.json'
+            if os.path.exists(config_path):
+                os.remove(config_path)
+        else:
+            print(f"✗ Failed to teardown VPN tunnel")
+        
+        return success
+
+    def check_vpn_status(self) -> Dict[str, Any]:
+        """
+        Check status of WireGuard VPN tunnel
+        
+        Returns:
+            Dict containing VPN status information
+        """
+        if not VPN_AVAILABLE or not self.vpn_interface:
+            return {'error': 'VPN support not available'}
+        return self.vpn_manager.check_vpn_status(self.vpn_interface)
 
     def list_environments(self) -> list:
         """List all development environments"""

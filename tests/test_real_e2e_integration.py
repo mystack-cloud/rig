@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 def test_requires_credentials():
     """Check if credentials are available for E2E tests"""
-    return os.getenv('HETZNER_CLOUD_API_TOKEN') is not None
+    assert os.getenv('HETZNER_CLOUD_API_TOKEN') is not None, "Requires HETZNER_CLOUD_API_TOKEN environment variable"
 
 
 @pytest.mark.requires_credentials

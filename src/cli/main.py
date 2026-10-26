@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 
 from cli.storage import StorageManager
 from cli.config import Config
+from cli.vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
 
 def main():
     """Main CLI entry point"""
@@ -19,6 +20,26 @@ def main():
     parser.add_argument("--config", help="Configuration file path", default="config.yaml")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # VPN commands
+    vpn_parser = subparsers.add_parser("vpn", help="VPN tunnel operations (optional, for accessing upstream services)")
+    vpn_subparsers = vpn_parser.add_subparsers(dest="vpn_command", help="VPN operations")
+
+    # VPN generate-keys command
+    vpn_generate_parser = vpn_subparsers.add_parser("generate-keys", help="Generate WireGuard key pair")
+
+    # VPN setup command
+    vpn_setup_parser = vpn_subparsers.add_parser("setup", help="Setup WireGuard VPN tunnel to remote gateway")
+    vpn_setup_parser.add_argument("--endpoint", required=True, help="VPN gateway endpoint (host:port)")
+    vpn_setup_parser.add_argument("--interface", default="wg0", help="WireGuard interface name")
+
+    # VPN teardown command
+    vpn_teardown_parser = vpn_subparsers.add_parser("teardown", help="Tear down WireGuard VPN tunnel")
+    vpn_teardown_parser.add_argument("--interface", default="wg0", help="WireGuard interface name")
+
+    # VPN status command
+    vpn_status_parser = vpn_subparsers.add_parser("status", help="Check WireGuard VPN tunnel status")
+    vpn_status_parser.add_argument("--interface", default="wg0", help="WireGuard interface name")
 
     # Storage commands
     storage_parser = subparsers.add_parser("storage", help="Storage operations")
@@ -59,8 +80,57 @@ def main():
 
     args = parser.parse_args()
 
-    # Handle commands
-    if args.command == "storage":
+    # Handle VPN commands
+    if args.command == "vpn":
+        try:
+            vpn_manager = VPNManager()
+        except Exception as e:
+            print(f"Configuration error: {e}")
+            return
+
+        if args.vpn_command == "generate-keys":
+            keys = vpn_manager.generate_wireguard_keys()
+            print("Generated WireGuard key pair:")
+            print(f"Private key: {keys['private_key']}")
+            print(f"Public key: {keys['public_key']}")
+
+        elif args.vpn_command == "setup":
+            # Get private key from environment or prompt
+            private_key = os.getenv('WG_PRIVATE_KEY')
+            peer_public_key = os.getenv('WG_PEER_PUBLIC_KEY')
+            
+            if not private_key or not peer_public_key:
+                print("Error: WG_PRIVATE_KEY and WG_PEER_PUBLIC_KEY environment variables required")
+                print("Example: WG_PRIVATE_KEY=... WG_PEER_PUBLIC_KEY=... rig vpn setup --endpoint ...")
+                return
+            
+            success = vpn_manager.setup_vpn_with_credentials(
+                name=args.interface,
+                endpoint=args.endpoint,
+                private_key=private_key,
+                peer_public_key=peer_public_key
+            )
+            if not success:
+                return 1
+
+        elif args.vpn_command == "teardown":
+            success = vpn_manager.teardown_vpn_tunnel(args.interface)
+            if not success:
+                return 1
+
+        elif args.vpn_command == "status":
+            status = vpn_manager.check_vpn_status(args.interface)
+            print(f"VPN Tunnel Status: {args.interface}")
+            print(f"  Active: {status['up']}")
+            print(f"  Status: {status['status']}")
+            if status['error']:
+                print(f"  Error: {status['error']}")
+
+        else:
+            print("Unknown VPN command. Use --help to see available commands.")
+
+    # Handle storage commands
+    elif args.command == "storage":
         try:
             # Initialize storage manager with Hetzner token
             storage = StorageManager()
