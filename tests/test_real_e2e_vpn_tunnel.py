@@ -270,13 +270,15 @@ class TestRealE2EVPTunnel:
             inventory_file = f.name
 
         try:
-            # Run Ansible playbook
+            # Run Ansible playbook (from project root)
+            playbook_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.rig', 'playbooks', 'vpn-gateway.yml')
+            
             result = subprocess.run(
                 [
                     'ansible-playbook',
                     '-i', inventory_file,
                     '--private-key', os.path.expanduser('~/.ssh/id_rsa'),
-                    'playbooks/vpn-gateway.yml'
+                    playbook_path
                 ],
                 capture_output=True,
                 text=True,
