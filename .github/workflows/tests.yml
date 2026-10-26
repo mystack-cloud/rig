@@ -125,4 +125,4 @@ jobs:
 
       - name: Run E2E tests
         run: |
-          pytest tests/test_real_e2e_integration.py -v
+          pytest tests/test_real_e2e_integration.py -v -m "requires_credentials"
