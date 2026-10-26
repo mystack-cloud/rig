@@ -14,9 +14,23 @@ from cli.storage import StorageManager
 from cli.config import Config
 from cli.vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
 
+# Import package version
+try:
+    from importlib.metadata import version
+    __version__ = version("remote-dev-control-plane")
+except ImportError:
+    try:
+        from importlib_metadata import version
+        __version__ = version("remote-dev-control-plane")
+    except ImportError:
+        __version__ = "0.1.0"
+
 def main():
     """Main CLI entry point"""
-    parser = argparse.ArgumentParser(description="Remote Development Environment CLI (Storage-focused)")
+    parser = argparse.ArgumentParser(
+        description="Remote Development Environment CLI (Storage-focused)"
+    )
+    parser.add_argument("--version", action="version", version=f"rdcp {__version__}")
     parser.add_argument("--config", help="Configuration file path", default="config.yaml")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
