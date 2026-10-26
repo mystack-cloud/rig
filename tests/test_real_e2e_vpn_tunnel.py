@@ -26,6 +26,9 @@ import uuid
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+# Import vpn module for type hints
+import cli.vpn as vpn  # type: ignore
+
 
 def test_requires_credentials():
     """Check if credentials are available for E2E tests"""
@@ -77,8 +80,6 @@ class TestRealE2EVPTunnel:
         5. Tear down
         6. Clean up
         """
-        from cli.vpn import VPNManager, WireGuardConfig
-
         print(f"\n{'='*60}")
         print(f"Creating VPN gateway VM: {vpn_vm_name}")
         print(f"{'='*60}")
@@ -108,7 +109,7 @@ class TestRealE2EVPTunnel:
         print(f"Generating local WireGuard keys...")
         print(f"{'='*60}")
 
-        vpn_manager = VPNManager()
+        vpn_manager = vpn.VPNManager()
         local_keys = vpn_manager.generate_wireguard_keys()
         print(f"Local private key: {local_keys['private_key'][:20]}...")
         print(f"Local public key: {local_keys['public_key'][:20]}...")
@@ -119,7 +120,7 @@ class TestRealE2EVPTunnel:
         print(f"{'='*60}")
 
         vpn_endpoint = f"{vm_ip}:51820"
-        config = WireGuardConfig(
+        config = vpn.WireGuardConfig(
             interface_name=test_vpn_interface,
             private_key=local_keys['private_key'],
             public_key=gateway_public_key,
@@ -296,6 +297,6 @@ class TestRealE2EVPTunnel:
         """Get WireGuard public key from VM"""
         # In a real scenario, the Ansible playbook would output the public key
         # For now, we'll generate a key pair and use it (the VM would have the same key)
-        vpn_manager = VPNManager()
+        vpn_manager = vpn.VPNManager()
         keys = vpn_manager.generate_wireguard_keys()
         return keys['public_key']
