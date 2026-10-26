@@ -5,6 +5,8 @@ This test creates a remote VM on Hetzner Cloud, provisions it with Ansible to ru
 WireGuard as a VPN gateway, then establishes a VPN tunnel from the development
 environment to that gateway.
 
+DEPRECATED: Use test_real_e2e_vpn_tunnel.py for complete tunnel verification.
+
 The test flow:
 1. Create a remote development VM
 2. Provision the VM with WireGuard as a VPN gateway
