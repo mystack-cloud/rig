@@ -11,20 +11,22 @@ import requests
 
 # YAML support
 try:
-    import yaml
+    import yaml  # type: ignore
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
     print("Warning: PyYAML not installed, installing it...")
-    import yaml
+    import yaml  # type: ignore
     YAML_AVAILABLE = True
 
 # WireGuard VPN support (optional)
 try:
     from .vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
     VPN_AVAILABLE = True
+    VPNManagerType = VPNManager
 except ImportError:
     VPN_AVAILABLE = False
+    VPNManagerType = Any  # type: ignore
 
 
 class RemoteDevManager:
@@ -375,9 +377,9 @@ class RemoteDevEnvironment:
         self.firewall_id = None
 
         # VPN (optional)
-        self.vpn_manager = VPNManager() if VPN_AVAILABLE else None
-        self.vpn_interface = f"{self.name}-wg" if VPN_AVAILABLE else None
-        self.vpn_config = {} if VPN_AVAILABLE else None
+        self.vpn_manager: Optional[VPNManager] = VPNManager() if VPN_AVAILABLE else None
+        self.vpn_interface: Optional[str] = f"{self.name}-wg" if VPN_AVAILABLE else None
+        self.vpn_config: Dict[str, Any] = {} if VPN_AVAILABLE else {}  # type: ignore
 
         # VM
         self.vm_id = None
@@ -592,7 +594,7 @@ class RemoteDevEnvironment:
         Returns:
             bool: True if VPN tunnel was established successfully
         """
-        if not VPN_AVAILABLE:
+        if not VPN_AVAILABLE or self.vpn_manager is None:
             print("Error: VPN support not available. Install wireguard-tools to enable.")
             return False
         
@@ -609,6 +611,7 @@ class RemoteDevEnvironment:
         }
         
         # Setup VPN tunnel
+        assert self.vpn_interface is not None
         success = self.vpn_manager.setup_vpn_with_credentials(
             name=self.vpn_interface,
             endpoint=endpoint,
@@ -635,7 +638,7 @@ class RemoteDevEnvironment:
         Returns:
             bool: True if VPN tunnel was torn down successfully
         """
-        if not VPN_AVAILABLE or not self.vpn_interface:
+        if not VPN_AVAILABLE or self.vpn_manager is None or not self.vpn_interface:
             print("Error: VPN support not available")
             return False
         
@@ -662,7 +665,7 @@ class RemoteDevEnvironment:
         Returns:
             Dict containing VPN status information
         """
-        if not VPN_AVAILABLE or not self.vpn_interface:
+        if not VPN_AVAILABLE or self.vpn_manager is None or not self.vpn_interface:
             return {'error': 'VPN support not available'}
         return self.vpn_manager.check_vpn_status(self.vpn_interface)
 
