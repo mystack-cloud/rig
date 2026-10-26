@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="remote-dev-control-plane",
+    name="rig",
     version="0.1.0",
-    packages=find_packages(),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     install_requires=[
         "flask>=2.0.0",
         "requests>=2.25.0",
@@ -15,7 +16,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "rdcp=cli.main:main",
+            "rig=cli.main:main",
         ],
     },
     author="Your Name",
