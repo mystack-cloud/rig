@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 from cli.storage import StorageManager
 from cli.config import Config
 from cli.vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
+from cli.remote_dev import RemoteDevEnvironment
 
 # Import package version
 try:
@@ -91,6 +92,24 @@ def main():
     # Delete bucket command
     delete_bucket_parser = storage_subparsers.add_parser("delete-bucket", help="Delete a bucket")
     delete_bucket_parser.add_argument("--name", required=True, help="Bucket name")
+
+    # Environment commands
+    env_parser = subparsers.add_parser("env", help="Remote development environment operations")
+    env_subparsers = env_parser.add_subparsers(dest="env_command", help="Environment operations")
+
+    # env setup command
+    env_setup_parser = env_subparsers.add_parser("setup", help="Setup a new remote development environment")
+    env_setup_parser.add_argument("--name", help="Environment name")
+    env_setup_parser.add_argument("--type", default="cax11", help="VM type (default: cax11)")
+    env_setup_parser.add_argument("--region", default="hel1", help="VM region (default: hel1)")
+    env_setup_parser.add_argument("--image", default="ubuntu-24.04", help="VM image (default: ubuntu-24.04)")
+
+    # env list command
+    env_list_parser = env_subparsers.add_parser("list", help="List all environments")
+
+    # env destroy command
+    env_destroy_parser = env_subparsers.add_parser("destroy", help="Destroy an environment")
+    env_destroy_parser.add_argument("--name", required=True, help="Environment name")
 
     args = parser.parse_args()
 
@@ -176,6 +195,77 @@ def main():
 
         else:
             print("Unknown storage command. Use --help to see available commands.")
+
+    # Handle environment commands
+    elif args.command == "env":
+        if args.env_command == "setup":
+            # Get Hetzner token
+            hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+            if not hetzner_token:
+                print("Error: HETZNER_CLOUD_API_TOKEN environment variable required")
+                return 1
+
+            # Get storage manager for state management
+            storage_manager = None
+            try:
+                storage_manager = StorageManager()
+            except ValueError:
+                print("Warning: Storage manager not available, state will not be saved")
+
+            try:
+                env = RemoteDevEnvironment(
+                    name=args.name,
+                    storage_manager=storage_manager
+                )
+                env.config = {
+                    'vm': {
+                        'type': args.type,
+                        'region': args.region,
+                        'image': args.image
+                    }
+                }
+
+                if env.setup():
+                    print("\nEnvironment setup complete!")
+                else:
+                    return 1
+            except Exception as e:
+                print(f"Error setting up environment: {e}")
+                return 1
+
+        elif args.env_command == "list":
+            hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+            if not hetzner_token:
+                print("Error: HETZNER_CLOUD_API_TOKEN environment variable required")
+                return 1
+
+            try:
+                env = RemoteDevEnvironment(hetzner_token=hetzner_token)
+                environments = env.list_environments()
+                print("Remote Development Environments:")
+                for env_info in environments:
+                    print(f"  - {env_info.get('name')} ({env_info.get('status')})")
+            except Exception as e:
+                print(f"Error listing environments: {e}")
+                return 1
+
+        elif args.env_command == "destroy":
+            hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+            if not hetzner_token:
+                print("Error: HETZNER_CLOUD_API_TOKEN environment variable required")
+                return 1
+
+            try:
+                env = RemoteDevEnvironment(name=args.name, hetzner_token=hetzner_token)
+                env.cleanup()
+                print("Environment destroyed successfully")
+            except Exception as e:
+                print(f"Error destroying environment: {e}")
+                return 1
+
+        else:
+            print("Unknown environment command. Use --help to see available commands.")
+
     else:
         print("Unknown command. Use --help to see available commands.")
 
