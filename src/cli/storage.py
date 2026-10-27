@@ -35,6 +35,8 @@ class StorageManager:
         # Use the pre-generated S3 credentials from environment variables
         # Hetzner S3 uses HETZNER_S3_ACCESS_KEY and HETZNER_S3_SECRET_KEY
 
+        # Hetzner Object Storage is region-agnostic for clients
+        # but the endpoint URL determines the physical location
         s3_client = boto3.client(
             's3',
             endpoint_url=self.endpoint_url,
@@ -78,14 +80,12 @@ class StorageManager:
 
             canonical_request = f"PUT\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
 
-            # Simple approach: use boto3 but with region that matches endpoint
-            # The issue is that boto3's default region (us-east-1) doesn't match Hetzner's region
-            # We need to override the region in the client
-            region = endpoint_region
+            # For Hetzner, we need to use the endpoint region for bucket creation
+            # but the client doesn't need region for operations
             s3_client = boto3.client(
                 's3',
                 endpoint_url=self.endpoint_url,
-                region_name=region,
+                region_name=endpoint_region,
                 aws_access_key_id=self.s3_access_key,
                 aws_secret_access_key=self.s3_secret_key
             )
@@ -96,6 +96,8 @@ class StorageManager:
             try:
                 s3_client.create_bucket(Bucket=bucket_name)
                 print(f"Bucket '{bucket_name}' created successfully")
+                # Wait a moment for bucket to be fully created (Hetzner S3 can have slight delay)
+                time.sleep(1)
                 return True
             except ClientError as create_error:
                 # If the error is about location constraint, try again with explicit region
@@ -106,13 +108,15 @@ class StorageManager:
                     s3_client = boto3.client(
                         's3',
                         endpoint_url=self.endpoint_url,
-                        region_name=region,
+                        region_name=endpoint_region,
                         aws_access_key_id=self.s3_access_key,
                         aws_secret_access_key=self.s3_secret_key,
                         config=boto3.session.Config(signature_version='s3v4')
                     )
                     s3_client.create_bucket(Bucket=bucket_name)
-                    print(f"Bucket '{bucket_name}' created successfully (with region {region})")
+                    print(f"Bucket '{bucket_name}' created successfully (with region {endpoint_region})")
+                    # Wait a moment for bucket to be fully created
+                    time.sleep(1)
                     return True
                 raise
 

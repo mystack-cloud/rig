@@ -68,16 +68,16 @@ def mock_s3_client(mocker):
 
 @pytest.fixture(autouse=True)
 def setup_test_env(request):
-    """Setup test environment variables (only for non-E2E tests)"""
-    # Only set fake values for tests that aren't marked as e2e
-    # E2E tests should use real endpoints with real credentials
-    if request.node.get_closest_marker('e2e'):
-        # Don't override environment variables for E2E tests
+    """Setup test environment variables (only for non-E2E tests without real credentials)"""
+    # Only set fake values for tests that aren't marked as e2e or requires_credentials
+    # E2E tests and tests requiring credentials should use real endpoints with real credentials
+    if request.node.get_closest_marker('e2e') or request.node.get_closest_marker('requires_credentials'):
+        # Don't override environment variables for E2E tests or tests requiring credentials
         # Yield anyway to satisfy pytest fixture protocol
         yield
         return
     
-    # Set test environment variables for non-E2E tests
+    # Set test environment variables for regular unit tests
     os.environ['HETZNER_CLOUD_API_TOKEN'] = 'test-token-for-testing'
     os.environ['S3_ENDPOINT_URL'] = 'https://fsn1.test.example.com'
     os.environ['HETZNER_S3_ACCESS_KEY'] = 'test-access-key'

@@ -58,6 +58,9 @@ class TestHetznerStorageCLI:
         with open(test_file, 'w') as f:
             f.write("# Test README\n\nThis is a test file.")
 
+        # Create bucket first
+        storage.create_bucket(test_bucket_name)
+
         # Upload should work with valid token
         result = storage.upload_file(
             test_bucket_name,
@@ -65,8 +68,12 @@ class TestHetznerStorageCLI:
             'readme-copy.md'
         )
 
-        # Upload may succeed or fail depending on bucket existence
-        assert result in [True, False]
+        # Cleanup
+        storage.delete_object(test_bucket_name, 'readme-copy.md')
+        storage.delete_bucket(test_bucket_name)
+
+        # Upload should succeed
+        assert result is True
 
     def test_list_objects_hetzner(self, hetzner_token, test_bucket_name):
         """Test list objects command with Hetzner token"""
@@ -197,6 +204,12 @@ class TestHetznerStorageOperations:
     def test_hetzner_with_mocked_api(self, hetzner_token, test_bucket_name, tmp_path):
         """Test Hetzner storage with mocked API calls"""
         from cli.storage import StorageManager
+        import os
+
+        # Create test file first
+        test_file = str(tmp_path / "test.txt")
+        with open(test_file, 'w') as f:
+            f.write("test content")
 
         with patch('boto3.client') as mock_boto:
             mock_s3 = MagicMock()
@@ -220,7 +233,7 @@ class TestHetznerStorageOperations:
             # Test all operations
             assert storage.create_bucket(test_bucket_name) is True
             assert test_bucket_name in storage.list_buckets()
-            assert storage.upload_file(test_bucket_name, str(tmp_path / "test.txt"), 'hetzner.txt') is True
+            assert storage.upload_file(test_bucket_name, test_file, 'hetzner.txt') is True
             assert len(storage.list_objects(test_bucket_name, '')) > 0
 
             with patch('builtins.open', create=True):
