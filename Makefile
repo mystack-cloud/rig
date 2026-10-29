@@ -1,4 +1,4 @@
-.PHONY: install test test-e2e test-remote-dev test-remote-dev-e2e run lint clean
+.PHONY: install test test-e2e test-remote-dev test-remote-dev-e2e coverage run lint clean
 
 # Install dependencies
 install:
@@ -15,6 +15,17 @@ run-cli:
 # Run tests
 test:
 	python3 -m pytest tests/
+
+# Measure src coverage and refresh the README badge
+coverage:
+	python3 -m pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml \
+		--ignore=tests/test_real_e2e_integration.py \
+		--ignore=tests/test_real_e2e_storage.py \
+		--ignore=tests/test_hetzner_storage.py \
+		--ignore=tests/test_workspace_git_clone.py \
+		--ignore=tests/test_real_e2e_vpn.py \
+		--ignore=tests/test_real_e2e_vpn_tunnel.py
+	python3 scripts/coverage_badge.py --write
 
 # Run E2E tests with Hetzner integration
 test-e2e:

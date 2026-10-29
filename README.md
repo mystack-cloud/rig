@@ -1,4 +1,5 @@
 [![Tests](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml/badge.svg)](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/badge/coverage-27%25-red)](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml)
 
 # rig
 
@@ -99,8 +100,15 @@ python -m pytest tests/ -m "not requires_credentials"
 # Run tests with verbose output
 python -m pytest tests/ -v
 
-# Run tests with coverage
-python -m pytest tests/ --cov=src --cov-report=html
+# Measure line coverage for src and refresh the README badge
+python -m pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml \
+  --ignore=tests/test_real_e2e_integration.py \
+  --ignore=tests/test_real_e2e_storage.py \
+  --ignore=tests/test_hetzner_storage.py \
+  --ignore=tests/test_workspace_git_clone.py \
+  --ignore=tests/test_real_e2e_vpn.py \
+  --ignore=tests/test_real_e2e_vpn_tunnel.py
+python scripts/coverage_badge.py --write
 ```
 
 ### Test Categories
