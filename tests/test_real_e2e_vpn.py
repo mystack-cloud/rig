@@ -47,6 +47,16 @@ class TestRealE2EVPN:
         if not hetzner_token or hetzner_token == 'test-hetzner-token-12345':
             pytest.skip("Requires real Hetzner Cloud API token")
 
+    @pytest.fixture(autouse=True)
+    def check_wireguard_tools(self):
+        """Key generation and tunnel setup both require the wg binary."""
+        try:
+            result = subprocess.run(['wg', '--version'], capture_output=True, timeout=5)
+            if result.returncode != 0:
+                pytest.skip("wireguard-tools not available")
+        except FileNotFoundError:
+            pytest.skip("wireguard-tools not installed")
+
     @pytest.fixture
     def vpn_vm_name(self, hetzner_token):
         """Generate unique VM name for VPN gateway"""

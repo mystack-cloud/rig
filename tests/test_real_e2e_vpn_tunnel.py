@@ -50,25 +50,28 @@ class TestRealE2EVPTunnel:
 
     @pytest.fixture(autouse=True)
     def check_wireguard_tools(self):
-        """Check if wireguard-tools are available"""
+        """Tunnel setup needs wireguard-tools and permission to create interfaces."""
         try:
             result = subprocess.run(['wg', '--version'], capture_output=True, timeout=5)
             if result.returncode != 0:
                 pytest.skip("wireguard-tools not available")
         except FileNotFoundError:
             pytest.skip("wireguard-tools not installed")
+        if os.geteuid() != 0:
+            pytest.skip("WireGuard tunnel setup requires root (wg-quick)")
 
     @pytest.fixture
     def vpn_vm_name(self, hetzner_token):
         """Generate unique VM name for VPN gateway"""
         timestamp = int(uuid.uuid4().time_low)
-        return f"vpn-gw-{hetzner_token[:8]}-{timestamp}"
+        return f"vpn-gw-{hetzner_token[:8].lower()}-{timestamp}"
 
     @pytest.fixture
     def test_vpn_interface(self, hetzner_token):
         """Generate unique VPN interface name"""
-        timestamp = int(uuid.uuid4().time_low)
-        return f"e2e-vpn-{hetzner_token[:8]}-{timestamp}"
+        # wg-quick names the interface after the config file, which is wg-<name>.
+        # Interface names must be 15 characters or fewer, so keep this suffix short.
+        return f"e2e{uuid.uuid4().hex[:8]}"
 
     def test_e2e_vpn_tunnel_established_and_verified(self, hetzner_token, vpn_vm_name, test_vpn_interface):
         """
@@ -84,9 +87,15 @@ class TestRealE2EVPTunnel:
         print(f"Creating VPN gateway VM: {vpn_vm_name}")
         print(f"{'='*60}")
 
-        # Step 1: Create VM via Hetzner Cloud API
-        vm_ip = self._create_hetzner_vm(hetzner_token, vpn_vm_name)
+        self._vpn_server_id = None
+        try:
+            vm_ip = self._create_hetzner_vm(hetzner_token, vpn_vm_name)
+            self._verify_tunnel(hetzner_token, vm_ip, test_vpn_interface)
+        finally:
+            self._delete_hetzner_vm(hetzner_token)
 
+    def _verify_tunnel(self, hetzner_token, vm_ip, test_vpn_interface):
+        interface_name = f"wg-{test_vpn_interface}"
         print(f"\n✓ VM created with IP: {vm_ip}")
 
         # Step 2: Provision VM with WireGuard gateway via Ansible
@@ -152,14 +161,14 @@ class TestRealE2EVPTunnel:
 
         # Check if interface is up
         result = subprocess.run(
-            ['wg', 'show', test_vpn_interface],
+            ['wg', 'show', interface_name],
             capture_output=True,
             text=True,
             timeout=10
         )
-        assert result.returncode == 0, f"VPN interface {test_vpn_interface} not active"
+        assert result.returncode == 0, f"VPN interface {interface_name} not active"
 
-        print(f"✓ VPN interface {test_vpn_interface} is active")
+        print(f"✓ VPN interface {interface_name} is active")
 
         # Try to ping the gateway through the tunnel
         # The gateway should have IP 10.0.0.1/24 (from the Ansible playbook)
@@ -183,7 +192,7 @@ class TestRealE2EVPTunnel:
 
         # Verify wg show output
         wg_result = subprocess.run(
-            ['wg', 'show', test_vpn_interface],
+            ['wg', 'show', interface_name],
             capture_output=True,
             text=True,
             timeout=10
@@ -222,7 +231,7 @@ class TestRealE2EVPTunnel:
             },
             json={
                 'name': name,
-                'server_type': 'cx11',
+                'server_type': 'cx22',
                 'image': 'ubuntu-22.04',
                 'location': 'fsn1',
                 'ssh_keys': []
@@ -234,6 +243,7 @@ class TestRealE2EVPTunnel:
         data = response.json()
 
         server_id = data['server']['id']
+        self._vpn_server_id = server_id
         print(f"VM created: ID={server_id}")
 
         # Wait for VM to be available
@@ -252,6 +262,20 @@ class TestRealE2EVPTunnel:
         print(f"VM IP: {vm_ip}")
 
         return vm_ip
+
+    def _delete_hetzner_vm(self, token: str):
+        """Delete the gateway VM created for this test."""
+        server_id = getattr(self, '_vpn_server_id', None)
+        if not server_id:
+            return
+        import requests
+        response = requests.delete(
+            f'https://api.hetzner.cloud/v1/servers/{server_id}',
+            headers={'Authorization': f'Bearer {token}'},
+            timeout=30,
+        )
+        if response.status_code not in (200, 204, 404):
+            print(f"Warning: failed to delete VM {server_id}: {response.status_code}")
 
     def _provision_wireguard_gateway(self, vm_ip: str, token: str):
         """Provision VM with WireGuard gateway via Ansible"""

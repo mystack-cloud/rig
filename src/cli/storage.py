@@ -171,7 +171,7 @@ class StorageManager:
             s3_client.download_file(bucket_name, object_name, file_path)
             print(f"File '{object_name}' downloaded from bucket '{bucket_name}' to '{file_path}'")
             return True
-        except ClientError as e:
+        except (ClientError, OSError) as e:
             print(f"Error downloading file: {e}")
             return False
 

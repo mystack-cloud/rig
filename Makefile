@@ -26,7 +26,7 @@ test-remote-dev:
 
 # Run remote dev E2E tests
 test-remote-dev-e2e:
-	python3 test_remote_dev_e2e.py
+	python3 -m pytest tests/test_workspace_git_clone.py -v -m e2e
 
 # Run linting
 lint:

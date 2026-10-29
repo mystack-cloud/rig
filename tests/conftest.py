@@ -12,6 +12,32 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 
+def _load_dotenv():
+    """Load repo .env without overriding variables already set in the environment."""
+    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+    if not os.path.exists(env_path):
+        return
+
+    with open(env_path) as env_file:
+        for line in env_file:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+            if key == 'HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY':
+                os.environ.setdefault('HETZNER_S3_ACCESS_KEY', value)
+            elif key == 'HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY':
+                os.environ.setdefault('HETZNER_S3_SECRET_KEY', value)
+
+
+_load_dotenv()
+
+
 def pytest_configure(config):
     """Register custom markers"""
     config.addinivalue_line(
@@ -69,24 +95,30 @@ def mock_s3_client(mocker):
 @pytest.fixture(autouse=True)
 def setup_test_env(request):
     """Setup test environment variables (only for non-E2E tests without real credentials)"""
-    # Only set fake values for tests that aren't marked as e2e or requires_credentials
-    # E2E tests and tests requiring credentials should use real endpoints with real credentials
+    # E2E tests and tests requiring credentials use real endpoints and credentials.
     if request.node.get_closest_marker('e2e') or request.node.get_closest_marker('requires_credentials'):
-        # Don't override environment variables for E2E tests or tests requiring credentials
-        # Yield anyway to satisfy pytest fixture protocol
         yield
         return
-    
-    # Set test environment variables for regular unit tests
+
+    overridden = (
+        'HETZNER_CLOUD_API_TOKEN',
+        'S3_ENDPOINT_URL',
+        'HETZNER_S3_ACCESS_KEY',
+        'HETZNER_S3_SECRET_KEY',
+        'STATE_BUCKET',
+        'TEST_BUCKET_PREFIX',
+    )
+    saved = {key: os.environ.get(key) for key in overridden}
+
     os.environ['HETZNER_CLOUD_API_TOKEN'] = 'test-token-for-testing'
     os.environ['S3_ENDPOINT_URL'] = 'https://fsn1.test.example.com'
     os.environ['HETZNER_S3_ACCESS_KEY'] = 'test-access-key'
     os.environ['HETZNER_S3_SECRET_KEY'] = 'test-secret-key'
-    os.environ.pop('STATE_BUCKET', None)  # Clear any existing state bucket
-    os.environ.pop('TEST_BUCKET_PREFIX', None)  # Clear test prefix
+    os.environ.pop('STATE_BUCKET', None)
+    os.environ.pop('TEST_BUCKET_PREFIX', None)
     yield
-    # Cleanup after test
-    os.environ.pop('HETZNER_CLOUD_API_TOKEN', None)
-    os.environ.pop('S3_ENDPOINT_URL', None)
-    os.environ.pop('HETZNER_S3_ACCESS_KEY', None)
-    os.environ.pop('HETZNER_S3_SECRET_KEY', None)
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value

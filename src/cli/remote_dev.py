@@ -6,6 +6,7 @@ import uuid
 import time
 import shutil
 import subprocess
+import socket
 from typing import Optional, Dict, Any, List
 import requests
 
@@ -27,6 +28,19 @@ try:
 except ImportError:
     VPN_AVAILABLE = False
     VPNManagerType = Any  # type: ignore
+
+
+def _ipv4_from_public_net(public_net: Dict[str, Any]) -> Optional[str]:
+    """Read the public IPv4 address from either Hetzner API shape."""
+    ipv4 = public_net.get('ipv4') or {}
+    if isinstance(ipv4, dict) and ipv4.get('ip'):
+        return ipv4.get('ip')
+
+    primary_ipv4 = public_net.get('primary_ipv4') or {}
+    if isinstance(primary_ipv4, dict) and primary_ipv4.get('ip'):
+        return primary_ipv4.get('ip')
+
+    return None
 
 
 class RemoteDevManager:
@@ -70,6 +84,8 @@ class RemoteDevManager:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
         response.raise_for_status()
+        if response.status_code == 204 or not response.content:
+            return {}
         return response.json()
 
     def create_ssh_key(self, name: str, public_key: str) -> Dict:
@@ -116,7 +132,7 @@ class RemoteDevManager:
             {
                 'direction': 'in',
                 'protocol': 'icmp',
-                'port': '*',
+                # ICMP doesn't use ports, omit port field (API sets to null)
                 'source_ips': allowed_ips,
                 'description': 'Allow ICMP'
             }
@@ -180,22 +196,24 @@ class RemoteDevManager:
             return False
 
     def delete_firewall(self, firewall_id: str) -> bool:
-        """Delete firewall"""
-        try:
-            self._request('DELETE', f'/firewalls/{firewall_id}')
-            return True
-        except Exception:
-            return False
+        """Delete firewall, retrying while the VM is still detaching it."""
+        for _ in range(12):
+            try:
+                self._request('DELETE', f'/firewalls/{firewall_id}')
+                return True
+            except Exception:
+                time.sleep(5)
+        return False
 
     def wait_for_vm_active(self, vm_id: str, timeout: int = 300) -> bool:
-        """Wait for VM to become active"""
+        """Wait for VM to become active or running"""
         start_time = time.time()
 
         while time.time() - start_time < timeout:
             vm = self.get_vm(vm_id)
             status = vm.get('server', {}).get('status', '')
 
-            if status == 'active':
+            if status in ['active', 'running']:
                 return True
 
             if status in ['error', 'unknown']:
@@ -205,12 +223,50 @@ class RemoteDevManager:
 
         return False
 
+    def wait_for_ssh(self, ip: str, timeout: int = 180, interval: int = 5,
+                     identity_file: Optional[str] = None, username: str = 'root') -> bool:
+        """Wait until SSH accepts connections, authenticating when a key is available."""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            try:
+                if identity_file:
+                    result = subprocess.run(
+                        [
+                            'ssh', '-i', identity_file,
+                            '-o', 'StrictHostKeyChecking=no',
+                            '-o', 'UserKnownHostsFile=/dev/null',
+                            '-o', 'IdentitiesOnly=yes',
+                            '-o', 'BatchMode=yes',
+                            '-o', 'ConnectTimeout=10',
+                            f'{username}@{ip}',
+                            'true',
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                    )
+                    if result.returncode == 0:
+                        return True
+                else:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(10)
+                    result_code = sock.connect_ex((ip, 22))
+                    sock.close()
+                    if result_code == 0:
+                        return True
+            except Exception:
+                pass
+
+            time.sleep(interval)
+
+        return False
+
     def get_vm_ip(self, vm_id: str) -> Optional[str]:
         """Get VM's public IP address"""
         vm = self.get_vm(vm_id)
         public_net = vm.get('server', {}).get('public_net', {})
-        primary_ipv4 = public_net.get('primary_ipv4', {})
-        return primary_ipv4.get('ip')
+        return _ipv4_from_public_net(public_net)
 
     def _ensure_state_bucket(self) -> bool:
         """Ensure the state bucket exists, create if not"""
@@ -337,12 +393,11 @@ class RemoteDevManager:
                 name = server.get('name', '')
                 if name.startswith(prefix):
                     public_net = server.get('public_net', {})
-                    primary_ipv4 = public_net.get('primary_ipv4', {})
                     dev_envs.append({
                         'name': name,
                         'id': server.get('id'),
                         'status': server.get('status'),
-                        'ip': primary_ipv4.get('ip'),
+                        'ip': _ipv4_from_public_net(public_net),
                         'type': server.get('server_type'),
                         'region': server.get('location')
                     })
@@ -386,44 +441,32 @@ class RemoteDevEnvironment:
         self.vm_ip = None
 
     def generate_ssh_keys(self):
-        """Generate SSH key pair for the VM"""
-        # In production, use paramiko or subprocess to call ssh-keygen
-        # For now, we'll simulate the structure
-        import subprocess
-
+        """Generate an SSH key pair that can actually log in to the VM."""
+        key_path = f'/tmp/{self.ssh_key_name}'
         try:
-            # Generate SSH key
-            result = subprocess.run(['ssh-keygen',
-                                     '-t',
-                                     'ed25519',
-                                     '-C',
-                                     f"{self.ssh_key_name}@rig",
-                                     '-N',
-                                     '',
-                                     '-f',
-                                     f'/tmp/{self.ssh_key_name}'],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=30)
+            for path in (key_path, f'{key_path}.pub'):
+                if os.path.exists(path):
+                    os.remove(path)
 
-            if result.returncode == 0:
-                with open(f'/tmp/{self.ssh_key_name}', 'r') as f:
-                    self.ssh_private_key = f.read()
+            result = subprocess.run(
+                ['ssh-keygen', '-t', 'ed25519', '-C', f'{self.ssh_key_name}@rig',
+                 '-N', '', '-f', key_path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                print(f"SSH key generation failed: {result.stderr}")
+                return False
 
-                with open(f'/tmp/{self.ssh_key_name}.pub', 'r') as f:
-                    self.ssh_public_key = f.read()
-
-                return True
-            else:
-                # Fallback: use a placeholder key (not secure for production)
-                self.ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl dev-key"
-                return True
-
-        except Exception as e:
-            print(f"Warning: SSH key generation failed: {e}")
-            # Fallback
-            self.ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl dev-key"
+            with open(key_path, 'r') as private_key_file:
+                self.ssh_private_key = private_key_file.read()
+            with open(f'{key_path}.pub', 'r') as public_key_file:
+                self.ssh_public_key = public_key_file.read().strip()
             return True
+        except Exception as e:
+            print(f"SSH key generation failed: {e}")
+            return False
 
     def setup(self):
         """Set up the complete remote development environment"""
@@ -431,7 +474,9 @@ class RemoteDevEnvironment:
 
         # 1. Generate SSH keys
         print("  1. Generating SSH keys...")
-        self.generate_ssh_keys()
+        if not self.generate_ssh_keys():
+            print("     ✗ SSH key generation failed")
+            return False
 
         # 2. Create SSH key in Hetzner
         print("  2. Registering SSH key with Hetzner...")
@@ -477,13 +522,15 @@ class RemoteDevEnvironment:
             print("     ✗ VM failed to become active")
             return False
 
-        # 6. Get VM IP
-        print("  6. Getting VM IP address...")
+        # 6. Wait until SSH login works
+        print("  6. Waiting for SSH to be available...")
         self.vm_ip = self.manager.get_vm_ip(self.vm_id)
-        if self.vm_ip:
-            print(f"     ✓ VM IP: {self.vm_ip}")
+        identity_file = f'/tmp/{self.ssh_key_name}'
+        if self.vm_ip and self.manager.wait_for_ssh(self.vm_ip, timeout=300, identity_file=identity_file):
+            print(f"     ✓ SSH is available ({self.vm_ip})")
         else:
-            print("     ⚠️  Could not get VM IP")
+            print("     ✗ SSH is not available")
+            return False
 
         # 7. Save state to shared bucket
         print("  7. Saving state to shared bucket...")
@@ -1374,6 +1421,13 @@ class AnsibleManager:
             print(f"Error installing roles: {e}")
             return False
 
+    def _redact_secrets(self, text: str) -> str:
+        redacted = text or ''
+        for value in self.extra_vars.values():
+            if isinstance(value, str) and len(value) >= 8:
+                redacted = redacted.replace(value, '***')
+        return redacted
+
     def run_playbook(self, extra_vars: Optional[Dict[str, Any]] = None, vault_password: Optional[str] = None) -> bool:
         """Run the bootstrap playbook"""
         try:
@@ -1384,7 +1438,9 @@ class AnsibleManager:
             # Set up command
             cmd = [
                 'ansible-playbook', self.playbook_path,
-                '-i', self.inventory_path
+                '-i', self.inventory_path,
+                '--ssh-common-args',
+                '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes'
             ]
 
             # Add extra variables
@@ -1410,14 +1466,18 @@ class AnsibleManager:
             print(f"Running playbook: {self.playbook_path}")
             print(f"Inventory: {self.inventory_path}")
 
-            result = subprocess.run(cmd, env=self.ansible_env, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, env=self.ansible_env, capture_output=True, text=True, timeout=600)
 
             if result.returncode == 0:
                 print("✓ Playbook executed successfully")
                 return True
             else:
-                print(f"Error executing playbook:")
-                print(result.stderr)
+                print("Error executing playbook:")
+                print(f"Return code: {result.returncode}")
+                if result.stderr:
+                    print(f"STDERR:\n{self._redact_secrets(result.stderr)}")
+                if result.stdout:
+                    print(f"STDOUT:\n{self._redact_secrets(result.stdout)}")
                 return False
         except Exception as e:
             print(f"Error running playbook: {e}")

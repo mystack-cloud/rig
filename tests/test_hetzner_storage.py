@@ -41,11 +41,10 @@ class TestHetznerStorageCLI:
 
         storage = StorageManager()
 
-        # Create bucket should work with valid token
-        result = storage.create_bucket(test_bucket_name)
-
-        # Bucket creation may succeed or bucket may already exist
-        assert result in [True, False]
+        try:
+            assert storage.create_bucket(test_bucket_name) is True
+        finally:
+            storage.delete_bucket(test_bucket_name)
 
     def test_upload_with_hetzner(self, hetzner_token, test_bucket_name, tmp_path):
         """Test upload command with Hetzner token"""
