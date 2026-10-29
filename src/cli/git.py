@@ -9,8 +9,11 @@ This module provides functionality for:
 
 import os
 import subprocess
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 import yaml
+
+if TYPE_CHECKING:
+    from cli.remote_dev import ProjectConfig
 
 
 class GitManager:
@@ -209,13 +212,3 @@ class GitManager:
         except Exception as e:
             print(f"Error removing repository: {e}")
             return False
-
-
-# Import ProjectConfig here to avoid circular import issues
-# This will be overridden when the module is loaded in the proper context
-try:
-    from cli.remote_dev import ProjectConfig
-except ImportError:
-    # Fallback for when ProjectConfig is not available yet
-    class ProjectConfig:
-        pass

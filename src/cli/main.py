@@ -15,14 +15,15 @@ from cli.config import Config
 from cli.vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
 from cli.remote_dev import RemoteDevEnvironment
 
-# Import package version
+# Import package version. The two libraries export the same function name;
+# bind them separately so the type checker does not see a redefinition.
 try:
-    from importlib.metadata import version
-    __version__ = version("rig")
+    from importlib.metadata import version as package_version
+    __version__ = package_version("rig")
 except ImportError:
     try:
-        from importlib_metadata import version
-        __version__ = version("rig")
+        from importlib_metadata import version as package_version_fallback
+        __version__ = package_version_fallback("rig")
     except ImportError:
         __version__ = "0.1.0"
 
