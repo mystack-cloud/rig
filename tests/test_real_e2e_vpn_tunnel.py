@@ -18,7 +18,6 @@ Test flow:
 import pytest
 import os
 import sys
-import json
 import time
 import subprocess
 import uuid
@@ -87,242 +86,125 @@ class TestRealE2EVPTunnel:
         print(f"Creating VPN gateway VM: {vpn_vm_name}")
         print(f"{'='*60}")
 
-        self._vpn_server_id = None
-        try:
-            vm_ip = self._create_hetzner_vm(hetzner_token, vpn_vm_name)
-            self._verify_tunnel(hetzner_token, vm_ip, test_vpn_interface)
-        finally:
-            self._delete_hetzner_vm(hetzner_token)
+        from cli.remote_dev import RemoteDevEnvironment
 
-    def _verify_tunnel(self, hetzner_token, vm_ip, test_vpn_interface):
         interface_name = f"wg-{test_vpn_interface}"
-        print(f"\n✓ VM created with IP: {vm_ip}")
-
-        # Step 2: Provision VM with WireGuard gateway via Ansible
-        print(f"\n{'='*60}")
-        print(f"Provisioning VM with WireGuard gateway via Ansible...")
-        print(f"{'='*60}")
-
-        self._provision_wireguard_gateway(vm_ip, hetzner_token)
-
-        # Step 3: Get WireGuard gateway public key
-        print(f"\n{'='*60}")
-        print(f"Retrieving WireGuard gateway public key...")
-        print(f"{'='*60}")
-
-        gateway_public_key = self._get_wireguard_public_key(vm_ip, hetzner_token)
-        print(f"Gateway public key: {gateway_public_key[:20]}...")
-
-        # Step 4: Generate local keys for VPN tunnel
-        print(f"\n{'='*60}")
-        print(f"Generating local WireGuard keys...")
-        print(f"{'='*60}")
-
+        env = RemoteDevEnvironment(
+            name=vpn_vm_name,
+            config={
+                'firewall': {
+                    'extra_rules': [{
+                        'direction': 'in',
+                        'protocol': 'udp',
+                        'port': '51820',
+                        'source_ips': ['0.0.0.0/0', '::/0'],
+                        'description': 'WireGuard',
+                    }],
+                },
+            },
+        )
+        env.name = vpn_vm_name
+        env.vm_name = vpn_vm_name
         vpn_manager = vpn.VPNManager()
-        local_keys = vpn_manager.generate_wireguard_keys()
-        print(f"Local private key: {local_keys['private_key'][:20]}...")
-        print(f"Local public key: {local_keys['public_key'][:20]}...")
+        config_path = None
+        try:
+            assert env.setup(), "VPN gateway VM setup should succeed"
+            assert env.vm_ip is not None
+            ssh_key_path = f"/tmp/{env.ssh_key_name}"
+            self._provision_wireguard_gateway(env.vm_ip, ssh_key_path)
 
-        # Step 5: Create VPN configuration
-        print(f"\n{'='*60}")
-        print(f"Creating VPN configuration...")
-        print(f"{'='*60}")
+            gateway_public_key = self._ssh(env.vm_ip, ssh_key_path, 'wg show wg0 public-key').stdout.strip()
+            assert gateway_public_key, "Gateway did not return a WireGuard public key"
 
-        vpn_endpoint = f"{vm_ip}:51820"
-        config = vpn.WireGuardConfig(
-            interface_name=test_vpn_interface,
-            private_key=local_keys['private_key'],
-            public_key=gateway_public_key,
-            endpoint=vpn_endpoint,
-            ip_address="10.0.0.2/24",
-            allowed_ips=["10.0.0.0/8"]
-        )
+            local_keys = vpn_manager.generate_wireguard_keys()
+            peer = self._ssh(
+                env.vm_ip,
+                ssh_key_path,
+                f"wg set wg0 peer {local_keys['public_key']} allowed-ips 10.0.0.2/32",
+            )
+            assert peer.returncode == 0, peer.stderr
 
-        # Save and apply VPN config
-        config_path = vpn_manager.save_wireguard_config(test_vpn_interface, config)
+            config = vpn.WireGuardConfig(
+                interface_name=test_vpn_interface,
+                private_key=local_keys['private_key'],
+                public_key=gateway_public_key,
+                endpoint=f"{env.vm_ip}:51820",
+                ip_address="10.0.0.2/24",
+                allowed_ips=["10.0.0.1/32"],
+            )
+            config_path = vpn_manager.save_wireguard_config(test_vpn_interface, config)
+            assert vpn_manager.setup_vpn_tunnel(test_vpn_interface, config), "Failed to establish VPN tunnel"
 
-        print(f"VPN config saved to: {config_path}")
+            time.sleep(2)
+            result = subprocess.run(
+                ['wg', 'show', interface_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, f"VPN interface {interface_name} not active"
 
-        # Step 6: Establish VPN tunnel
-        print(f"\n{'='*60}")
-        print(f"Establishing VPN tunnel to {vpn_endpoint}...")
-        print(f"{'='*60}")
+            ping_result = subprocess.run(
+                ['ping', '-c', '3', '-W', '5', '10.0.0.1'],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            assert ping_result.returncode == 0, ping_result.stderr or ping_result.stdout
+        finally:
+            vpn_manager.teardown_vpn_tunnel(test_vpn_interface)
+            if config_path and os.path.exists(config_path):
+                os.remove(config_path)
+            env.cleanup()
 
-        success = vpn_manager.setup_vpn_tunnel(test_vpn_interface, config)
-        assert success, "Failed to establish VPN tunnel"
-
-        # Give tunnel time to initialize
-        time.sleep(2)
-
-        # Step 7: Verify tunnel is working
-        print(f"\n{'='*60}")
-        print(f"Verifying VPN tunnel connectivity...")
-        print(f"{'='*60}")
-
-        # Check if interface is up
-        result = subprocess.run(
-            ['wg', 'show', interface_name],
+    def _ssh(self, vm_ip: str, ssh_key_path: str, command: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                'ssh', '-i', ssh_key_path,
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'IdentitiesOnly=yes',
+                '-o', 'BatchMode=yes',
+                f'root@{vm_ip}',
+                command,
+            ],
             capture_output=True,
             text=True,
-            timeout=10
-        )
-        assert result.returncode == 0, f"VPN interface {interface_name} not active"
-
-        print(f"✓ VPN interface {interface_name} is active")
-
-        # Try to ping the gateway through the tunnel
-        # The gateway should have IP 10.0.0.1/24 (from the Ansible playbook)
-        gateway_vpn_ip = "10.0.0.1"
-
-        print(f"\nTesting connectivity to VPN gateway ({gateway_vpn_ip})...")
-        ping_result = subprocess.run(
-            ['ping', '-c', '3', '-W', '5', gateway_vpn_ip],
-            capture_output=True,
-            text=True,
-            timeout=15
+            timeout=60,
         )
 
-        if ping_result.returncode == 0:
-            print(f"✓ VPN tunnel to {gateway_vpn_ip} is working!")
-            print(f"  Ping output:\n{ping_result.stdout}")
-        else:
-            print(f"⚠ Warning: Could not ping {gateway_vpn_ip}")
-            print(f"  Error: {ping_result.stderr}")
-            # Don't fail the test if ping fails, as the tunnel might still be functional
-
-        # Verify wg show output
-        wg_result = subprocess.run(
-            ['wg', 'show', interface_name],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        assert wg_result.returncode == 0
-        print(f"✓ WireGuard interface status:\n{wg_result.stdout}")
-
-        # Step 8: Tear down VPN tunnel
-        print(f"\n{'='*60}")
-        print(f"Tearing down VPN tunnel...")
-        print(f"{'='*60}")
-
-        success = vpn_manager.teardown_vpn_tunnel(test_vpn_interface)
-        assert success, "Failed to tear down VPN tunnel"
-
-        print(f"✓ VPN tunnel torn down successfully")
-
-        # Cleanup
-        if os.path.exists(config_path):
-            os.remove(config_path)
-
-        print(f"\n{'='*60}")
-        print(f"Test completed successfully!")
-        print(f"{'='*60}")
-
-    def _create_hetzner_vm(self, token: str, name: str) -> str:
-        """Create a VM on Hetzner Cloud"""
-        import requests
-
-        # Create VM via Hetzner Cloud API
-        response = requests.post(
-            'https://api.hetzner.cloud/v1/servers',
-            headers={
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json'
-            },
-            json={
-                'name': name,
-                'server_type': 'cx22',
-                'image': 'ubuntu-22.04',
-                'location': 'fsn1',
-                'ssh_keys': []
-            },
-            timeout=30
-        )
-
-        response.raise_for_status()
-        data = response.json()
-
-        server_id = data['server']['id']
-        self._vpn_server_id = server_id
-        print(f"VM created: ID={server_id}")
-
-        # Wait for VM to be available
-        time.sleep(10)
-
-        # Get VM IP
-        response = requests.get(
-            f'https://api.hetzner.cloud/v1/servers/{server_id}',
-            headers={'Authorization': f'Bearer {token}'},
-            timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        vm_ip = data['server']['public_net']['ipv4']['ip']
-        print(f"VM IP: {vm_ip}")
-
-        return vm_ip
-
-    def _delete_hetzner_vm(self, token: str):
-        """Delete the gateway VM created for this test."""
-        server_id = getattr(self, '_vpn_server_id', None)
-        if not server_id:
-            return
-        import requests
-        response = requests.delete(
-            f'https://api.hetzner.cloud/v1/servers/{server_id}',
-            headers={'Authorization': f'Bearer {token}'},
-            timeout=30,
-        )
-        if response.status_code not in (200, 204, 404):
-            print(f"Warning: failed to delete VM {server_id}: {response.status_code}")
-
-    def _provision_wireguard_gateway(self, vm_ip: str, token: str):
+    def _provision_wireguard_gateway(self, vm_ip: str, ssh_key_path: str):
         """Provision VM with WireGuard gateway via Ansible"""
         import tempfile
-        import os
 
-        # Create inventory file
-        inventory = f"""
-[remote_vm]
-{vm_ip} ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
-"""
+        inventory = (
+            "[remote_vm]\n"
+            f"{vm_ip} ansible_user=root ansible_ssh_private_key_file={ssh_key_path}\n"
+        )
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as inventory_file:
+            inventory_file.write(inventory)
+            inventory_path = inventory_file.name
 
-        # Create temporary inventory file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(inventory)
-            inventory_file = f.name
-
+        playbook_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), '.rig', 'playbooks', 'vpn-gateway.yml'
+        )
         try:
-            # Run Ansible playbook (from project root)
-            playbook_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.rig', 'playbooks', 'vpn-gateway.yml')
-            
             result = subprocess.run(
                 [
                     'ansible-playbook',
-                    '-i', inventory_file,
-                    '--private-key', os.path.expanduser('~/.ssh/id_rsa'),
-                    playbook_path
+                    '-i', inventory_path,
+                    '--private-key', ssh_key_path,
+                    '--ssh-common-args',
+                    '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes',
+                    playbook_path,
                 ],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minutes
+                timeout=600,
             )
-
             if result.returncode != 0:
                 print(f"Ansible output:\n{result.stdout}")
                 print(f"Ansible error:\n{result.stderr}")
                 pytest.fail(f"Ansible playbook failed: {result.stderr}")
-            else:
-                print(f"Ansible playbook completed successfully")
-
         finally:
-            os.unlink(inventory_file)
-
-    def _get_wireguard_public_key(self, vm_ip: str, token: str) -> str:
-        """Get WireGuard public key from VM"""
-        # In a real scenario, the Ansible playbook would output the public key
-        # For now, we'll generate a key pair and use it (the VM would have the same key)
-        vpn_manager = vpn.VPNManager()
-        keys = vpn_manager.generate_wireguard_keys()
-        return keys['public_key']
+            os.unlink(inventory_path)

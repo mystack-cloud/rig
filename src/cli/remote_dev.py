@@ -116,7 +116,8 @@ class RemoteDevManager:
         except Exception:
             return False
 
-    def create_firewall(self, name: str, allowed_ips: Optional[list] = None) -> Dict[str, Any]:
+    def create_firewall(self, name: str, allowed_ips: Optional[list] = None,
+                        extra_rules: Optional[list] = None) -> Dict[str, Any]:
         """Create firewall with SSH rules"""
         if allowed_ips is None:
             allowed_ips = ['0.0.0.0/0', '::/0']
@@ -137,6 +138,8 @@ class RemoteDevManager:
                 'description': 'Allow ICMP'
             }
         ]
+        if extra_rules:
+            rules.extend(extra_rules)
 
         data = {
             'name': name,
@@ -490,8 +493,12 @@ class RemoteDevEnvironment:
         # 3. Create firewall
         print("  3. Creating firewall...")
         try:
-            firewall_ips = self.config.get('firewall', {}).get('allowed_ips', ['0.0.0.0/0'])
-            fw_result = self.manager.create_firewall(self.firewall_name, firewall_ips)
+            firewall_config = self.config.get('firewall', {})
+            firewall_ips = firewall_config.get('allowed_ips', ['0.0.0.0/0'])
+            extra_rules = firewall_config.get('extra_rules')
+            fw_result = self.manager.create_firewall(
+                self.firewall_name, firewall_ips, extra_rules=extra_rules
+            )
             self.firewall_id = fw_result.get('firewall', {}).get('id')
             print(f"     ✓ Firewall created (ID: {self.firewall_id})")
         except Exception as e:

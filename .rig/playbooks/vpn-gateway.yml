@@ -8,6 +8,11 @@
     wg_interface_name: "wg0"
     
   tasks:
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
     - name: Install WireGuard tools
       apt:
         name:
@@ -15,6 +20,10 @@
           - wireguard-tools
         state: present
         update_cache: yes
+      register: wg_install
+      retries: 12
+      delay: 10
+      until: wg_install is success
 
     - name: Generate WireGuard private key
       shell: wg genkey
