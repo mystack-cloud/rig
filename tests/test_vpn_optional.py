@@ -13,6 +13,29 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 
+def test_saved_wireguard_config_is_private():
+    """wg-quick rejects configs that are world-accessible, including files in /tmp."""
+    from cli.vpn import VPNManager, WireGuardConfig
+
+    config = WireGuardConfig(
+        interface_name="perm-test",
+        private_key="cMxYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
+        public_key="B1lYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
+        endpoint="vpn.example.com:51820",
+        ip_address="10.0.0.2/24",
+    )
+    manager = VPNManager()
+    path = manager.save_wireguard_config("perm-test", config)
+    try:
+        file_mode = os.stat(path).st_mode
+        dir_mode = os.stat(os.path.dirname(path)).st_mode
+        assert file_mode & 0o077 == 0
+        assert file_mode & dir_mode & 0o007 == 0
+        assert not path.startswith("/tmp/wg-")
+    finally:
+        os.remove(path)
+
+
 def test_vpn_module_available():
     """Test that VPN module can be imported"""
     try:

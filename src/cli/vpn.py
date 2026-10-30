@@ -30,6 +30,7 @@ class VPNManager:
         self.config = config or {}
         self.interface_name = self.config.get('interface_name', 'wg0')
         self.vpn_configs: Dict[str, WireGuardConfig] = {}
+        self._config_paths: Dict[str, str] = {}
         
     def generate_wireguard_keys(self) -> Dict[str, str]:
         """Generate WireGuard key pair"""
@@ -103,18 +104,40 @@ class VPNManager:
             f"PersistentKeepalive = {wg_config.persistent_keepalive}"
         ]
         return '\n'.join(conf_lines)
-    
-    def save_wireguard_config(self, name: str, wg_config: WireGuardConfig, 
+
+    def _config_path(self, name: str) -> str:
+        """Path wg-quick will accept.
+
+        wg-quick refuses a config whose mode and parent directory are both
+        world-accessible, and reading a config from /tmp can fail outright.
+        Root writes under /etc/wireguard; other users get a private directory.
+        The filename is the interface name, which must stay within 15 characters.
+        """
+        if os.geteuid() == 0:
+            directory = "/etc/wireguard"
+        else:
+            directory = os.path.join(tempfile.gettempdir(), f"rig-wg-{os.getuid()}")
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        if directory != "/etc/wireguard":
+            os.chmod(directory, 0o700)
+        return os.path.join(directory, f"wg-{name}.conf")
+
+    def save_wireguard_config(self, name: str, wg_config: WireGuardConfig,
                              path: Optional[str] = None) -> str:
-        """Save WireGuard configuration to file"""
+        """Save WireGuard configuration to a mode-0600 file"""
         if path is None:
-            path = f"/tmp/wg-{name}.conf"
-        
+            path = self._config_path(name)
+        else:
+            parent = os.path.dirname(path) or "."
+            os.makedirs(parent, mode=0o700, exist_ok=True)
+
         conf_content = self.generate_wireguard_conf(wg_config)
-        
-        with open(path, 'w') as f:
-            f.write(conf_content)
-        
+        # O_CREAT honors umask, and O_TRUNC keeps a previous mode, so chmod after.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as handle:
+            handle.write(conf_content)
+        os.chmod(path, 0o600)
+        self._config_paths[name] = path
         return path
     
     def setup_vpn_tunnel(self, name: str, wg_config: WireGuardConfig) -> bool:
@@ -135,7 +158,7 @@ class VPNManager:
                 print(f"✓ VPN tunnel '{name}' established successfully")
                 return True
             else:
-                print(f"✗ Failed to setup VPN tunnel '{name}': {result.stderr}")
+                print(f"✗ Failed to setup VPN tunnel '{name}' ({config_path}): {result.stderr}")
                 return False
                 
         except FileNotFoundError:
@@ -148,8 +171,8 @@ class VPNManager:
     def teardown_vpn_tunnel(self, name: str) -> bool:
         """Tear down a WireGuard VPN tunnel"""
         try:
-            config_path = f"/tmp/wg-{name}.conf"
-            
+            config_path = self._config_paths.get(name) or self._config_path(name)
+
             result = subprocess.run(
                 ['wg-quick', 'down', config_path],
                 capture_output=True,
@@ -161,7 +184,7 @@ class VPNManager:
                 print(f"✓ VPN tunnel '{name}' torn down successfully")
                 return True
             else:
-                print(f"✗ Failed to teardown VPN tunnel '{name}': {result.stderr}")
+                print(f"✗ Failed to teardown VPN tunnel '{name}' ({config_path}): {result.stderr}")
                 return False
                 
         except Exception as e:
@@ -171,8 +194,6 @@ class VPNManager:
     def check_vpn_status(self, name: str) -> Dict[str, Any]:
         """Check status of a WireGuard VPN tunnel"""
         try:
-            config_path = f"/tmp/wg-{name}.conf"
-            
             # Get interface status using wg command
             result = subprocess.run(
                 ['wg', 'show', 'interfaces'],
