@@ -7,12 +7,9 @@ Remote development environments for agents and humans made easy.
 
 ## Features
 
-- Manage S3-compatible storage buckets and objects
-- Upload/download files to/from storage
-- List buckets and objects
-- Delete buckets and objects
-- Uses Hetzner Cloud Token for authentication
-- Secure credential handling with temporary S3 credentials
+- Initialize a multi-repo workspace or a single repo
+- Create and destroy remote development environments on Hetzner
+- Optional WireGuard access to upstream services
 
 ## Installation
 
@@ -22,50 +19,41 @@ pip install .
 
 ## Usage
 
-### Configure Hetzner Token
+### Initialize and manage an environment
 
-Set the Hetzner Cloud token as an environment variable:
+`rig init` writes root `rig.yml` and `.rig/` into the current git project (so they can be committed). Re-running init is safe: it fills in any missing files without overwriting customized ones. It still offers sibling projects from the parent folder for inclusion, stores Hetzner credentials in `~/.rig/config` (AWS-style profiles, `default` by default) when they are not already set, asks for a GitHub/GitLab PAT per included HTTPS repo (and whether to store it as the default `github_pat` / `gitlab_pat` for reuse on other repos and reinits; otherwise `{project}_git_pat`), lets you choose a coding agent (`opencode` or `claude`), and asks for that agent's API key (`coding_agent_api_key`; Enter skips — OpenCode then defaults to free Zen models such as `opencode/deepseek-v4.1-flash-free`). Init scaffolds editable agent files under `.rig/` (`AGENTS.md`, `.opencode/` or `.claude/` config + MCP); `system.yml` installs the agent and deploys those files to the remote VM with `CODING_AGENT_API_KEY` set when a key was provided. Root `rig.yml` references `.rig/system.yml` (code-server / VS Code + selected agent, plus GitHub CLI `gh` and/or GitLab CLI `glab` when workspace repos use those hosts) and `.rig/workspace.yml` (project-specific playbook).
 
 ```bash
-export HZ_TOKEN="your-hetzner-cloud-token"
+rig -v …                         # debug logs (IDs, playbook paths, SSH details)
+rig -q …                         # warnings/errors only
+rig init
+rig create --name my-env         # create VM (reuses snapshots when possible), attach agent TTY
+rig create --name my-env --no-attach  # provision only
+rig create --force-playbooks     # ignore snapshot skip; re-run system + workspace
+rig create --force-system        # re-run system.yml even on system/workspace snapshot boot
+rig create --force-workspace     # re-run workspace.yml even on workspace snapshot boot
+rig apply                        # re-run .rig/workspace.yml on last env (project-specific playbook)
+rig apply my-env --system        # re-run .rig/system.yml instead
+rig attach                       # reattach to last handled env (name remembered in /tmp/.rig/last-env)
+rig attach my-env                # or pass the name explicitly
+rig attach -c                    # continue last coding-agent session on that env
+rig attach -- --session ses_abc  # forward arbitrary agent CLI args after --
+rig dev                          # open VS Code/Cursor on /workspace via Remote-SSH
+rig dev --browser                # open code-server on /workspace in the browser instead
+rig list
+rig destroy                       # destroy last handled env
+rig destroy my-env
+rig cache clear                   # delete workspace snapshots for this project
+rig cache --system clear          # delete system.yml snapshots (rig-{version})
+rig encrypt
+rig decrypt [variable_name]
 ```
 
-### Storage Operations
+`rig encrypt` creates a temporary Ansible vault data key at `/tmp/.rig/.data-key` when missing (cleared on reboot), then continues: asks for a variable name and value, encrypts with `ansible-vault encrypt_string`, and writes the result into `.rig/vars.yml`. Default value input is one line. For multiline input use `rig encrypt --stdin-name my_var` and finish with Ctrl+D.
 
-#### Create a bucket
-```bash
-python src/cli/main.py storage create-bucket --name my-bucket
-```
+`rig decrypt` reads that same temporary data key automatically (no password file flag) and prints the plaintext for a variable from `.rig/vars.yml`. Ansible playbook runs also pick up `/tmp/.rig/.data-key` when present.
 
-#### List buckets
-```bash
-python src/cli/main.py storage list-buckets
-```
-
-#### Upload a file
-```bash
-python src/cli/main.py storage upload --bucket my-bucket --file ./local-file.txt
-```
-
-#### Download a file
-```bash
-python src/cli/main.py storage download --bucket my-bucket --object remote-file.txt --file ./local-file.txt
-```
-
-#### List objects in a bucket
-```bash
-python src/cli/main.py storage list-objects --bucket my-bucket
-```
-
-#### Delete an object
-```bash
-python src/cli/main.py storage delete-object --bucket my-bucket --object remote-file.txt
-```
-
-#### Delete a bucket
-```bash
-python src/cli/main.py storage delete-bucket --name my-bucket
-```
+Environment variables still override the config file. Select another profile with `RIG_PROFILE`.
 
 ## Security Model
 

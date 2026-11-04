@@ -23,7 +23,7 @@ from cli.remote_dev import RemoteDevEnvironment, ProjectConfig, AnsibleManager
 # Test repository to clone: the rig repository itself
 RIG_REPO = "https://github.com/mystack-cloud/rig.git"
 RIG_REPO_NAME = "rig"
-RIG_CLONE_DEST = "/root/rig"
+RIG_CLONE_DEST = "/workspace/rig"
 TEST_DIR_NAME = "test-rig-git-clone"
 
 # Get GitHub PAT from environment (set in GitHub Actions as RIG_GITHUB_PAT)
@@ -141,7 +141,9 @@ class TestWorkspaceGitClone:
 
         project_config = ProjectConfig(test_workspace_dir)
         project_config.init(name=unique_env_name, ansible_enabled=True)
-        assert os.path.exists(os.path.join(project_config.rig_dir, 'rig.yml'))
+        assert os.path.exists(os.path.join(test_workspace_dir, 'rig.yml'))
+        assert os.path.exists(os.path.join(project_config.rig_dir, 'system.yml'))
+        assert os.path.exists(os.path.join(project_config.rig_dir, 'workspace.yml'))
 
         env = RemoteDevEnvironment(name=unique_env_name)
         env.name = unique_env_name
@@ -210,8 +212,8 @@ class TestWorkspaceGitClone:
         for repo in repos:
             print(f"     - {repo.get('repo')} -> {repo.get('dest')}")
         
-        # Check that rig.yml exists
-        rig_yaml_path = os.path.join(project_config.rig_dir, 'rig.yml')
+        # Check that root rig.yml exists
+        rig_yaml_path = os.path.join(test_workspace_dir, 'rig.yml')
         assert os.path.exists(rig_yaml_path)
         print(f"   ✓ rig.yml exists")
 

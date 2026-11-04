@@ -32,17 +32,16 @@ Your PAT should have the following scopes:
 
 ```
 your-workspace/
+├── rig.yml              # Workspace/project config (playbooks, agent, repos)
 ├── .rig/
-│   ├── rig.yml          # Project metadata
-│   ├── setup.yml        # Setup configuration
-│   ├── vars.yml         # Git clone configuration (secret variables)
+│   ├── system.yml       # Auto-generated system playbook (code-server, agent)
+│   ├── workspace.yml    # Workspace-specific playbook (git clone, etc.)
+│   ├── vars.yml         # Git clone config and vaulted secrets
 │   ├── inventory.yml    # Ansible inventory (auto-generated)
-│   ├── playbook.yml     # Ansible playbook (auto-generated)
-│   └── requirements.txt # Ansible Galaxy roles
-├── projects/
-│   ├── project1/
-│   └── project2/
-└── rig.yml              # Workspace configuration
+│   └── requirements.yml # Ansible Galaxy collections/roles
+└── projects/
+    ├── project1/
+    └── project2/
 ```
 
 ### Git Clone Configuration
@@ -53,11 +52,11 @@ Add git clone configuration to `.rig/vars.yml`:
 git:
   clone_repos:
     - repo: https://github.com/octocat/Hello-World.git
-      dest: /root/Hello-World
+      dest: /workspace/Hello-World
       accept_hostkey: true
       version: main
     - repo: https://github.com/octocat/Spoon-Knife.git
-      dest: /root/Spoon-Knife
+      dest: /workspace/Spoon-Knife
       accept_hostkey: true
 ```
 
@@ -69,7 +68,7 @@ For private repositories, use SSH authentication with a Personal Access Token:
 git:
   ssh_repos:
     - repo: git@github.com:your-org/private-repo.git
-      dest: /root/private-repo
+      dest: /workspace/private-repo
       accept_hostkey: true
       ssh_key: /root/.ssh/id_rsa
 ```
@@ -78,32 +77,18 @@ The SSH key path should be on the **remote VM**, not your local machine. The key
 
 ### PAT as Ansible Inventory Secret
 
-During `rig init`, you'll be prompted for your PAT:
-
-```bash
-$ rig init
-? Enter git PAT (Personal Access Token) for git authentication: [input hidden]
-? Store PAT in .rig/.vault_password? (y/n): y
-```
-
-The PAT is stored encrypted using Ansible Vault:
-
-```bash
-$ cat .rig/.vault_password
-your-encrypted-pat-here
-```
+`rig init` discovers nearby git projects, asks which ones to include, and asks for a GitHub or GitLab PAT per HTTPS repo. Enter reuses the PAT already given for that provider (stored as `github_pat` / `gitlab_pat` when shared). Repo-specific PATs are stored as `{project}_git_pat`. Tokens are encrypted with the temporary data key (`/tmp/.rig/.data-key`) into `.rig/vars.yml`, and each `git.clone_repos` entry gets a matching `password_var`. If `RIG_GITHUB_PAT` / `RIG_GITLAB_PAT` is set, pressing Enter on the first repo for that provider reuses it.
 
 ## Usage
 
-### 1. Initialize Workspace
+### 1. Initialize Environment
 
 ```bash
-# Initialize a new workspace
-rig init --workspace
-
-# Or initialize a specific project
-rig init --project my-project
+# From a git repo or a parent folder that contains projects
+rig init
 ```
+
+It detects whether you are already inside a git repo. If so, it writes `rig.yml` / `.rig/` into that repo and offers sibling projects from the parent folder for inclusion. Otherwise it scans the current folder.
 
 ### 2. Configure Git Repositories
 
@@ -123,7 +108,7 @@ Edit `.rig/vars.yml` to add your git repositories:
 git:
   clone_repos:
     - repo: https://github.com/mlewk/mystack.git
-      dest: /root/mystack
+      dest: /workspace/mystack
       accept_hostkey: true
       username: git
       password_var: RIG_GITHUB_PAT
@@ -135,11 +120,11 @@ git:
 ### 3. Create Remote Development Environment
 
 ```bash
-# Setup the environment
-rig env setup --name my-dev-env
+# Create the environment
+rig create --name my-dev-env
 
 # Or with specific configuration
-rig env setup --name my-dev-env --type cax11 --region hel1
+rig create --name my-dev-env --type cax11 --region hel1
 ```
 
 ### 4. Run Ansible Playbook to Clone Repositories
@@ -167,7 +152,7 @@ The rig CLI automatically generates Ansible playbooks with git clone tasks:
     - name: Clone Hello-World repository
       git:
         repo: https://github.com/octocat/Hello-World.git
-        dest: /root/Hello-World
+        dest: /workspace/Hello-World
         accept_hostkey: true
         force: true
 ```
@@ -176,22 +161,18 @@ The rig CLI automatically generates Ansible playbooks with git clone tasks:
 
 ### `rig init`
 
-Initialize a new workspace or project with git configuration.
+Interactively initialize a multi-repo environment from nearby git projects.
 
 ```bash
-# Interactive mode
 rig init
-
-# With options
-rig init --workspace --git-pat "your-pat-here"
 ```
 
-### `rig env setup`
+### `rig create`
 
 Create a remote development environment with git repositories pre-cloned.
 
 ```bash
-rig env setup --name my-env
+rig create --name my-env
 ```
 
 ### `rig ansible run`
@@ -219,7 +200,7 @@ This is the recommended way to clone the rig repository on your remote developme
 git:
   clone_repos:
     - repo: https://github.com/mlewk/mystack.git
-      dest: /root/mystack
+      dest: /workspace/mystack
       accept_hostkey: true
       username: git
       password_var: RIG_GITHUB_PAT  # Read from environment variable
@@ -231,11 +212,11 @@ Then clone it using:
 # Set your PAT in environment
 export RIG_GITHUB_PAT=your-github-pat-here
 
-# Initialize workspace with git config
-rig init --project rig-dev
+# Initialize environment from nearby projects
+rig init
 
-# Setup remote environment and clone rig repo
-rig env setup --name rig-dev-env
+# Setup remote environment and clone repos
+rig create --name rig-dev-env
 rig ansible run --playbook clone_repos.yml
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main entry point for the remote development environment CLI (storage-focused)
+Main entry point for the remote development environment CLI
 """
 
 import argparse
@@ -11,9 +11,26 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 
 from cli.storage import StorageManager
-from cli.config import Config
-from cli.vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
-from cli.remote_dev import RemoteDevEnvironment
+from cli.config import RigConfig
+from cli.encrypt import interactive_decrypt, interactive_encrypt
+from cli import log as log
+from cli.last_env import clear_last_env, remember_last_env, resolve_env_name
+from cli.remote_dev import (
+    REMOTE_WORKSPACE_ROOT,
+    ProjectConfig,
+    RemoteDevEnvironment,
+    interactive_env_init,
+)
+
+
+def _load_credentials() -> bool:
+    """Load ~/.rig/config into the environment when vars are unset."""
+    try:
+        RigConfig().apply_to_environ()
+        return True
+    except Exception as exc:
+        log.warning("Could not load ~/.rig/config: %s", exc)
+        return False
 
 # Import package version. The two libraries export the same function name;
 # bind them separately so the type checker does not see a redefinition.
@@ -27,248 +44,687 @@ except ImportError:
     except ImportError:
         __version__ = "0.1.0"
 
-def main():
+
+def _cmd_create(args: argparse.Namespace) -> int:
+    _load_credentials()
+    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    if not hetzner_token:
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        log.warning("Storage manager not available; state will not be saved")
+
+    try:
+        project = ProjectConfig(os.getcwd())
+        project.load()
+        vm_cfg = dict((project.config or {}).get("vm") or {})
+        if getattr(args, "type", None):
+            vm_cfg["type"] = args.type
+        if getattr(args, "availability_zone", None):
+            vm_cfg["availability_zone"] = args.availability_zone
+            vm_cfg.pop("region", None)
+        if getattr(args, "image", None):
+            vm_cfg["image"] = args.image
+        vm_cfg.setdefault("type", "cax11")
+        vm_cfg.setdefault(
+            "availability_zone",
+            vm_cfg.pop("region", None) or "hel1",
+        )
+        vm_cfg.setdefault("image", "ubuntu-24.04")
+
+        env = RemoteDevEnvironment(
+            name=args.name,
+            config={"vm": vm_cfg},
+            storage_manager=storage_manager,
+        )
+        force_system = bool(
+            getattr(args, "force_system", False)
+            or getattr(args, "force_playbooks", False)
+        )
+        force_workspace = bool(
+            getattr(args, "force_workspace", False)
+            or getattr(args, "force_playbooks", False)
+        )
+        if not env.setup(project_dir=os.getcwd()):
+            return 1
+
+        # Provision via Ansible (system.yml then workspace.yml) with live output.
+        # Matching snapshots skip covered playbooks unless --force-* is set.
+        if not env.provision(
+            project_dir=os.getcwd(),
+            stream=True,
+            force_system=force_system,
+            force_workspace=force_workspace,
+        ):
+            return 1
+
+        log.info("Environment created")
+        remember_last_env(env.name)
+        if getattr(args, "no_attach", False):
+            log.info("Skipped agent attach; reconnect with: rig attach / rig dev")
+            log.debug("Reconnect: rig attach %s", env.name)
+            return 0
+
+        return env.attach_to_agent(project_dir=os.getcwd())
+    except Exception as e:
+        log.error("Error creating environment: %s", e)
+        return 1
+
+
+def _merge_agent_args(
+    continue_: bool = False,
+    session=None,
+    resume=None,
+    remainder=None,
+) -> list:
+    """Merge convenience flags with remainder args for the remote agent."""
+    agent_args: list = []
+    if continue_:
+        agent_args.append("--continue")
+    if session:
+        agent_args.extend(["--session", session])
+    if resume is not None:
+        # ``--resume`` alone opens the picker; ``--resume ID`` picks a session.
+        agent_args.append("--resume")
+        if resume:
+            agent_args.append(resume)
+    extra = list(remainder or [])
+    if extra and extra[0] == "--":
+        extra = extra[1:]
+    agent_args.extend(extra)
+    return agent_args
+
+
+def _attach_name_and_remainder(args: argparse.Namespace):
+    """
+    Split env name from agent argv.
+
+    Argparse can put flag-like tokens into the optional ``name`` positional
+    when users write ``rig attach -- --continue``; move those into remainder.
+    """
+    name = getattr(args, "name", None)
+    remainder = list(getattr(args, "agent_args", None) or [])
+    if name and str(name).startswith("-"):
+        remainder = [name] + remainder
+        name = None
+    if remainder and remainder[0] == "--":
+        remainder = remainder[1:]
+    return name, remainder
+
+
+def _cmd_attach(args: argparse.Namespace) -> int:
+    _load_credentials()
+    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    if not hetzner_token:
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+
+    positional_name, remainder = _attach_name_and_remainder(args)
+    name = resolve_env_name(
+        positional_name,
+        getattr(args, "name_flag", None),
+    )
+    if not name:
+        log.error("Environment name is required (no last environment remembered)")
+        log.info("Usage: rig attach [name] [-c|--continue] [-- …agent args]")
+        return 1
+
+    agent_args = _merge_agent_args(
+        continue_=getattr(args, "agent_continue", False),
+        session=getattr(args, "agent_session", None),
+        resume=getattr(args, "agent_resume", None),
+        remainder=remainder,
+    )
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        log.debug("Storage manager not available; resolving resources via Hetzner API")
+
+    try:
+        env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
+        if not env.resolve_resources() or not env.vm_ip:
+            log.error("Could not resolve environment '%s' (no VM IP found)", name)
+            return 1
+
+        ssh_key_path = f"/tmp/{env.ssh_key_name}"
+        if not os.path.exists(ssh_key_path):
+            log.error("SSH private key not found at %s", ssh_key_path)
+            log.error("Re-run create on this machine, or restore the key before attaching")
+            return 1
+
+        remember_last_env(env.name)
+        log.info("Attaching to '%s' (%s)", env.name, env.vm_ip)
+        if agent_args:
+            log.debug("Agent args: %s", " ".join(agent_args))
+        return env.attach_to_agent(project_dir=os.getcwd(), agent_args=agent_args)
+    except Exception as e:
+        log.error("Error attaching to environment: %s", e)
+        return 1
+
+
+def _cmd_apply(args: argparse.Namespace) -> int:
+    """Re-run Ansible playbooks on an existing environment (default: workspace.yml)."""
+    _load_credentials()
+    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    if not hetzner_token:
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+
+    name = resolve_env_name(
+        getattr(args, "name", None),
+        getattr(args, "name_flag", None),
+    )
+    if not name:
+        log.error("Environment name is required (no last environment remembered)")
+        log.info("Usage: rig apply [name] [--system]")
+        return 1
+
+    playbooks = ("system",) if getattr(args, "system", False) else ("workspace",)
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        log.debug("Storage manager not available; resolving resources via Hetzner API")
+
+    try:
+        env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
+        if not env.resolve_resources() or not env.vm_ip:
+            log.error("Could not resolve environment '%s' (no VM IP found)", name)
+            return 1
+
+        ssh_key_path = f"/tmp/{env.ssh_key_name}"
+        if not os.path.exists(ssh_key_path):
+            log.error("SSH private key not found at %s", ssh_key_path)
+            log.error("Re-run create on this machine, or restore the key before applying")
+            return 1
+
+        remember_last_env(env.name)
+        ok = env.apply_playbooks(
+            project_dir=os.getcwd(),
+            stream=True,
+            playbooks=playbooks,
+            soft_fail_workspace=False,
+            action="apply",
+        )
+        return 0 if ok else 1
+    except Exception as e:
+        log.error("Error applying playbooks: %s", e)
+        return 1
+
+
+def _cmd_dev(args: argparse.Namespace) -> int:
+    _load_credentials()
+    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    if not hetzner_token:
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+
+    name = resolve_env_name(
+        getattr(args, "name", None),
+        getattr(args, "name_flag", None),
+    )
+    if not name:
+        log.error("Environment name is required (no last environment remembered)")
+        log.info("Usage: rig dev [name]   or   rig dev --name <name>")
+        return 1
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        log.debug("Storage manager not available; resolving resources via Hetzner API")
+
+    try:
+        env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
+        if not env.resolve_resources() or not env.vm_ip:
+            log.error("Could not resolve environment '%s' (no VM IP found)", name)
+            return 1
+
+        remember_last_env(env.name)
+        return env.open_vscode(
+            remote_path=getattr(args, "path", None) or REMOTE_WORKSPACE_ROOT,
+            project_dir=os.getcwd(),
+            browser=bool(getattr(args, "browser", False)),
+            editor=getattr(args, "editor", None),
+        )
+    except Exception as e:
+        log.error("Error opening VS Code: %s", e)
+        return 1
+
+
+def _cmd_list(_args: argparse.Namespace) -> int:
+    _load_credentials()
+    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    if not hetzner_token:
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        pass
+
+    try:
+        env = RemoteDevEnvironment(storage_manager=storage_manager)
+        environments = env.list_environments()
+        if not environments:
+            log.info("No remote environments")
+            return 0
+        log.info("Remote environments:")
+        for env_info in environments:
+            log.info("  - %s (%s)", env_info.get("name"), env_info.get("status"))
+        return 0
+    except Exception as e:
+        log.error("Error listing environments: %s", e)
+        return 1
+
+
+def _cmd_destroy(args: argparse.Namespace) -> int:
+    _load_credentials()
+    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    if not hetzner_token:
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+
+    names: list = []
+    for value in (getattr(args, "names", None) or []):
+        if value and value not in names:
+            names.append(value)
+    # Back-compat: --name can still be passed (once or repeated).
+    for value in (getattr(args, "name_flags", None) or []):
+        if value and value not in names:
+            names.append(value)
+    if getattr(args, "name", None):
+        if args.name not in names:
+            names.append(args.name)
+
+    if not names:
+        last = resolve_env_name()
+        if last:
+            names.append(last)
+            log.info("Using last environment '%s'", last)
+        else:
+            log.error("At least one environment name is required (no last environment remembered)")
+            log.info("Usage: rig destroy [name ...]   or   rig destroy --name <name>")
+            return 1
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        log.debug("Storage manager not available; resolving resources via Hetzner API")
+
+    failures = []
+    for name in names:
+        try:
+            env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
+            env.cleanup(project_dir=os.getcwd())
+            clear_last_env(name)
+            log.info("Environment '%s' destroyed", name)
+        except Exception as e:
+            log.error("Error destroying environment '%s': %s", name, e)
+            failures.append(name)
+
+    if failures:
+        log.error("Failed to destroy: %s", ", ".join(failures))
+        return 1
+    return 0
+
+
+def _cmd_cache(args: argparse.Namespace) -> int:
+    """Clear Hetzner snapshots for the current workspace or system playbook."""
+    action = getattr(args, "action", None) or "clear"
+    if action != "clear":
+        log.error("Unknown cache action %r (supported: clear)", action)
+        return 1
+
+    _load_credentials()
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
+    if not hetzner_token:
+        log.error(
+            "Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN"
+        )
+        return 1
+
+    from cli.snapshots import filter_snapshots
+
+    clear_system = bool(getattr(args, "system", False))
+    workspace_name = None
+    if not clear_system:
+        project = ProjectConfig(os.getcwd())
+        if not project.load() or not project.config:
+            log.error("No rig.yml in %s; cannot determine workspace snapshots", os.getcwd())
+            return 1
+        workspace_name = project.config.get("name") or os.path.basename(
+            os.getcwd().rstrip(os.sep)
+        )
+
+    try:
+        env = RemoteDevEnvironment(storage_manager=None)
+        images = env.manager.list_snapshots()
+    except Exception as exc:
+        log.error("Failed to list snapshots: %s", exc)
+        return 1
+
+    targets = filter_snapshots(
+        images,
+        system=clear_system,
+        workspace_name=None if clear_system else str(workspace_name),
+    )
+    if not targets:
+        scope = "system" if clear_system else f"workspace '{workspace_name}'"
+        log.info("No %s snapshots to clear", scope)
+        return 0
+
+    failures = []
+    for image in targets:
+        image_id = image.get("id")
+        description = image.get("description") or image_id
+        if image_id is None:
+            continue
+        log.info("Deleting snapshot %s (id=%s)", description, image_id)
+        if not env.manager.delete_image(str(image_id)):
+            failures.append(str(description))
+
+    if failures:
+        log.error("Failed to delete: %s", ", ".join(failures))
+        return 1
+    log.info("Cleared %s snapshot(s)", len(targets))
+    return 0
+
+
+def _cmd_encrypt(args: argparse.Namespace) -> int:
+    try:
+        ciphertext = interactive_encrypt(stdin_name=args.stdin_name)
+    except (ValueError, RuntimeError) as exc:
+        log.error("%s", exc)
+        return 1
+    if ciphertext:
+        print(ciphertext)
+    return 0
+
+
+def _cmd_decrypt(args: argparse.Namespace) -> int:
+    try:
+        plaintext = interactive_decrypt(name=args.name)
+    except (ValueError, RuntimeError) as exc:
+        log.error("%s", exc)
+        return 1
+    print(plaintext, end="" if plaintext.endswith("\n") else "\n")
+    return 0
+
+
+def main(argv=None):
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
         description="RIG - Remote Development Environment CLI"
     )
     parser.add_argument("--version", action="version", version=f"rig {__version__}")
-    parser.add_argument("--config", help="Configuration file path", default="config.yaml")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show debug logs (IDs, playbook paths, SSH details)",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Show warnings and errors only",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # VPN commands
-    vpn_parser = subparsers.add_parser("vpn", help="VPN tunnel operations (optional, for accessing upstream services)")
-    vpn_subparsers = vpn_parser.add_subparsers(dest="vpn_command", help="VPN operations")
+    subparsers.add_parser(
+        "init",
+        help="Interactively initialize a multi-repo environment from nearby git projects",
+    )
 
-    # VPN generate-keys command
-    vpn_generate_parser = vpn_subparsers.add_parser("generate-keys", help="Generate WireGuard key pair")
+    create_parser = subparsers.add_parser(
+        "create",
+        help="Create a remote environment, run Ansible playbooks, attach to agent",
+    )
+    create_parser.add_argument("--name", help="Environment name")
+    create_parser.add_argument(
+        "--type",
+        default=None,
+        help="VM type (default: from rig.yml vm.type, else cax11)",
+    )
+    create_parser.add_argument(
+        "--availability-zone",
+        "--region",
+        dest="availability_zone",
+        default=None,
+        help="Hetzner location / AZ (default: from rig.yml vm.availability_zone, else hel1)",
+    )
+    create_parser.add_argument(
+        "--image",
+        default=None,
+        help="VM image (default: from rig.yml vm.image, else ubuntu-24.04)",
+    )
+    create_parser.add_argument(
+        "--no-attach",
+        action="store_true",
+        help="Skip attaching to the coding agent TTY after provisioning",
+    )
+    create_parser.add_argument(
+        "--force-playbooks",
+        action="store_true",
+        help="Run system.yml and workspace.yml even when booting from a matching snapshot",
+    )
+    create_parser.add_argument(
+        "--force-system",
+        action="store_true",
+        help="Run system.yml even when booting from a system/workspace snapshot",
+    )
+    create_parser.add_argument(
+        "--force-workspace",
+        action="store_true",
+        help="Run workspace.yml even when booting from a matching workspace snapshot",
+    )
 
-    # VPN setup command
-    vpn_setup_parser = vpn_subparsers.add_parser("setup", help="Setup WireGuard VPN tunnel to remote gateway")
-    vpn_setup_parser.add_argument("--endpoint", required=True, help="VPN gateway endpoint (host:port)")
-    vpn_setup_parser.add_argument("--interface", default="wg0", help="WireGuard interface name")
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help=(
+            "Re-run Ansible playbooks on an existing env "
+            "(default: workspace.yml; use --system for system.yml)"
+        ),
+    )
+    apply_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Environment name (defaults to last handled env in /tmp/.rig/last-env)",
+    )
+    apply_parser.add_argument(
+        "--name",
+        dest="name_flag",
+        help="Environment name (kept for compatibility)",
+    )
+    apply_parser.add_argument(
+        "--system",
+        action="store_true",
+        help="Run .rig/system.yml instead of workspace.yml",
+    )
 
-    # VPN teardown command
-    vpn_teardown_parser = vpn_subparsers.add_parser("teardown", help="Tear down WireGuard VPN tunnel")
-    vpn_teardown_parser.add_argument("--interface", default="wg0", help="WireGuard interface name")
+    attach_parser = subparsers.add_parser(
+        "attach",
+        help="Attach to a remote coding-agent TTY (uses last env if name omitted)",
+    )
+    attach_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Environment name (defaults to last handled env in /tmp/.rig/last-env)",
+    )
+    attach_parser.add_argument(
+        "--name",
+        dest="name_flag",
+        help="Environment name (kept for compatibility)",
+    )
+    attach_parser.add_argument(
+        "-c",
+        "--continue",
+        dest="agent_continue",
+        action="store_true",
+        help="Continue the last coding-agent session (forwards --continue)",
+    )
+    attach_parser.add_argument(
+        "-s",
+        "--session",
+        dest="agent_session",
+        metavar="ID",
+        help="Continue a specific OpenCode session id (forwards --session)",
+    )
+    attach_parser.add_argument(
+        "--resume",
+        dest="agent_resume",
+        nargs="?",
+        const="",
+        metavar="ID",
+        help="Resume a Claude Code session (forwards --resume [ID])",
+    )
+    attach_parser.add_argument(
+        "agent_args",
+        nargs=argparse.REMAINDER,
+        help="Extra args forwarded to opencode/claude (put -- before flags)",
+    )
 
-    # VPN status command
-    vpn_status_parser = vpn_subparsers.add_parser("status", help="Check WireGuard VPN tunnel status")
-    vpn_status_parser.add_argument("--interface", default="wg0", help="WireGuard interface name")
+    dev_parser = subparsers.add_parser(
+        "dev",
+        help="Open VS Code / Cursor on the remote env (uses last env if name omitted)",
+        description=(
+            "Open VS Code or Cursor against the remote environment via Remote-SSH "
+            "(default). Pass --browser to open code-server in a browser instead."
+        ),
+    )
+    dev_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Environment name (defaults to last handled env in /tmp/.rig/last-env)",
+    )
+    dev_parser.add_argument(
+        "--name",
+        dest="name_flag",
+        help="Environment name (kept for compatibility)",
+    )
+    dev_parser.add_argument(
+        "--path",
+        default=REMOTE_WORKSPACE_ROOT,
+        help=f"Remote folder to open (default: {REMOTE_WORKSPACE_ROOT})",
+    )
+    dev_parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Open code-server in the browser instead of local VS Code/Cursor",
+    )
+    dev_parser.add_argument(
+        "--editor",
+        choices=["code", "code-insiders", "cursor", "codium"],
+        help="Prefer a specific local editor CLI",
+    )
 
-    # Storage commands
-    storage_parser = subparsers.add_parser("storage", help="Storage operations")
-    storage_subparsers = storage_parser.add_subparsers(dest="storage_command", help="Storage operations")
+    subparsers.add_parser("list", help="List remote environments")
 
-    # Create bucket command
-    create_bucket_parser = storage_subparsers.add_parser("create-bucket", help="Create a new bucket")
-    create_bucket_parser.add_argument("--name", required=True, help="Bucket name")
+    cache_parser = subparsers.add_parser(
+        "cache",
+        help="Manage Hetzner snapshots created after system/workspace playbooks",
+        description=(
+            "Clear VM snapshots. "
+            "'rig cache clear' removes workspace snapshots for the current project; "
+            "'rig cache --system clear' removes system.yml snapshots (rig-{version})."
+        ),
+    )
+    cache_parser.add_argument(
+        "--system",
+        action="store_true",
+        help="Target system.yml snapshots (rig-{version}) instead of workspace snapshots",
+    )
+    cache_parser.add_argument(
+        "action",
+        nargs="?",
+        default="clear",
+        choices=["clear"],
+        help="Cache action (default: clear)",
+    )
 
-    # List buckets command
-    list_buckets_parser = storage_subparsers.add_parser("list-buckets", help="List all buckets")
+    destroy_parser = subparsers.add_parser(
+        "destroy",
+        help=(
+            "Destroy remote environments (runs playbooks.finalizers first; "
+            "uses last env if name omitted)"
+        ),
+    )
+    destroy_parser.add_argument(
+        "names",
+        nargs="*",
+        metavar="name",
+        help="Environment name(s) to destroy (defaults to last handled env in /tmp/.rig/last-env)",
+    )
+    destroy_parser.add_argument(
+        "--name",
+        action="append",
+        dest="name_flags",
+        help="Environment name (repeatable; kept for compatibility)",
+    )
 
-    # Upload file command
-    upload_parser = storage_subparsers.add_parser("upload", help="Upload a file to storage")
-    upload_parser.add_argument("--bucket", required=True, help="Bucket name")
-    upload_parser.add_argument("--file", required=True, help="Local file path")
-    upload_parser.add_argument("--object-name", help="Object name in storage (optional)")
+    encrypt_parser = subparsers.add_parser(
+        "encrypt",
+        help=(
+            "Encrypt a value with a temporary data key and add it to .rig/vars.yml"
+        ),
+    )
+    encrypt_parser.add_argument(
+        "--stdin-name",
+        help="Variable name; read multiline value from stdin until Ctrl+D",
+    )
 
-    # Download file command
-    download_parser = storage_subparsers.add_parser("download", help="Download a file from storage")
-    download_parser.add_argument("--bucket", required=True, help="Bucket name")
-    download_parser.add_argument("--object", required=True, help="Object name in storage")
-    download_parser.add_argument("--file", required=True, help="Local file path")
+    decrypt_parser = subparsers.add_parser(
+        "decrypt",
+        help="Decrypt a variable from .rig/vars.yml using the temporary data key",
+    )
+    decrypt_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Variable name to decrypt (prompted if omitted)",
+    )
 
-    # List objects command
-    list_objects_parser = storage_subparsers.add_parser("list-objects", help="List objects in a bucket")
-    list_objects_parser.add_argument("--bucket", required=True, help="Bucket name")
-    list_objects_parser.add_argument("--prefix", help="Object prefix filter")
+    args = parser.parse_args(argv)
+    log.configure_logging(
+        verbose=bool(getattr(args, "verbose", False)),
+        quiet=bool(getattr(args, "quiet", False)),
+    )
 
-    # Delete object command
-    delete_object_parser = storage_subparsers.add_parser("delete-object", help="Delete an object from storage")
-    delete_object_parser.add_argument("--bucket", required=True, help="Bucket name")
-    delete_object_parser.add_argument("--object", required=True, help="Object name in storage")
+    if args.command == "init":
+        return 0 if interactive_env_init() else 1
+    if args.command == "create":
+        return _cmd_create(args)
+    if args.command == "apply":
+        return _cmd_apply(args)
+    if args.command == "attach":
+        return _cmd_attach(args)
+    if args.command == "dev":
+        return _cmd_dev(args)
+    if args.command == "list":
+        return _cmd_list(args)
+    if args.command == "cache":
+        return _cmd_cache(args)
+    if args.command == "destroy":
+        return _cmd_destroy(args)
+    if args.command == "encrypt":
+        return _cmd_encrypt(args)
+    if args.command == "decrypt":
+        return _cmd_decrypt(args)
 
-    # Delete bucket command
-    delete_bucket_parser = storage_subparsers.add_parser("delete-bucket", help="Delete a bucket")
-    delete_bucket_parser.add_argument("--name", required=True, help="Bucket name")
+    parser.print_help()
+    return 1
 
-    # Environment commands
-    env_parser = subparsers.add_parser("env", help="Remote development environment operations")
-    env_subparsers = env_parser.add_subparsers(dest="env_command", help="Environment operations")
-
-    # env setup command
-    env_setup_parser = env_subparsers.add_parser("setup", help="Setup a new remote development environment")
-    env_setup_parser.add_argument("--name", help="Environment name")
-    env_setup_parser.add_argument("--type", default="cax11", help="VM type (default: cax11)")
-    env_setup_parser.add_argument("--region", default="hel1", help="VM region (default: hel1)")
-    env_setup_parser.add_argument("--image", default="ubuntu-24.04", help="VM image (default: ubuntu-24.04)")
-
-    # env list command
-    env_list_parser = env_subparsers.add_parser("list", help="List all environments")
-
-    # env destroy command
-    env_destroy_parser = env_subparsers.add_parser("destroy", help="Destroy an environment")
-    env_destroy_parser.add_argument("--name", required=True, help="Environment name")
-
-    args = parser.parse_args()
-
-    # Handle VPN commands
-    if args.command == "vpn":
-        try:
-            vpn_manager = VPNManager()
-        except Exception as e:
-            print(f"Configuration error: {e}")
-            return
-
-        if args.vpn_command == "generate-keys":
-            keys = vpn_manager.generate_wireguard_keys()
-            print("Generated WireGuard key pair:")
-            print(f"Private key: {keys['private_key']}")
-            print(f"Public key: {keys['public_key']}")
-
-        elif args.vpn_command == "setup":
-            # Get private key from environment or prompt
-            private_key = os.getenv('WG_PRIVATE_KEY')
-            peer_public_key = os.getenv('WG_PEER_PUBLIC_KEY')
-            
-            if not private_key or not peer_public_key:
-                print("Error: WG_PRIVATE_KEY and WG_PEER_PUBLIC_KEY environment variables required")
-                print("Example: WG_PRIVATE_KEY=... WG_PEER_PUBLIC_KEY=... rig vpn setup --endpoint ...")
-                return
-            
-            success = vpn_manager.setup_vpn_with_credentials(
-                name=args.interface,
-                endpoint=args.endpoint,
-                private_key=private_key,
-                peer_public_key=peer_public_key
-            )
-            if not success:
-                return 1
-
-        elif args.vpn_command == "teardown":
-            success = vpn_manager.teardown_vpn_tunnel(args.interface)
-            if not success:
-                return 1
-
-        elif args.vpn_command == "status":
-            status = vpn_manager.check_vpn_status(args.interface)
-            print(f"VPN Tunnel Status: {args.interface}")
-            print(f"  Active: {status['up']}")
-            print(f"  Status: {status['status']}")
-            if status['error']:
-                print(f"  Error: {status['error']}")
-
-        else:
-            print("Unknown VPN command. Use --help to see available commands.")
-
-    # Handle storage commands
-    elif args.command == "storage":
-        try:
-            # Initialize storage manager with Hetzner token
-            storage = StorageManager()
-        except ValueError as e:
-            print(f"Configuration error: {e}")
-            return
-
-        # Handle storage commands
-        if args.storage_command == "create-bucket":
-            storage.create_bucket(args.name)
-
-        elif args.storage_command == "list-buckets":
-            storage.list_buckets()
-
-        elif args.storage_command == "upload":
-            storage.upload_file(args.bucket, args.file, args.object_name)
-
-        elif args.storage_command == "download":
-            storage.download_file(args.bucket, args.object, args.file)
-
-        elif args.storage_command == "list-objects":
-            storage.list_objects(args.bucket, args.prefix or "")
-
-        elif args.storage_command == "delete-object":
-            storage.delete_object(args.bucket, args.object)
-
-        elif args.storage_command == "delete-bucket":
-            storage.delete_bucket(args.name)
-
-        else:
-            print("Unknown storage command. Use --help to see available commands.")
-
-    # Handle environment commands
-    elif args.command == "env":
-        if args.env_command == "setup":
-            # Get Hetzner token
-            hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
-            if not hetzner_token:
-                print("Error: HETZNER_CLOUD_API_TOKEN environment variable required")
-                return 1
-
-            # Get storage manager for state management
-            storage_manager = None
-            try:
-                storage_manager = StorageManager()
-            except ValueError:
-                print("Warning: Storage manager not available, state will not be saved")
-
-            try:
-                env = RemoteDevEnvironment(
-                    name=args.name,
-                    storage_manager=storage_manager
-                )
-                env.config = {
-                    'vm': {
-                        'type': args.type,
-                        'region': args.region,
-                        'image': args.image
-                    }
-                }
-
-                if env.setup():
-                    print("\nEnvironment setup complete!")
-                else:
-                    return 1
-            except Exception as e:
-                print(f"Error setting up environment: {e}")
-                return 1
-
-        elif args.env_command == "list":
-            hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
-            if not hetzner_token:
-                print("Error: HETZNER_CLOUD_API_TOKEN environment variable required")
-                return 1
-
-            try:
-                env = RemoteDevEnvironment(hetzner_token=hetzner_token)
-                environments = env.list_environments()
-                print("Remote Development Environments:")
-                for env_info in environments:
-                    print(f"  - {env_info.get('name')} ({env_info.get('status')})")
-            except Exception as e:
-                print(f"Error listing environments: {e}")
-                return 1
-
-        elif args.env_command == "destroy":
-            hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
-            if not hetzner_token:
-                print("Error: HETZNER_CLOUD_API_TOKEN environment variable required")
-                return 1
-
-            try:
-                env = RemoteDevEnvironment(name=args.name, hetzner_token=hetzner_token)
-                env.cleanup()
-                print("Environment destroyed successfully")
-            except Exception as e:
-                print(f"Error destroying environment: {e}")
-                return 1
-
-        else:
-            print("Unknown environment command. Use --help to see available commands.")
-
-    else:
-        print("Unknown command. Use --help to see available commands.")
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -29,15 +29,18 @@ class TestProjectConfigGitSetup:
         
         # Verify directory structure
         assert os.path.exists(project_config.rig_dir)
-        assert os.path.exists(os.path.join(project_config.rig_dir, 'rig.yml'))
-        assert os.path.exists(os.path.join(project_config.rig_dir, 'setup.yml'))
+        assert os.path.exists(os.path.join(workspace_dir, 'rig.yml'))
+        assert os.path.exists(os.path.join(project_config.rig_dir, 'system.yml'))
+        assert os.path.exists(os.path.join(project_config.rig_dir, 'workspace.yml'))
         assert os.path.exists(os.path.join(project_config.rig_dir, 'vars.yml'))
+        assert not os.path.exists(os.path.join(project_config.rig_dir, 'rig.yml'))
+        assert not os.path.exists(os.path.join(project_config.rig_dir, 'setup.yml'))
         
         # Set git configuration
         project_config.set_vars('git.clone_repos', [
             {
                 'repo': 'https://github.com/octocat/Hello-World.git',
-                'dest': '/root/Hello-World',
+                'dest': '/workspace/Hello-World',
                 'accept_hostkey': True
             }
         ])
@@ -58,12 +61,12 @@ class TestProjectConfigGitSetup:
         repos = [
             {
                 'repo': 'https://github.com/octocat/Hello-World.git',
-                'dest': '/root/Hello-World',
+                'dest': '/workspace/Hello-World',
                 'accept_hostkey': True
             },
             {
                 'repo': 'https://github.com/octocat/Spoon-Knife.git',
-                'dest': '/root/Spoon-Knife',
+                'dest': '/workspace/Spoon-Knife',
                 'accept_hostkey': True
             }
         ]
@@ -72,8 +75,8 @@ class TestProjectConfigGitSetup:
         git_repos = project_config.get_vars('git.clone_repos')
         
         assert len(git_repos) == 2
-        assert git_repos[0]['dest'] == '/root/Hello-World'
-        assert git_repos[1]['dest'] == '/root/Spoon-Knife'
+        assert git_repos[0]['dest'] == '/workspace/Hello-World'
+        assert git_repos[1]['dest'] == '/workspace/Spoon-Knife'
 
 
 class TestAnsibleGitPlaybook:
@@ -94,7 +97,7 @@ class TestAnsibleGitPlaybook:
             'name': 'Clone Hello-World repository',
             'git': {
                 'repo': 'https://github.com/octocat/Hello-World.git',
-                'dest': '/root/Hello-World',
+                'dest': '/workspace/Hello-World',
                 'accept_hostkey': True,
                 'force': True
             }
@@ -112,7 +115,7 @@ class TestAnsibleGitPlaybook:
         
         assert 'git:' in playbook_content
         assert 'https://github.com/octocat/Hello-World.git' in playbook_content
-        assert '/root/Hello-World' in playbook_content
+        assert '/workspace/Hello-World' in playbook_content
 
     def test_generate_git_clone_with_ssh_known_hosts(self, tmp_path):
         """Test generating playbook with SSH known hosts setup"""
@@ -135,7 +138,7 @@ class TestAnsibleGitPlaybook:
                 'name': 'Clone repository',
                 'git': {
                     'repo': 'https://github.com/octocat/Hello-World.git',
-                    'dest': '/root/Hello-World',
+                    'dest': '/workspace/Hello-World',
                     'accept_hostkey': True
                 }
             }
@@ -201,7 +204,7 @@ class TestGitRepositoryConfig:
         
         valid_config = {
             'repo': 'https://github.com/octocat/Hello-World.git',
-            'dest': '/root/Hello-World',
+            'dest': '/workspace/Hello-World',
             'accept_hostkey': True,
             'version': 'main'
         }
@@ -222,7 +225,7 @@ class TestGitRepositoryConfig:
         # SSH-based config (for private repos with PAT)
         ssh_config = {
             'repo': 'git@github.com:octocat/Hello-World.git',
-            'dest': '/root/Hello-World-ssh',
+            'dest': '/workspace/Hello-World-ssh',
             'accept_hostkey': True,
             'ssh_key': '/root/.ssh/id_rsa'  # Path on remote VM
         }
@@ -242,7 +245,7 @@ class TestGitRepositoryConfig:
         
         branch_config = {
             'repo': 'https://github.com/octocat/Hello-World.git',
-            'dest': '/root/Hello-World',
+            'dest': '/workspace/Hello-World',
             'version': 'main'  # Specific branch
         }
         

@@ -141,7 +141,13 @@ class GitManager:
             print(f"Error setting up git environment: {e}")
             return False
 
-    def add_repo(self, repo_url: str, dest: str, is_ssh: bool = False) -> bool:
+    def add_repo(
+        self,
+        repo_url: str,
+        dest: str,
+        is_ssh: bool = False,
+        password_var: Optional[str] = None,
+    ) -> bool:
         """Add a repository to the clone list"""
         try:
             if self.project_config is None:
@@ -159,6 +165,8 @@ class GitManager:
                 'dest': dest,
                 'accept_hostkey': True
             }
+            if password_var:
+                repo_config['password_var'] = password_var
             
             if is_ssh:
                 repo_config['ssh_key'] = '/root/.ssh/id_rsa'
@@ -170,7 +178,7 @@ class GitManager:
             git_config['ssh_repos'] = ssh_repos
             
             self.project_config.set_vars('git', git_config)
-            self.project_config.save()
+            self.project_config.save(write_vars=False)
             
             # Update internal state
             self.repos_to_clone = clone_repos
@@ -180,6 +188,102 @@ class GitManager:
         except Exception as e:
             print(f"Error adding repository: {e}")
             return False
+
+    def set_repo_password_var(self, repo_url: str, password_var: str) -> bool:
+        """Attach or update password_var on an existing clone_repos entry."""
+        try:
+            if self.project_config is None:
+                from cli.remote_dev import ProjectConfig
+                self.project_config = ProjectConfig()
+
+            self.project_config.load()
+            git_config = self.project_config.get_vars('git') or {}
+            clone_repos = git_config.get('clone_repos', [])
+            updated = False
+            for item in clone_repos:
+                if isinstance(item, dict) and item.get('repo') == repo_url:
+                    item['password_var'] = password_var
+                    updated = True
+            if not updated:
+                return False
+            git_config['clone_repos'] = clone_repos
+            self.project_config.set_vars('git', git_config)
+            self.project_config.save(write_vars=False)
+            self.repos_to_clone = clone_repos
+            return True
+        except Exception as e:
+            print(f"Error setting password_var: {e}")
+            return False
+
+    def set_repo_dest(self, repo_url: str, dest: str) -> bool:
+        """Update dest on an existing clone_repos / ssh_repos entry."""
+        try:
+            if self.project_config is None:
+                from cli.remote_dev import ProjectConfig
+                self.project_config = ProjectConfig()
+
+            self.project_config.load()
+            git_config = self.project_config.get_vars('git') or {}
+            updated = False
+            for key in ('clone_repos', 'ssh_repos'):
+                entries = git_config.get(key, []) or []
+                for item in entries:
+                    if isinstance(item, dict) and item.get('repo') == repo_url:
+                        if item.get('dest') != dest:
+                            item['dest'] = dest
+                            updated = True
+                git_config[key] = entries
+            if not updated:
+                return False
+            self.project_config.set_vars('git', git_config)
+            self.project_config.save(write_vars=False)
+            self.repos_to_clone = git_config.get('clone_repos', [])
+            self.ssh_repos = git_config.get('ssh_repos', [])
+            return True
+        except Exception as e:
+            print(f"Error setting repo dest: {e}")
+            return False
+
+    def normalize_workspace_dests(self) -> int:
+        """
+        Rewrite legacy ``/root/<name>`` clone destinations under ``/workspace``.
+
+        Returns the number of entries updated.
+        """
+        from cli.remote_dev import REMOTE_WORKSPACE_ROOT, remote_workspace_path
+
+        try:
+            if self.project_config is None:
+                return 0
+            self.project_config.load()
+            git_config = self.project_config.get_vars('git') or {}
+            changed = 0
+            for key in ('clone_repos', 'ssh_repos'):
+                entries = git_config.get(key, []) or []
+                for item in entries:
+                    if not isinstance(item, dict):
+                        continue
+                    dest = str(item.get('dest') or '')
+                    if not dest:
+                        continue
+                    # Legacy home clones → workspace; leave /root/.ssh alone.
+                    if dest.startswith('/root/') and not dest.startswith('/root/.'):
+                        name = dest.rstrip('/').split('/')[-1]
+                        item['dest'] = remote_workspace_path(name)
+                        changed += 1
+                    elif not dest.startswith(REMOTE_WORKSPACE_ROOT + '/') and dest != REMOTE_WORKSPACE_ROOT:
+                        # Keep absolute paths outside /root as-is (custom mounts).
+                        pass
+                git_config[key] = entries
+            if changed:
+                self.project_config.set_vars('git', git_config)
+                self.project_config.save(write_vars=False)
+                self.repos_to_clone = git_config.get('clone_repos', [])
+                self.ssh_repos = git_config.get('ssh_repos', [])
+            return changed
+        except Exception as e:
+            print(f"Error normalizing workspace dests: {e}")
+            return 0
 
     def remove_repo(self, repo_url: str) -> bool:
         """Remove a repository from the clone list"""

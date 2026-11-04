@@ -8,6 +8,8 @@ from typing import Optional, Dict, List
 import boto3
 from botocore.exceptions import ClientError
 
+from cli import log
+
 
 class StorageManager:
     """Manages storage operations with Hetzner S3-compatible storage"""
@@ -95,7 +97,7 @@ class StorageManager:
             # boto3's session has a default region that doesn't match the endpoint
             try:
                 s3_client.create_bucket(Bucket=bucket_name)
-                print(f"Bucket '{bucket_name}' created successfully")
+                log.debug("Created storage bucket %r", bucket_name)
                 # Wait a moment for bucket to be fully created (Hetzner S3 can have slight delay)
                 time.sleep(1)
                 return True
@@ -114,7 +116,11 @@ class StorageManager:
                         config=boto3.session.Config(signature_version='s3v4')
                     )
                     s3_client.create_bucket(Bucket=bucket_name)
-                    print(f"Bucket '{bucket_name}' created successfully (with region {endpoint_region})")
+                    log.debug(
+                        "Created storage bucket %r (region %s)",
+                        bucket_name,
+                        endpoint_region,
+                    )
                     # Wait a moment for bucket to be fully created
                     time.sleep(1)
                     return True
@@ -125,10 +131,10 @@ class StorageManager:
 
             # If bucket already exists, that's fine
             if error_code == 'BucketAlreadyOwnedByYou' or error_code == 'BucketAlreadyExists':
-                print(f"Bucket '{bucket_name}' already exists")
+                log.debug("Storage bucket %r already exists", bucket_name)
                 return True
 
-            print(f"Error creating bucket: {e}")
+            log.warning("Could not create storage bucket: %s", e)
             return False
 
     def list_buckets(self) -> list:
@@ -137,19 +143,17 @@ class StorageManager:
             s3_client = self._get_s3_client()
             response = s3_client.list_buckets()
             buckets = [bucket['Name'] for bucket in response['Buckets']]
-            print("Buckets:")
-            for bucket in buckets:
-                print(f"  - {bucket}")
+            log.debug("Storage buckets: %s", buckets)
             return buckets
         except ClientError as e:
-            print(f"Error listing buckets: {e}")
+            log.warning("Could not list storage buckets: %s", e)
             return []
 
     def upload_file(self, bucket_name: str, file_path: str, object_name: Optional[str] = None) -> bool:
         """Upload a file to storage"""
         try:
             if not os.path.exists(file_path):
-                print(f"Error: File '{file_path}' not found")
+                log.warning("Local file not found for upload: %s", file_path)
                 return False
 
             s3_client = self._get_s3_client()
@@ -158,10 +162,10 @@ class StorageManager:
                 object_name = os.path.basename(file_path)
 
             s3_client.upload_file(file_path, bucket_name, object_name)
-            print(f"File '{file_path}' uploaded to bucket '{bucket_name}' as '{object_name}'")
+            log.debug("Uploaded %s -> %s/%s", file_path, bucket_name, object_name)
             return True
         except ClientError as e:
-            print(f"Error uploading file: {e}")
+            log.warning("Could not upload file: %s", e)
             return False
 
     def download_file(self, bucket_name: str, object_name: str, file_path: str) -> bool:
@@ -169,10 +173,10 @@ class StorageManager:
         try:
             s3_client = self._get_s3_client()
             s3_client.download_file(bucket_name, object_name, file_path)
-            print(f"File '{object_name}' downloaded from bucket '{bucket_name}' to '{file_path}'")
+            log.debug("Downloaded %s/%s -> %s", bucket_name, object_name, file_path)
             return True
         except (ClientError, OSError) as e:
-            print(f"Error downloading file: {e}")
+            log.debug("Could not download file: %s", e)
             return False
 
     def list_objects(self, bucket_name: str, prefix: str = "") -> list:
@@ -183,12 +187,10 @@ class StorageManager:
             objects = []
             if 'Contents' in response:
                 objects = [obj['Key'] for obj in response['Contents']]
-            print("Objects:")
-            for obj in objects:
-                print(f"  - {obj}")
+            log.debug("Storage objects in %r (prefix %r): %s", bucket_name, prefix, objects)
             return objects
         except ClientError as e:
-            print(f"Error listing objects: {e}")
+            log.warning("Could not list storage objects: %s", e)
             return []
 
     def delete_object(self, bucket_name: str, object_name: str) -> bool:
@@ -196,10 +198,10 @@ class StorageManager:
         try:
             s3_client = self._get_s3_client()
             s3_client.delete_object(Bucket=bucket_name, Key=object_name)
-            print(f"Object '{object_name}' deleted from bucket '{bucket_name}'")
+            log.debug("Deleted %s/%s", bucket_name, object_name)
             return True
         except ClientError as e:
-            print(f"Error deleting object: {e}")
+            log.warning("Could not delete storage object: %s", e)
             return False
 
     def delete_bucket(self, bucket_name: str) -> bool:
@@ -207,10 +209,10 @@ class StorageManager:
         try:
             s3_client = self._get_s3_client()
             s3_client.delete_bucket(Bucket=bucket_name)
-            print(f"Bucket '{bucket_name}' deleted successfully")
+            log.debug("Deleted storage bucket %r", bucket_name)
             return True
         except ClientError as e:
-            print(f"Error deleting bucket: {e}")
+            log.warning("Could not delete storage bucket: %s", e)
             return False
 
     def get_credentials_info(self) -> Dict[str, str]:

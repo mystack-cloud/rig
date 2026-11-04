@@ -17,7 +17,7 @@ class TestRemoteDevConfig(unittest.TestCase):
             'vm': {
                 'name': 'test-dev',
                 'type': 'cax11',
-                'region': 'hel1',
+                'availability_zone': 'hel1',
                 'image': 'ubuntu-24.04'
             },
             'firewall': {
@@ -37,7 +37,7 @@ class TestRemoteDevConfig(unittest.TestCase):
 
             self.assertEqual(config['vm']['name'], 'test-dev')
             self.assertEqual(config['vm']['type'], 'cax11')
-            self.assertEqual(config['vm']['region'], 'hel1')
+            self.assertEqual(config['vm']['availability_zone'], 'hel1')
             self.assertEqual(config['vm']['image'], 'ubuntu-24.04')
             self.assertEqual(config['firewall']['allowed_ips'], ['192.168.1.1/32'])
         finally:
@@ -49,7 +49,7 @@ class TestRemoteDevConfig(unittest.TestCase):
             'vm': {
                 'name': 'dev-vm',
                 'type': 'cax11',
-                'region': 'hel1',
+                'availability_zone': 'hel1',
                 'image': 'ubuntu-24.04'
             }
         }
@@ -67,14 +67,14 @@ class TestRemoteDevConfig(unittest.TestCase):
             'vm': {
                 'name': 'valid-vm',
                 'type': 'cax11',
-                'region': 'hel1',
+                'availability_zone': 'hel1',
                 'image': 'ubuntu-24.04'
             }
         }
 
         # Basic validation
         self.assertIn(valid_config['vm']['type'], ['cax11', 'cpx11', 'cx11'])
-        self.assertIn(valid_config['vm']['region'], ['hel1', 'nbg1', 'fsn1'])
+        self.assertIn(valid_config['vm']['availability_zone'], ['hel1', 'nbg1', 'fsn1'])
 
 
 class TestSSHKeyGeneration(unittest.TestCase):
@@ -233,10 +233,31 @@ class TestProjectConfig(unittest.TestCase):
 
             self.assertTrue(result)
             self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig')))
-            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'rig.yml')))
-            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'setup.yml')))
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, 'rig.yml')))
+            self.assertFalse(os.path.exists(os.path.join(temp_dir, '.rig', 'rig.yml')))
+            self.assertFalse(os.path.exists(os.path.join(temp_dir, '.rig', 'setup.yml')))
             self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'vars.yml')))
-            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'requirements.txt')))
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'requirements.yml')))
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'system.yml')))
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'workspace.yml')))
+            import yaml
+            with open(os.path.join(temp_dir, 'rig.yml')) as handle:
+                manifest = yaml.safe_load(handle)
+            self.assertEqual(manifest['playbooks']['system'], '.rig/system.yml')
+            self.assertEqual(manifest['playbooks']['workspace'], '.rig/workspace.yml')
+            self.assertEqual(manifest['agent']['credentials_var'], 'coding_agent_api_key')
+            with open(os.path.join(temp_dir, '.rig', 'system.yml')) as handle:
+                system_playbook = handle.read()
+            self.assertIn('code-server', system_playbook)
+            self.assertIn('opencode', system_playbook)
+            self.assertIn('coding_agent_api_key', system_playbook)
+            self.assertIn('Install GitHub CLI (gh)', system_playbook)
+            self.assertIn('Install GitLab CLI (glab)', system_playbook)
+            self.assertIn("git_providers", system_playbook)
+            self.assertIn('Install OpenCode CLI', system_playbook)
+            self.assertIn('Install Claude Code CLI', system_playbook)
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', 'AGENTS.md')))
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, '.rig', '.opencode', 'opencode.json')))
         finally:
             shutil.rmtree(temp_dir)
 
@@ -254,7 +275,7 @@ class TestProjectConfig(unittest.TestCase):
             config.init(name='test-project')
 
             # Modify config
-            config.set('vm.region', 'hel1')
+            config.set('vm.availability_zone', 'hel1')
             config.set_vars('ansible_user', 'root')
 
             # Save and reload
@@ -263,8 +284,9 @@ class TestProjectConfig(unittest.TestCase):
             new_config = ProjectConfig(temp_dir)
             new_config.load()
 
-            self.assertEqual(new_config.get('vm.region'), 'hel1')
+            self.assertEqual(new_config.get('vm.availability_zone'), 'hel1')
             self.assertEqual(new_config.get_vars('ansible_user'), 'root')
+            self.assertEqual(new_config.get('vm.type'), 'cax11')
         finally:
             shutil.rmtree(temp_dir)
 
