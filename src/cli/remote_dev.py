@@ -135,6 +135,232 @@ def _ipv4_from_public_net(public_net: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+_PUBLIC_IP_URLS = (
+    "https://api.ipify.org",
+    "https://ifconfig.me/ip",
+    "https://icanhazip.com",
+)
+
+
+FIREWALL_MODES = ("open", "static", "dynamic_replace", "dynamic_add")
+DEFAULT_FIREWALL_MODE = "dynamic_add"
+_OPEN_SOURCE_IPS = ["0.0.0.0/0", "::/0"]
+
+
+def detect_client_public_ip(timeout: float = 5.0) -> Optional[str]:
+    """
+    Resolve the public IPv4 of the machine running the rig CLI.
+
+    Used by ``firewall.mode: dynamic_add`` / ``dynamic_replace``.
+    """
+    for url in _PUBLIC_IP_URLS:
+        try:
+            response = requests.get(url, timeout=timeout)
+            if not response.ok:
+                continue
+            candidate = (response.text or "").strip()
+            if not candidate or "/" in candidate or " " in candidate:
+                continue
+            # Basic IPv4 shape check (avoid HTML error pages).
+            parts = candidate.split(".")
+            if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+                return candidate
+        except Exception:
+            continue
+    return None
+
+
+def as_cidr(ip_or_cidr: str) -> str:
+    """Normalize a bare IP to ``/32``; leave existing CIDRs unchanged."""
+    value = (ip_or_cidr or "").strip()
+    if not value:
+        return value
+    return value if "/" in value else f"{value}/32"
+
+
+def _dedupe_cidrs(items: List[str]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
+
+
+def resolve_firewall_mode(firewall_cfg: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Resolve ``firewall.mode``.
+
+    Modes: ``open`` | ``static`` | ``dynamic_replace`` | ``dynamic_add`` (default).
+
+    Legacy ``lock_to_client_ip`` maps to ``dynamic_add`` (true) or ``open`` (false)
+    when ``mode`` is unset.
+    """
+    cfg = firewall_cfg or {}
+    raw = cfg.get("mode")
+    if raw is not None:
+        mode = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "none": "open",
+            "off": "open",
+            "unrestricted": "open",
+            "replace": "dynamic_replace",
+            "dynamic": "dynamic_add",
+            "add": "dynamic_add",
+        }
+        mode = aliases.get(mode, mode)
+        if mode not in FIREWALL_MODES:
+            log.warning(
+                "Unknown firewall.mode %r; using %s",
+                raw,
+                DEFAULT_FIREWALL_MODE,
+            )
+            return DEFAULT_FIREWALL_MODE
+        return mode
+    if "lock_to_client_ip" in cfg:
+        return "dynamic_add" if cfg.get("lock_to_client_ip") else "open"
+    return DEFAULT_FIREWALL_MODE
+
+
+def firewall_needs_client_ip(mode: str) -> bool:
+    return mode in ("dynamic_add", "dynamic_replace")
+
+
+def firewall_source_ips(
+    firewall_cfg: Optional[Dict[str, Any]] = None,
+    *,
+    client_ip: Optional[str] = None,
+    existing_ips: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Build inbound ``source_ips`` for the env firewall.
+
+    - ``open``: world access
+    - ``static``: ``allowed_ips`` only (open fallback if empty)
+    - ``dynamic_replace``: current client IP + ``allowed_ips`` (replaces previous)
+    - ``dynamic_add`` (default): keep ``existing_ips``, add client IP + ``allowed_ips``
+    """
+    cfg = firewall_cfg or {}
+    mode = resolve_firewall_mode(cfg)
+    extras = [
+        as_cidr(str(item))
+        for item in (cfg.get("allowed_ips") or [])
+        if item is not None and str(item).strip()
+    ]
+    client_cidr = as_cidr(client_ip) if client_ip else None
+
+    if mode == "open":
+        return list(_OPEN_SOURCE_IPS)
+
+    if mode == "static":
+        return _dedupe_cidrs(extras) or list(_OPEN_SOURCE_IPS)
+
+    if mode == "dynamic_replace":
+        sources: List[str] = []
+        if client_cidr:
+            sources.append(client_cidr)
+        sources.extend(extras)
+        return _dedupe_cidrs(sources) or list(_OPEN_SOURCE_IPS)
+
+    # dynamic_add — preserve existing allow-list entries
+    sources = [
+        as_cidr(str(item))
+        for item in (existing_ips or [])
+        if item is not None and str(item).strip()
+    ]
+    # Drop world-open entries when we start locking to concrete IPs.
+    if client_cidr or extras:
+        sources = [s for s in sources if s not in ("0.0.0.0/0", "::/0")]
+    if client_cidr:
+        sources.append(client_cidr)
+    sources.extend(extras)
+    return _dedupe_cidrs(sources) or list(_OPEN_SOURCE_IPS)
+
+
+def normalize_firewall_ports(
+    ports: Optional[List[Any]] = None,
+) -> List[Dict[str, str]]:
+    """
+    Normalize ``firewall.ports`` entries to ``{protocol, port, description}``.
+
+    Accepted forms:
+      - ``8080`` / ``"8080"`` / ``"8000-8010"`` → TCP
+      - ``{port: 8080}`` / ``{port: 53, protocol: udp, description: "..."}``
+    """
+    normalized: List[Dict[str, str]] = []
+    seen = set()
+    for item in ports or []:
+        protocol = "tcp"
+        port: Optional[str] = None
+        description = ""
+        if isinstance(item, dict):
+            raw_port = item.get("port")
+            if raw_port is None:
+                continue
+            port = str(raw_port).strip()
+            protocol = str(item.get("protocol") or "tcp").strip().lower() or "tcp"
+            description = str(item.get("description") or "").strip()
+        else:
+            port = str(item).strip()
+        if not port:
+            continue
+        if protocol not in ("tcp", "udp"):
+            log.warning("Skipping firewall port with unsupported protocol %r", protocol)
+            continue
+        key = (protocol, port)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(
+            {
+                "protocol": protocol,
+                "port": port,
+                "description": description or f"Allow {protocol.upper()} {port}",
+            }
+        )
+    return normalized
+
+
+def default_firewall_rules(
+    source_ips: List[str],
+    extra_rules: Optional[List[Dict[str, Any]]] = None,
+    ports: Optional[List[Any]] = None,
+) -> List[Dict[str, Any]]:
+    """SSH + ICMP + optional app ports used for create and set_rules refresh."""
+    rules: List[Dict[str, Any]] = [
+        {
+            "direction": "in",
+            "protocol": "tcp",
+            "port": "22",
+            "source_ips": list(source_ips),
+            "description": "Allow SSH",
+        },
+        {
+            "direction": "in",
+            "protocol": "icmp",
+            "source_ips": list(source_ips),
+            "description": "Allow ICMP",
+        },
+    ]
+    for entry in normalize_firewall_ports(ports):
+        # Never duplicate the built-in SSH rule.
+        if entry["protocol"] == "tcp" and entry["port"] == "22":
+            continue
+        rules.append(
+            {
+                "direction": "in",
+                "protocol": entry["protocol"],
+                "port": entry["port"],
+                "source_ips": list(source_ips),
+                "description": entry["description"],
+            }
+        )
+    if extra_rules:
+        rules.extend(extra_rules)
+    return rules
+
+
 class RemoteDevManager:
     """Manages remote development environments on Hetzner Cloud"""
 
@@ -208,38 +434,51 @@ class RemoteDevManager:
         except Exception:
             return False
 
-    def create_firewall(self, name: str, allowed_ips: Optional[list] = None,
-                        extra_rules: Optional[list] = None) -> Dict[str, Any]:
-        """Create firewall with SSH rules"""
+    def create_firewall(
+        self,
+        name: str,
+        allowed_ips: Optional[list] = None,
+        extra_rules: Optional[list] = None,
+        ports: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create firewall with SSH + ICMP (+ optional app ports) for ``allowed_ips``."""
         if allowed_ips is None:
             allowed_ips = ['0.0.0.0/0', '::/0']
-
-        rules = [
-            {
-                'direction': 'in',
-                'protocol': 'tcp',
-                'port': '22',
-                'source_ips': allowed_ips,
-                'description': 'Allow SSH'
-            },
-            {
-                'direction': 'in',
-                'protocol': 'icmp',
-                # ICMP doesn't use ports, omit port field (API sets to null)
-                'source_ips': allowed_ips,
-                'description': 'Allow ICMP'
-            }
-        ]
-        if extra_rules:
-            rules.extend(extra_rules)
-
         data = {
             'name': name,
-            'rules': rules
+            'rules': default_firewall_rules(
+                list(allowed_ips),
+                extra_rules=extra_rules,
+                ports=ports,
+            ),
         }
-
         result = self._request('POST', '/firewalls', data)
         return result
+
+    def get_firewall(self, firewall_id: Any) -> Dict[str, Any]:
+        """Fetch a firewall by id."""
+        return self._request('GET', f'/firewalls/{firewall_id}')
+
+    def set_firewall_rules(
+        self,
+        firewall_id: Any,
+        allowed_ips: List[str],
+        extra_rules: Optional[List[Dict[str, Any]]] = None,
+        ports: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        """Replace firewall rules (Hetzner ``set_rules`` action)."""
+        data = {
+            'rules': default_firewall_rules(
+                list(allowed_ips),
+                extra_rules=extra_rules,
+                ports=ports,
+            ),
+        }
+        return self._request(
+            'POST',
+            f'/firewalls/{firewall_id}/actions/set_rules',
+            data,
+        )
 
     def create_vm(self,
                   name: str,
@@ -780,11 +1019,40 @@ class RemoteDevEnvironment:
 
         log.debug("Creating firewall")
         try:
-            firewall_config = self.config.get('firewall', {})
-            firewall_ips = firewall_config.get('allowed_ips', ['0.0.0.0/0'])
-            extra_rules = firewall_config.get('extra_rules')
+            firewall_config = self._firewall_config(project_dir)
+            mode = resolve_firewall_mode(firewall_config)
+            client_ip = None
+            if firewall_needs_client_ip(mode):
+                client_ip = detect_client_public_ip()
+                if not client_ip:
+                    log.error(
+                        "firewall.mode=%s requires the CLI host public IP, "
+                        "but it could not be detected",
+                        mode,
+                    )
+                    return False
+            firewall_ips = firewall_source_ips(
+                firewall_config,
+                client_ip=client_ip,
+                existing_ips=None,
+            )
+            ports = firewall_config.get("ports") or []
+            extra_rules = firewall_config.get("extra_rules")
+            port_label = ", ".join(
+                f"{p['protocol']}/{p['port']}" for p in normalize_firewall_ports(ports)
+            )
+            log.info(
+                "Firewall mode=%s source IPs: %s%s%s",
+                mode,
+                ", ".join(firewall_ips),
+                f" (client {client_ip})" if client_ip else "",
+                f"; ports: {port_label}" if port_label else "",
+            )
             fw_result = self.manager.create_firewall(
-                self.firewall_name, firewall_ips, extra_rules=extra_rules
+                self.firewall_name,
+                firewall_ips,
+                extra_rules=extra_rules,
+                ports=ports,
             )
             self.firewall_id = fw_result.get('firewall', {}).get('id')
             log.debug("Firewall created (id=%s)", self.firewall_id)
@@ -940,6 +1208,15 @@ class RemoteDevEnvironment:
             )
             return False
 
+        try:
+            from cli.encrypt import ensure_vscode_browser_password
+            if ensure_vscode_browser_password(project_dir=project_dir):
+                log.info(
+                    "Generated vscode_browser_password for code-server browser login"
+                )
+        except Exception as exc:
+            log.warning("Could not ensure vscode_browser_password: %s", exc)
+
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
         if not os.path.exists(ssh_key_path):
             log.error("SSH private key not found at %s", ssh_key_path)
@@ -1061,6 +1338,118 @@ class RemoteDevEnvironment:
             log.warning("Snapshot %s failed: %s", description, exc)
             return False
 
+    def _firewall_config(self, project_dir: Optional[str] = None) -> Dict[str, Any]:
+        """Load ``firewall`` settings from ``rig.yml`` (with env.config fallback)."""
+        project_dir = os.path.abspath(project_dir or os.getcwd())
+        merged: Dict[str, Any] = {}
+        try:
+            project = ProjectConfig(project_dir)
+            if project.load() and project.config:
+                file_fw = project.config.get("firewall")
+                if isinstance(file_fw, dict):
+                    merged.update(file_fw)
+        except Exception as exc:
+            log.debug("Could not load firewall config from rig.yml: %s", exc)
+        runtime_fw = self.config.get("firewall")
+        if isinstance(runtime_fw, dict):
+            merged.update(runtime_fw)
+        # Defaults when keys are absent.
+        merged.setdefault("mode", DEFAULT_FIREWALL_MODE)
+        merged.setdefault("allowed_ips", [])
+        merged.setdefault("ports", [])
+        return merged
+
+    def ensure_firewall_access(self, project_dir: Optional[str] = None) -> bool:
+        """
+        Refresh firewall source IPs (and exposed ports) for ``firewall.mode``.
+
+        Called before attach / apply / dev / destroy. ``dynamic_add`` keeps
+        existing IPs and only adds the current client IP; ``dynamic_replace``
+        rewrites the allow-list. Soft-fails with a warning when the firewall id
+        is missing or the API update fails.
+        """
+        project_dir = os.path.abspath(project_dir or os.getcwd())
+        if not self.firewall_id:
+            self.resolve_resources()
+        if not self.firewall_id:
+            log.debug("No firewall id; skipping access refresh")
+            return False
+
+        firewall_config = self._firewall_config(project_dir)
+        mode = resolve_firewall_mode(firewall_config)
+        ports = firewall_config.get("ports") or []
+        extra_rules = firewall_config.get("extra_rules")
+
+        # open/static still refresh when declared app ports change.
+        client_ip: Optional[str] = None
+        if firewall_needs_client_ip(mode):
+            client_ip = detect_client_public_ip()
+            if not client_ip:
+                log.warning(
+                    "Could not detect CLI public IP; leaving firewall rules unchanged"
+                )
+                return False
+
+        try:
+            current = self.manager.get_firewall(self.firewall_id)
+            rules = (current.get("firewall") or {}).get("rules") or []
+            ssh_sources: List[str] = []
+            current_ports: set = set()
+            for rule in rules:
+                if rule.get("direction") != "in":
+                    continue
+                proto = str(rule.get("protocol") or "")
+                port = str(rule.get("port") or "")
+                if proto == "tcp" and port == "22":
+                    ssh_sources = list(rule.get("source_ips") or [])
+                elif proto in ("tcp", "udp") and port and port != "22":
+                    current_ports.add((proto, port))
+
+            if mode == "open":
+                desired = list(_OPEN_SOURCE_IPS)
+            elif mode == "static":
+                desired = firewall_source_ips(firewall_config, client_ip=None)
+            else:
+                desired = firewall_source_ips(
+                    firewall_config,
+                    client_ip=client_ip,
+                    existing_ips=ssh_sources if mode == "dynamic_add" else None,
+                )
+
+            desired_ports = {
+                (p["protocol"], p["port"])
+                for p in normalize_firewall_ports(ports)
+                if not (p["protocol"] == "tcp" and p["port"] == "22")
+            }
+            sources_unchanged = set(ssh_sources) == set(desired)
+            ports_unchanged = current_ports == desired_ports
+            if sources_unchanged and ports_unchanged:
+                log.debug(
+                    "Firewall already allows %s (ports=%s)",
+                    ", ".join(desired),
+                    sorted(f"{p}/{n}" for p, n in desired_ports) or "none",
+                )
+                return True
+
+            log.info(
+                "Updating firewall (%s): %s → %s; ports %s → %s",
+                mode,
+                ", ".join(ssh_sources) or "unset",
+                ", ".join(desired),
+                sorted(f"{p}/{n}" for p, n in current_ports) or "none",
+                sorted(f"{p}/{n}" for p, n in desired_ports) or "none",
+            )
+            self.manager.set_firewall_rules(
+                self.firewall_id,
+                desired,
+                extra_rules=extra_rules,
+                ports=ports,
+            )
+            return True
+        except Exception as exc:
+            log.warning("Firewall access refresh failed: %s", exc)
+            return False
+
     def resolve_resources(self) -> bool:
         """
         Populate vm_id / firewall_id / ssh_key_id from saved state or Hetzner API.
@@ -1159,8 +1548,11 @@ class RemoteDevEnvironment:
     def cleanup(self, project_dir: Optional[str] = None):
         """Clean up the remote environment (finalizers playbook, then delete VM)."""
         log.info("Destroying remote environment '%s'", self.name)
+        project_dir = os.path.abspath(project_dir or os.getcwd())
         self.resolve_resources()
-        self.run_finalizers_playbook(project_dir=project_dir or os.getcwd(), stream=True)
+        # Refresh client IP allow-list before finalizers (needs SSH to the VM).
+        self.ensure_firewall_access(project_dir=project_dir)
+        self.run_finalizers_playbook(project_dir=project_dir, stream=True)
 
         if self.vm_id:
             log.debug("Deleting VM id=%s", self.vm_id)
@@ -1680,6 +2072,32 @@ echo "Agent installation complete!"
             url = self.code_server_url(
                 project_dir=project_dir, folder=remote_path
             )
+            try:
+                from cli.encrypt import (
+                    VSCODE_BROWSER_PASSWORD_VAR,
+                    ensure_vscode_browser_password,
+                    read_vscode_browser_password,
+                )
+                root = project_dir or os.getcwd()
+                ensure_vscode_browser_password(project_dir=root)
+                password = read_vscode_browser_password(project_dir=root)
+                if password:
+                    log.info(
+                        "code-server password (%s): %s",
+                        VSCODE_BROWSER_PASSWORD_VAR,
+                        password,
+                    )
+                else:
+                    log.info(
+                        "Decrypt the browser password with: "
+                        "rig vars decrypt %s",
+                        VSCODE_BROWSER_PASSWORD_VAR,
+                    )
+            except Exception as exc:
+                log.warning("Could not load vscode_browser_password: %s", exc)
+                log.info(
+                    "Decrypt with: rig vars decrypt vscode_browser_password"
+                )
             log.info("Opening code-server at %s", url)
             try:
                 if webbrowser.open(url):
@@ -1749,7 +2167,9 @@ if __name__ == '__main__':
             'image': 'ubuntu-24.04'
         },
         'firewall': {
-            'allowed_ips': ['0.0.0.0/0']  # For testing - use specific IPs in production
+            'mode': DEFAULT_FIREWALL_MODE,
+            'allowed_ips': [],
+            'ports': [],
         }
     }
 
@@ -1939,7 +2359,7 @@ SYSTEM_PLAYBOOK = r"""---
         content: |
           bind-addr: 0.0.0.0:{{ code_server_port }}
           auth: password
-          password: "{{ coding_agent_api_key | default('changeme') }}"
+          password: "{{ vscode_browser_password }}"
           cert: false
 
     - name: Enable and start code-server for user
@@ -2240,6 +2660,16 @@ class ProjectConfig:
                 "type": "cax11",
                 "availability_zone": "hel1",
                 "image": "ubuntu-24.04",
+            },
+            "firewall": {
+                # open | static | dynamic_replace | dynamic_add (default)
+                # dynamic_add keeps existing allow-list entries and adds the
+                # current CLI public IP when missing (re-checked on access).
+                "mode": DEFAULT_FIREWALL_MODE,
+                "allowed_ips": [],  # used by static; also merged into dynamic modes
+                # Extra inbound ports (same source IPs as SSH), e.g. app listeners:
+                # ports: [8080, "3000-3001", {port: 53, protocol: udp}]
+                "ports": [],
             },
             "agent": {
                 "type": "opencode",
@@ -3121,6 +3551,23 @@ def interactive_env_init(
         )
     except (ValueError, RuntimeError) as exc:
         print(f"Warning: could not store coding_agent_api_key: {exc}")
+
+    try:
+        from cli.encrypt import (
+            VSCODE_BROWSER_PASSWORD_VAR,
+            ensure_vscode_browser_password,
+        )
+        if ensure_vscode_browser_password(
+            project_dir=root,
+            data_key_path=key_path,
+        ):
+            print(
+                f"Generated '{VSCODE_BROWSER_PASSWORD_VAR}' for "
+                "code-server browser login "
+                f"(decrypt with: rig vars decrypt {VSCODE_BROWSER_PASSWORD_VAR})"
+            )
+    except (ValueError, RuntimeError) as exc:
+        print(f"Warning: could not store vscode_browser_password: {exc}")
 
     # OpenCode: free Zen models by default; switch to keyed config when a key exists.
     try:

@@ -204,11 +204,12 @@ def test_interactive_init_stores_encrypted_git_pat(tmp_path):
             data_key_path=str(data_key),
         )
 
-    assert enc.call_count == 2
+    assert enc.call_count == 3  # git pat + agent key + vscode_browser_password
     vars_text = (rig / ".rig" / "vars.yml").read_text()
     assert "rig_git_pat: !vault |" in vars_text
     assert "github_pat:" not in vars_text
     assert "coding_agent_api_key: !vault |" in vars_text
+    assert "vscode_browser_password: !vault |" in vars_text
     clone_repos = yaml.load(vars_text, Loader=_VarsLoader)["git"]["clone_repos"]
     assert clone_repos[0]["password_var"] == "rig_git_pat"
     assert (rig / ".rig" / "system.yml").is_file()
@@ -349,10 +350,11 @@ def test_interactive_init_stores_default_provider_pat_when_requested(tmp_path):
             data_key_path=str(data_key),
         )
 
-    assert enc.call_count == 2
+    assert enc.call_count == 3  # github_pat + agent key + vscode_browser_password
     vars_text = (rig / ".rig" / "vars.yml").read_text()
     assert "github_pat: !vault |" in vars_text
     assert "rig_git_pat:" not in vars_text
+    assert "vscode_browser_password: !vault |" in vars_text
     clone_repos = yaml.load(vars_text, Loader=_VarsLoader)["git"]["clone_repos"]
     assert clone_repos[0]["password_var"] == "github_pat"
 
@@ -417,12 +419,13 @@ def test_interactive_init_reuses_provider_pat_across_repos(tmp_path):
             data_key_path=str(data_key),
         )
 
-    # Shared github PAT + coding agent key
-    assert enc.call_count == 2
+    # Shared github PAT + coding agent key + vscode_browser_password
+    assert enc.call_count == 3
     vars_text = (root / ".rig" / "vars.yml").read_text()
     assert "github_pat: !vault |" in vars_text
     assert "api_git_pat:" not in vars_text
     assert "web_git_pat:" not in vars_text
+    assert "vscode_browser_password: !vault |" in vars_text
     clone_repos = yaml.load(vars_text, Loader=_VarsLoader)["git"]["clone_repos"]
     assert {item["password_var"] for item in clone_repos} == {"github_pat"}
 
@@ -458,10 +461,11 @@ def test_interactive_init_stores_repo_specific_pats_when_different(tmp_path):
             data_key_path=str(data_key),
         )
 
-    assert enc.call_count == 3
+    assert enc.call_count == 4  # 2 repo pats + agent key + vscode_browser_password
     vars_text = (root / ".rig" / "vars.yml").read_text()
     assert "api_git_pat: !vault |" in vars_text
     assert "web_git_pat: !vault |" in vars_text
+    assert "vscode_browser_password: !vault |" in vars_text
     assert "github_pat:" not in vars_text
     assert "gitlab_pat:" not in vars_text
     by_dest = {
@@ -555,7 +559,7 @@ def test_help_lists_top_level_commands_and_hides_internals(capsys):
         main(["--help"])
     assert caught.value.code == 0
     output = capsys.readouterr().out
-    assert "{init,create,apply,attach,dev,list,cache,destroy,encrypt,decrypt}" in output
+    assert "{init,create,apply,attach,dev,list,cache,destroy,vars}" in output
     assert "vpn" not in output
     assert "storage" not in output
 

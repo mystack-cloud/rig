@@ -1,4 +1,4 @@
-"""Tests for rig encrypt and temporary Ansible vault data-key handling."""
+"""Tests for rig vars encrypt/decrypt and temporary Ansible vault data-key handling."""
 
 import io
 import os
@@ -10,17 +10,20 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from cli.encrypt import (
+    VSCODE_BROWSER_PASSWORD_VAR,
     collect_repo_pats,
     decrypt_var,
     decrypt_vault_blob,
     encrypt_named_value,
     encrypt_stdin,
     ensure_data_key,
+    ensure_vscode_browser_password,
     interactive_decrypt,
     interactive_encrypt,
     read_data_key,
     read_single_line_value,
     read_variable_name,
+    read_vscode_browser_password,
     resolve_repo_pat_var_names,
     to_https_git_url,
     upsert_vault_var,
@@ -243,16 +246,21 @@ def test_decrypt_requires_data_key(tmp_path):
 
 def test_help_lists_encrypt_and_stdin_name(capsys):
     with pytest.raises(SystemExit) as caught:
-        main(["encrypt", "--help"])
+        main(["vars", "encrypt", "--help"])
     assert caught.value.code == 0
     help_text = capsys.readouterr().out
     assert "--stdin-name" in help_text
     assert "Ctrl+D" in help_text
 
 
-def test_help_lists_decrypt(capsys):
+def test_help_lists_vars_and_decrypt(capsys):
     with pytest.raises(SystemExit) as caught:
         main(["--help"])
+    assert caught.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "vars" in help_text
+    with pytest.raises(SystemExit) as caught:
+        main(["vars", "--help"])
     assert caught.value.code == 0
     assert "decrypt" in capsys.readouterr().out
 
@@ -289,3 +297,47 @@ def test_collect_repo_pats_asks_for_ssh_remotes():
     )
     assert password_vars == {"api": "github_pat", "web": "github_pat"}
     assert to_store == {"github_pat": "ghp_ssh_pat"}
+
+
+def test_ensure_vscode_browser_password_generates_once(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".rig").mkdir()
+    (tmp_path / ".rig" / "vars.yml").write_text("ansible_user: root\n")
+    data_key = tmp_path / "data-key"
+    data_key.write_text("vault-pass\n")
+
+    created = []
+
+    def fake_store(name, plaintext, project_dir=None, data_key_path=None):
+        created.append((name, plaintext))
+        path = vars_path_for_project(project_dir)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"{name}: !vault |\n  $ANSIBLE_VAULT;1.1;AES256\n  aabb\n")
+        return "block"
+
+    with patch("cli.encrypt.store_encrypted_var", side_effect=fake_store):
+        assert ensure_vscode_browser_password(
+            project_dir=str(tmp_path),
+            data_key_path=str(data_key),
+        ) is True
+        assert ensure_vscode_browser_password(
+            project_dir=str(tmp_path),
+            data_key_path=str(data_key),
+        ) is False
+
+    assert len(created) == 1
+    assert created[0][0] == VSCODE_BROWSER_PASSWORD_VAR
+    assert len(created[0][1]) >= 32
+
+
+def test_system_playbook_uses_vscode_browser_password():
+    from cli.remote_dev import SYSTEM_PLAYBOOK
+
+    assert "vscode_browser_password" in SYSTEM_PLAYBOOK
+    assert "changeme" not in SYSTEM_PLAYBOOK
+
+
+def test_read_vscode_browser_password_missing(tmp_path):
+    (tmp_path / ".rig").mkdir()
+    (tmp_path / ".rig" / "vars.yml").write_text("ansible_user: root\n")
+    assert read_vscode_browser_password(project_dir=str(tmp_path)) is None

@@ -1,5 +1,5 @@
 """
-Ansible-compatible encryption for `rig encrypt`.
+Ansible-compatible encryption for `rig vars encrypt`.
 
 The data key is a temporary Ansible vault password at /tmp/.rig/.data-key
 (cleared on reboot). Encryption uses `ansible-vault encrypt_string` and
@@ -11,6 +11,7 @@ from __future__ import annotations
 import getpass
 import os
 import re
+import secrets
 import subprocess
 import sys
 from typing import Callable, Optional, TextIO
@@ -18,6 +19,9 @@ from typing import Callable, Optional, TextIO
 # Intentionally under /tmp so the key does not persist across reboots.
 DEFAULT_DATA_KEY_PATH = "/tmp/.rig/.data-key"
 _VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Vaulted password for code-server browser login (``rig dev --browser``).
+VSCODE_BROWSER_PASSWORD_VAR = "vscode_browser_password"
 
 
 def read_data_key(path: str = DEFAULT_DATA_KEY_PATH) -> Optional[str]:
@@ -182,7 +186,7 @@ def encrypt_named_value(
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
-            "ansible-vault not found. Install Ansible to use rig encrypt."
+            "ansible-vault not found. Install Ansible to use rig vars encrypt."
         ) from exc
 
     if result.returncode != 0:
@@ -627,6 +631,52 @@ def prompt_and_store_coding_agent_credentials(
     return True
 
 
+def read_vscode_browser_password(
+    project_dir: Optional[str] = None,
+    data_key_path: str = DEFAULT_DATA_KEY_PATH,
+) -> Optional[str]:
+    """Decrypt ``vscode_browser_password`` when present and decryptable."""
+    vars_path = vars_path_for_project(project_dir)
+    if VSCODE_BROWSER_PASSWORD_VAR not in list_vault_var_names(vars_path=vars_path):
+        return None
+    try:
+        return decrypt_var(
+            VSCODE_BROWSER_PASSWORD_VAR,
+            vars_path=vars_path,
+            vault_password_file=data_key_path,
+        )
+    except (ValueError, RuntimeError):
+        return None
+
+
+def ensure_vscode_browser_password(
+    project_dir: Optional[str] = None,
+    data_key_path: str = DEFAULT_DATA_KEY_PATH,
+    *,
+    force: bool = False,
+) -> bool:
+    """
+    Ensure ``vscode_browser_password`` exists in ``.rig/vars.yml`` (vaulted).
+
+    Autogenerates a high-entropy password on first use. Returns ``True`` when a
+    new value was written.
+    """
+    ensure_data_key(path=data_key_path)
+    vars_path = vars_path_for_project(project_dir)
+    existing = list_vault_var_names(vars_path=vars_path)
+    if VSCODE_BROWSER_PASSWORD_VAR in existing and not force:
+        return False
+
+    plaintext = secrets.token_urlsafe(32)
+    store_encrypted_var(
+        VSCODE_BROWSER_PASSWORD_VAR,
+        plaintext,
+        project_dir=project_dir,
+        data_key_path=data_key_path,
+    )
+    return True
+
+
 def interactive_encrypt(
     path: str = DEFAULT_DATA_KEY_PATH,
     stdin_name: Optional[str] = None,
@@ -670,7 +720,7 @@ def require_data_key_file(path: str = DEFAULT_DATA_KEY_PATH) -> str:
     if not os.path.exists(path):
         raise ValueError(
             f"Temporary data key not found at {path}. "
-            "Run 'rig encrypt' first to create it."
+            "Run 'rig vars encrypt' first to create it."
         )
     return path
 
@@ -733,7 +783,7 @@ def decrypt_vault_blob(
             )
         except FileNotFoundError as exc:
             raise RuntimeError(
-                "ansible-vault not found. Install Ansible to use rig decrypt."
+                "ansible-vault not found. Install Ansible to use rig vars decrypt."
             ) from exc
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "unknown error").strip()

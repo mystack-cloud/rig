@@ -198,6 +198,7 @@ def _cmd_attach(args: argparse.Namespace) -> int:
             log.error("Re-run create on this machine, or restore the key before attaching")
             return 1
 
+        env.ensure_firewall_access(project_dir=os.getcwd())
         remember_last_env(env.name)
         log.info("Attaching to '%s' (%s)", env.name, env.vm_ip)
         if agent_args:
@@ -245,6 +246,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             log.error("Re-run create on this machine, or restore the key before applying")
             return 1
 
+        env.ensure_firewall_access(project_dir=os.getcwd())
         remember_last_env(env.name)
         ok = env.apply_playbooks(
             project_dir=os.getcwd(),
@@ -287,6 +289,7 @@ def _cmd_dev(args: argparse.Namespace) -> int:
             log.error("Could not resolve environment '%s' (no VM IP found)", name)
             return 1
 
+        env.ensure_firewall_access(project_dir=os.getcwd())
         remember_last_env(env.name)
         return env.open_vscode(
             remote_path=getattr(args, "path", None) or REMOTE_WORKSPACE_ROOT,
@@ -674,7 +677,16 @@ def main(argv=None):
         help="Environment name (repeatable; kept for compatibility)",
     )
 
-    encrypt_parser = subparsers.add_parser(
+    vars_parser = subparsers.add_parser(
+        "vars",
+        help="Manage vaulted values in .rig/vars.yml",
+    )
+    vars_subparsers = vars_parser.add_subparsers(
+        dest="vars_command",
+        help="Vars actions",
+    )
+
+    encrypt_parser = vars_subparsers.add_parser(
         "encrypt",
         help=(
             "Encrypt a value with a temporary data key and add it to .rig/vars.yml"
@@ -685,7 +697,7 @@ def main(argv=None):
         help="Variable name; read multiline value from stdin until Ctrl+D",
     )
 
-    decrypt_parser = subparsers.add_parser(
+    decrypt_parser = vars_subparsers.add_parser(
         "decrypt",
         help="Decrypt a variable from .rig/vars.yml using the temporary data key",
     )
@@ -717,10 +729,13 @@ def main(argv=None):
         return _cmd_cache(args)
     if args.command == "destroy":
         return _cmd_destroy(args)
-    if args.command == "encrypt":
-        return _cmd_encrypt(args)
-    if args.command == "decrypt":
-        return _cmd_decrypt(args)
+    if args.command == "vars":
+        if args.vars_command == "encrypt":
+            return _cmd_encrypt(args)
+        if args.vars_command == "decrypt":
+            return _cmd_decrypt(args)
+        vars_parser.print_help()
+        return 1
 
     parser.print_help()
     return 1

@@ -35,6 +35,10 @@ vm:
   type: cax11
   availability_zone: hel1
   image: ubuntu-24.04
+firewall:
+  mode: dynamic_add   # open | static | dynamic_replace | dynamic_add
+  allowed_ips: []     # static allow-list; also merged into dynamic modes
+  ports: []           # extra inbound ports, e.g. [8080, "3000-3001", {port: 53, protocol: udp}]
 agent:
   type: opencode          # or claude
 playbooks:
@@ -42,6 +46,19 @@ playbooks:
   workspace: .rig/workspace.yml
   finalizers: .rig/finalizers.yml
 ```
+
+Firewall modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `open` | SSH/ICMP from anywhere (`0.0.0.0/0`) |
+| `static` | Only `allowed_ips` (no client detection) |
+| `dynamic_replace` | Set allow-list to current CLI public IP (+ `allowed_ips`); drops previous IPs |
+| `dynamic_add` (default) | Keep existing allow-list entries; add current CLI public IP if missing |
+
+Attach / apply / dev / destroy refresh the firewall for dynamic modes when the client IP changes, and keep `ports` in sync.
+
+`firewall.ports` opens extra inbound listeners with the same source-IP policy as SSH (TCP by default; use `{port, protocol}` for UDP).
 
 Remote project files live under `/workspace` (not `/root`).
 
@@ -90,8 +107,8 @@ Global: `-v` debug · `-q` warnings/errors only · `--version`
 | `list` | | Lists envs, or `No remote environments` |
 | `destroy` | `[name …]` | Runs finalizers first; multi-name OK |
 | `cache` | `[--system] clear` | Delete workspace or system snapshots |
-| `encrypt` | `[--stdin-name VAR]` | Vault into `.rig/vars.yml` via `/tmp/.rig/.data-key` |
-| `decrypt` | `[VAR]` | Decrypt from `.rig/vars.yml` |
+| `vars encrypt` | `[--stdin-name VAR]` | Vault into `.rig/vars.yml` via `/tmp/.rig/.data-key` |
+| `vars decrypt` | `[VAR]` | Decrypt from `.rig/vars.yml` |
 
 ## Ansible variables
 
@@ -119,6 +136,8 @@ Playbooks load `.rig/vars.yml` first, then runtime `rig_*` extras (`-e` JSON). P
 | `rig_git_providers` | e.g. `github`, `gitlab` |
 
 Also available from `vars.yml` (defaults): `workspace_root`, `coding_agent_type`, `git.clone_repos`, vaulted PATs / `coding_agent_api_key`.
+
+`vscode_browser_password` is auto-generated (vaulted) for code-server browser login (`rig dev --browser`). Reveal with `rig vars decrypt vscode_browser_password` (also printed when opening browser mode).
 
 ## Credentials
 
