@@ -102,7 +102,7 @@ def sync_opencode_config(
     _write_json(config_path, opencode_config(has_api_key=has_api_key))
     return ".rig/.opencode/opencode.json"
 
-OPENCODE_MCP = {
+OPENCODE_MCP: Dict[str, Any] = {
     "mcp": {
         # Example (disabled). Uncomment / extend as needed:
         # "context7": {
@@ -129,7 +129,7 @@ CLAUDE_SETTINGS = {
     # ~/.claude/credentials.env (CODING_AGENT_API_KEY / ANTHROPIC_API_KEY).
 }
 
-CLAUDE_MCP = {
+CLAUDE_MCP: Dict[str, Any] = {
     "mcpServers": {
         # Example (disabled). Add servers as needed for Claude Code:
         # "filesystem": {

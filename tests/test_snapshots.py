@@ -50,7 +50,7 @@ def test_workspace_hash_ignores_inventory_system_and_roles(tmp_path):
     (rig / "system.yml").write_text("# generated\n")
     roles = rig / "roles" / "geerlingguy.docker"
     roles.mkdir(parents=True)
-    (roles / "meta" ).mkdir(parents=True, exist_ok=True)
+    (roles / "meta").mkdir(parents=True, exist_ok=True)
     (roles / "meta" / ".galaxy_install_info").write_text("version: 1.0.0\n")
     assert workspace_content_hash(str(tmp_path)) == baseline
 

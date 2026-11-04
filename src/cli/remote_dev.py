@@ -628,13 +628,13 @@ class RemoteDevEnvironment:
 
         # SSH key
         self.ssh_key_name = f"{self.name}-key"
-        self.ssh_key_id = None
-        self.ssh_private_key = None
-        self.ssh_public_key = None
+        self.ssh_key_id: Optional[Any] = None
+        self.ssh_private_key: Optional[str] = None
+        self.ssh_public_key: Optional[str] = None
 
         # Firewall
         self.firewall_name = f"{self.name}-fw"
-        self.firewall_id = None
+        self.firewall_id: Optional[Any] = None
 
         # VPN (optional)
         self.vpn_manager: Optional[VPNManager] = VPNManager() if VPN_AVAILABLE else None
@@ -642,8 +642,8 @@ class RemoteDevEnvironment:
         self.vpn_config: Dict[str, Any] = {} if VPN_AVAILABLE else {}  # type: ignore
 
         # VM
-        self.vm_id = None
-        self.vm_ip = None
+        self.vm_id: Optional[Any] = None
+        self.vm_ip: Optional[str] = None
 
         # Boot / playbook skip state (set during setup from matching snapshots)
         self.boot_source: str = "base"  # base | system | workspace
@@ -766,8 +766,13 @@ class RemoteDevEnvironment:
             return False
 
         log.debug("Registering SSH key with Hetzner")
+        if not self.ssh_public_key:
+            log.error("SSH public key missing after generation")
+            return False
         try:
-            key_result = self.manager.create_ssh_key(self.ssh_key_name, self.ssh_public_key)
+            key_result = self.manager.create_ssh_key(
+                self.ssh_key_name, self.ssh_public_key
+            )
             self.ssh_key_id = key_result.get('ssh_key', {}).get('id')
             log.debug("SSH key registered (id=%s)", self.ssh_key_id)
         except Exception as e:
@@ -807,15 +812,19 @@ class RemoteDevEnvironment:
             log.error("VM creation failed: %s", e)
             return False
 
+        if self.vm_id is None:
+            log.error("VM creation returned no id")
+            return False
+
         log.debug("Waiting for VM to become active")
-        if self.manager.wait_for_vm_active(self.vm_id):
+        if self.manager.wait_for_vm_active(str(self.vm_id)):
             log.debug("VM is active")
         else:
             log.error("VM failed to become active")
             return False
 
         log.debug("Waiting for SSH")
-        self.vm_ip = self.manager.get_vm_ip(self.vm_id)
+        self.vm_ip = self.manager.get_vm_ip(str(self.vm_id))
         identity_file = f'/tmp/{self.ssh_key_name}'
         if self.vm_ip and self.manager.wait_for_ssh(self.vm_ip, timeout=300, identity_file=identity_file):
             log.debug("SSH available at %s", self.vm_ip)
