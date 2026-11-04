@@ -3,133 +3,137 @@
 
 # rig
 
-Remote development environments for agents and humans made easy.
-
-## Features
-
-- Initialize a multi-repo workspace or a single repo
-- Create and destroy remote development environments on Hetzner
-- Optional WireGuard access to upstream services
-
-## Installation
+Remote environments on Hetzner for coding agents and humans.
 
 ```bash
 pip install .
-```
-
-## Usage
-
-### Initialize and manage an environment
-
-`rig init` writes root `rig.yml` and `.rig/` into the current git project (so they can be committed). Re-running init is safe: it fills in any missing files without overwriting customized ones. It still offers sibling projects from the parent folder for inclusion, stores Hetzner credentials in `~/.rig/config` (AWS-style profiles, `default` by default) when they are not already set, asks for a GitHub/GitLab PAT per included HTTPS repo (and whether to store it as the default `github_pat` / `gitlab_pat` for reuse on other repos and reinits; otherwise `{project}_git_pat`), lets you choose a coding agent (`opencode` or `claude`), and asks for that agent's API key (`coding_agent_api_key`; Enter skips — OpenCode then defaults to free Zen models such as `opencode/deepseek-v4.1-flash-free`). Init scaffolds editable agent files under `.rig/` (`AGENTS.md`, `.opencode/` or `.claude/` config + MCP); `system.yml` installs the agent and deploys those files to the remote VM with `CODING_AGENT_API_KEY` set when a key was provided. Root `rig.yml` references `.rig/system.yml` (code-server / VS Code + selected agent, plus GitHub CLI `gh` and/or GitLab CLI `glab` when workspace repos use those hosts) and `.rig/workspace.yml` (project-specific playbook).
-
-```bash
-rig -v …                         # debug logs (IDs, playbook paths, SSH details)
-rig -q …                         # warnings/errors only
 rig init
-rig create --name my-env         # create VM (reuses snapshots when possible), attach agent TTY
-rig create --name my-env --no-attach  # provision only
-rig create --force-playbooks     # ignore snapshot skip; re-run system + workspace
-rig create --force-system        # re-run system.yml even on system/workspace snapshot boot
-rig create --force-workspace     # re-run workspace.yml even on workspace snapshot boot
-rig apply                        # re-run .rig/workspace.yml on last env (project-specific playbook)
-rig apply my-env --system        # re-run .rig/system.yml instead
-rig attach                       # reattach to last handled env (name remembered in /tmp/.rig/last-env)
-rig attach my-env                # or pass the name explicitly
-rig attach -c                    # continue last coding-agent session on that env
-rig attach -- --session ses_abc  # forward arbitrary agent CLI args after --
-rig dev                          # open VS Code/Cursor on /workspace via Remote-SSH
-rig dev --browser                # open code-server on /workspace in the browser instead
-rig list
-rig destroy                       # destroy last handled env
-rig destroy my-env
-rig cache clear                   # delete workspace snapshots for this project
-rig cache --system clear          # delete system.yml snapshots (rig-{version})
-rig encrypt
-rig decrypt [variable_name]
+rig create
 ```
 
-`rig encrypt` creates a temporary Ansible vault data key at `/tmp/.rig/.data-key` when missing (cleared on reboot), then continues: asks for a variable name and value, encrypts with `ansible-vault encrypt_string`, and writes the result into `.rig/vars.yml`. Default value input is one line. For multiline input use `rig encrypt --stdin-name my_var` and finish with Ctrl+D.
+## Layout
 
-`rig decrypt` reads that same temporary data key automatically (no password file flag) and prints the plaintext for a variable from `.rig/vars.yml`. Ansible playbook runs also pick up `/tmp/.rig/.data-key` when present.
+`rig init` writes commit-friendly files into the current git project:
 
-Environment variables still override the config file. Select another profile with `RIG_PROFILE`.
+```text
+rig.yml                 # workspace manifest (vm, agent, playbooks, repos)
+.rig/
+  system.yml            # auto-generated; code-server + agent + gh/glab
+  workspace.yml         # custom; clone repos / project setup
+  finalizers.yml        # custom; release off-VM resources before destroy
+  vars.yml              # Ansible vars (vaulted secrets OK)
+  requirements.yml      # Galaxy collections/roles
+  AGENTS.md             # agent instructions
+  .opencode/ | .claude/ # agent config + MCP
+  inventory.yml         # generated at create/apply (not hashed)
+```
 
-## Security Model
+`rig.yml` defaults (edit to configure):
 
-### Hetzner Cloud Token Authentication
-This solution uses Hetzner Cloud Token for authentication. The token is used to authenticate with Hetzner Cloud, which then generates temporary S3-compatible credentials for storage operations.
+```yaml
+vm:
+  type: cax11
+  availability_zone: hel1
+  image: ubuntu-24.04
+agent:
+  type: opencode          # or claude
+playbooks:
+  system: .rig/system.yml
+  workspace: .rig/workspace.yml
+  finalizers: .rig/finalizers.yml
+```
 
-### Credential Handling
-- **Authentication**: Hetzner Cloud token is used to authenticate with Hetzner Cloud API
-- **Credential Generation**: Hetzner generates temporary S3-compatible credentials
-- **Exposure**: S3 credentials are displayed only once during generation
-- **Security**: Generated credentials are handled by Hetzner's secure infrastructure
+Remote project files live under `/workspace` (not `/root`).
 
-### Why This Approach?
-1. **No Permanent Credentials**: S3 credentials are never permanently stored
-2. **Single Exposure**: S3 credentials are shown only once during generation
-3. **Temporary Nature**: Generated credentials expire automatically
-4. **Isolated Access**: Token and credentials are separated for security
+## Lifecycle
 
-## End-to-End Testing
+```text
+init  →  create  →  attach | dev | apply  →  destroy
+              ↓
+         snapshots (reuse on next create)
+```
 
-The project uses pytest for comprehensive test coverage.
+| Stage | What happens |
+| --- | --- |
+| **init** | Scaffold `rig.yml` + `.rig/`. Collect Hetzner creds (`~/.rig/config`), repo PATs, agent choice/key. Idempotent: fills missing files only. |
+| **create** | Boot VM (base image, or matching snapshot). Run `system.yml` then `workspace.yml` unless skipped by snapshot. Snapshot after each. Attach agent TTY unless `--no-attach`. |
+| **apply** | Re-run `workspace.yml` (or `--system`) on an existing env. |
+| **attach** | SSH TTY into `opencode` / `claude` on `/workspace`. |
+| **dev** | Open VS Code/Cursor via Remote-SSH on `/workspace` (or `--browser` for code-server). |
+| **destroy** | Run `finalizers.yml`, then delete VM / firewall / SSH key. |
 
-### Running Tests
+Last env name is remembered in `/tmp/.rig/last-env` (used when `name` is omitted).
+
+### Snapshots
+
+| Boot source | Skips |
+| --- | --- |
+| `workspace-{name}-{hash}` | system + workspace |
+| `rig-{version}` | system only |
+| base image | nothing |
+
+Workspace hash covers durable inputs (`rig.yml`, `workspace.yml`, `finalizers.yml`, vars, agent scaffolds, requirements). Excludes `inventory.yml`, auto-generated `system.yml`, and Galaxy installs.
+
+Override with `--force-playbooks` / `--force-system` / `--force-workspace`. Clear with `rig cache clear` or `rig cache --system clear`.
+
+## CLI
+
+Global: `-v` debug · `-q` warnings/errors only · `--version`
+
+| Command | Args | Notes |
+| --- | --- | --- |
+| `init` | | Interactive scaffold |
+| `create` | `[--name]` `[--type]` `[--availability-zone]` `[--image]` `[--no-attach]` `[--force-playbooks\|--force-system\|--force-workspace]` | VM defaults from `rig.yml`; flags override. `--region` aliases `--availability-zone`. |
+| `apply` | `[name]` `[--system]` | Default: workspace playbook |
+| `attach` | `[name]` `[-c\|--continue]` `[-s\|--session ID]` `[--resume [ID]]` `[-- …agent args]` | Forwards flags to the agent |
+| `dev` | `[name]` `[--path /workspace]` `[--browser]` `[--editor code\|cursor\|…]` | Remote-SSH by default |
+| `list` | | Lists envs, or `No remote environments` |
+| `destroy` | `[name …]` | Runs finalizers first; multi-name OK |
+| `cache` | `[--system] clear` | Delete workspace or system snapshots |
+| `encrypt` | `[--stdin-name VAR]` | Vault into `.rig/vars.yml` via `/tmp/.rig/.data-key` |
+| `decrypt` | `[VAR]` | Decrypt from `.rig/vars.yml` |
+
+## Ansible variables
+
+Playbooks load `.rig/vars.yml` first, then runtime `rig_*` extras (`-e` JSON). Prefer `{{ rig_env_name }}` over hard-coding.
+
+| Variable | Meaning |
+| --- | --- |
+| `rig_env_name` | Env / VM name (`dev-…`) |
+| `rig_workspace_name` | `rig.yml` `name` |
+| `rig_vm_name` | VM name (usually same as env) |
+| `rig_vm_type` | Hetzner server type |
+| `rig_availability_zone` | Hetzner location (`hel1`, …) |
+| `rig_vm_image` | Boot image or snapshot id |
+| `rig_vm_ip` | Public IPv4 |
+| `rig_vm_id` | Hetzner server id |
+| `rig_agent_type` | `opencode` or `claude` |
+| `rig_workspace_root` | `/workspace` |
+| `rig_version` | Installed `rig` package version |
+| `rig_boot_source` | `base` \| `system` \| `workspace` |
+| `rig_action` | `create` \| `apply` \| `destroy` |
+| `rig_project_dir` | Local project path |
+| `rig_ssh_key_name` / `rig_ssh_key_path` | Local key under `/tmp` |
+| `rig_firewall_name` | Firewall resource name |
+| `rig_repos` | `[{name, url, path}, …]` (no secrets) |
+| `rig_git_providers` | e.g. `github`, `gitlab` |
+
+Also available from `vars.yml` (defaults): `workspace_root`, `coding_agent_type`, `git.clone_repos`, vaulted PATs / `coding_agent_api_key`.
+
+## Credentials
+
+| Source | Purpose |
+| --- | --- |
+| `~/.rig/config` | Hetzner token (+ optional S3). Profile via `RIG_PROFILE` (default `default`). Env vars override. |
+| `/tmp/.rig/.data-key` | Ansible vault password for `.rig/vars.yml` (tmpfs; cleared on reboot). |
+| `/tmp/<env>-key` | Per-env SSH private key (needed for attach / apply / destroy finalizers). |
+
+OpenCode without `coding_agent_api_key` uses free Zen models. With a key, config switches to the paid provider path.
+
+## Tests
 
 ```bash
-# Run all tests
-python -m pytest tests/
-
-# Run tests excluding credential-dependent tests
 python -m pytest tests/ -m "not requires_credentials"
-
-# Run tests with verbose output
-python -m pytest tests/ -v
-
-# Measure line coverage for src and refresh the README badge
-python -m pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml \
-  --ignore=tests/test_real_e2e_integration.py \
-  --ignore=tests/test_real_e2e_storage.py \
-  --ignore=tests/test_hetzner_storage.py \
-  --ignore=tests/test_workspace_git_clone.py \
-  --ignore=tests/test_real_e2e_vpn.py \
-  --ignore=tests/test_real_e2e_vpn_tunnel.py
-python scripts/coverage_badge.py --write
-```
-
-### Test Categories
-
-- **Basic Storage Tests** (`test_storage_basic.py`) - Core storage operations
-- **Credential Security Tests** (`test_credential_security.py`) - Security feature validation
-- **Simulation Tests** (`test_simulation_storage.py`) - Workflow simulations
-- **Real E2E Tests** (`test_real_e2e_storage.py`) - Real API integration (requires credentials)
-- **Integration Tests** (`test_real_e2e_integration.py`) - Complete integration scenarios
-- **Hetzner Tests** (`test_hetzner_storage.py`) - Hetzner-specific functionality
-
-See the [pytest documentation](https://docs.pytest.org/) for more test options.
-
-## Development
-
-Install development dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-Run tests:
-```bash
-python -m pytest tests/
-```
-
-Run E2E tests:
-```bash
-python -m pytest tests/ -m "not requires_credentials"
-```
-
-Lint code:
-```bash
-pylint src/
 ```
 
 ## License
