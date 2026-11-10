@@ -182,9 +182,12 @@ def test_apply_help_mentions_lifecycle_flags(capsys):
     assert "--provision" in help_text
     assert "--authorize" in help_text
     assert "--materialize" in help_text.lower()
+    assert "--finalize" in help_text
+    assert "--destroy" in help_text
+    assert "--tags" in help_text
 
 
-def test_apply_command_defaults_to_workspace():
+def test_apply_command_passes_materialize_tags():
     with patch("cli.main._load_credentials"), patch.dict(
         os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
     ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
@@ -211,6 +214,81 @@ def test_apply_command_defaults_to_workspace():
         assert main(["apply", "--authorize"]) == 0
         kwargs = instance.apply_playbooks.call_args.kwargs
         assert kwargs["playbooks"] == ("authorize",)
+
+        assert main(["apply", "--materialize", "--tags", "git,clone", "--tags", "deps"]) == 0
+        kwargs = instance.apply_playbooks.call_args.kwargs
+        assert kwargs["playbooks"] == ("authorize", "materialize")
+        assert kwargs["ansible_tags"] == ["git,clone", "deps"]
+
+        assert main(["apply", "--finalize"]) == 0
+        kwargs = instance.apply_playbooks.call_args.kwargs
+        assert kwargs["playbooks"] == ("finalize",)
+
+        assert main(["apply", "--destroy", "--tags", "cleanup"]) == 0
+        kwargs = instance.apply_playbooks.call_args.kwargs
+        assert kwargs["playbooks"] == ("destroy",)
+        assert kwargs["ansible_tags"] == ["cleanup"]
+
+        assert main(["apply", "--finalize", "--destroy"]) == 0
+        kwargs = instance.apply_playbooks.call_args.kwargs
+        assert kwargs["playbooks"] == ("finalize", "destroy")
+
+
+def test_materialize_playbook_receives_ansible_tags(tmp_path):
+    project_dir = tmp_path / "ws"
+    project_dir.mkdir()
+    cfg = ProjectConfig(str(project_dir))
+    assert cfg.init(name="ws", agent_type="opencode")
+
+    env = RemoteDevEnvironment(name="ws-tags")
+    env.vm_ip = "10.0.0.8"
+    env.ssh_key_name = "ws-tags-key"
+    real_key = "/tmp/ws-tags-key"
+    with open(real_key, "w", encoding="utf-8") as handle:
+        handle.write("fake\n")
+
+    calls = []
+
+    def fake_run_one(self, playbook_path, extra_vars=None, vault_password=None, stream=False, ansible_args=None):
+        calls.append({"path": playbook_path, "ansible_args": ansible_args})
+        return True
+
+    try:
+        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
+            AnsibleManager, "_run_one_playbook", fake_run_one
+        ):
+            assert env.apply_playbooks(
+                project_dir=str(project_dir),
+                stream=False,
+                playbooks=("authorize", "materialize"),
+                ansible_tags=["git,clone", "deps"],
+            ) is True
+            assert calls[0]["path"].endswith("authorize.yml")
+            assert calls[0]["ansible_args"] == ["--tags", "git,clone,deps"]
+            assert calls[1]["path"].endswith("materialize.yml")
+            assert calls[1]["ansible_args"] == ["--tags", "git,clone,deps"]
+
+            calls.clear()
+            assert env.apply_playbooks(
+                project_dir=str(project_dir),
+                stream=False,
+                playbooks=("authorize", "finalize", "destroy"),
+                ansible_tags=["cleanup"],
+            ) is True
+    finally:
+        try:
+            os.remove(real_key)
+        except OSError:
+            pass
+
+    assert [os.path.basename(call["path"]) for call in calls] == [
+        "authorize.yml",
+        "finalize.yml",
+        "destroy.yml",
+    ]
+    assert calls[0]["ansible_args"] == ["--tags", "cleanup"]
+    assert calls[1]["ansible_args"] == ["--tags", "cleanup"]
+    assert calls[2]["ansible_args"] == ["--tags", "cleanup"]
 
 
 def _attach_ssh_command(captured_cmd):

@@ -849,7 +849,7 @@ def test_help_lists_top_level_commands_and_hides_internals(capsys):
         main(["--help"])
     assert caught.value.code == 0
     output = capsys.readouterr().out
-    assert "{init,create,apply,attach,ssh,dev,list,cache,destroy,vars}" in output
+    assert "{init,create,apply,attach,ssh,dev,list,cache,delete,vars}" in output
     assert "vpn" not in output
     assert "storage" not in output
 

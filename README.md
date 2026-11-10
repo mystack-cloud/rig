@@ -114,7 +114,7 @@ Firewall modes:
 | `dynamic_replace` | Set allow-list to current CLI public IP (+ `allowed_ips`); drops previous IPs |
 | `dynamic_add` (default) | Keep existing allow-list entries; add current CLI public IP if missing |
 
-Attach / apply / dev / destroy refresh the firewall for dynamic modes when the client IP changes, and keep `ports` in sync.
+Attach / apply / dev / delete refresh the firewall for dynamic modes when the client IP changes, and keep `ports` in sync.
 
 `firewall.ports` opens extra inbound listeners with the same source-IP policy as SSH (TCP by default; use `{port, protocol}` for UDP).
 
@@ -123,7 +123,7 @@ Remote project files live under `/workspace` (not `/root`).
 ## Lifecycle
 
 ```text
-init  →  create  →  attach | dev | apply  →  destroy
+init  →  create  →  attach | dev | apply  →  delete
               ↓
          snapshots (reuse on next create)
 
@@ -147,10 +147,10 @@ destroy playbooks:
 | --- | --- |
 | **init** | Scaffold `rig.yml` + `.rig/`. Collect Hetzner creds, repo PATs, agent choices and a key per agent. |
 | **create** | Boot VM (base/system snapshot). Run provision → configure → authorize → materialize. Snapshot after **configure** only. |
-| **apply** | Default: authorize → materialize. Flags: `--provision` / `--configure` / `--authorize` / `--materialize`. |
+| **apply** | Default: authorize → materialize. Flags: `--provision` / `--configure` / `--authorize` / `--materialize` / `--finalize` / `--destroy` (playbooks only; the VM stays). `--tags` is passed to every playbook in the run. |
 | **attach** | SSH TTY into `opencode` / `claude` / Cursor `agent` on `/workspace`. `--agent` picks among installed agents. |
 | **dev** | Open VS Code/Cursor via Remote-SSH on `/workspace` (or `--browser` for code-server). |
-| **destroy** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. |
+| **delete** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. `--tags` is passed to both playbooks. |
 
 Put secret-free installs in `configure.yml` (cached). Put clone/setup that needs credentials in `materialize.yml`.
 
@@ -189,12 +189,12 @@ Global: `-v` playbook tasks and debug · `-vv`/`-vvv`/`-vvvv` ansible verbosity 
 | --- | --- | --- |
 | `init` | | Interactive scaffold |
 | `create` | `[--name]` `[--provider]` `[--type]` `[--availability-zone]` `[--image]` `[--no-attach]` `[--force-playbooks\|--force-system\|--force-workspace]` | Host defaults from `rig.yml`. `--provider` defaults to `hetzner`. `--type` sets `host.server_type`. `host.type` defaults to `vm`. `--region` aliases `--availability-zone`. |
-| `apply` | `[name]` `[--provision\|--configure\|--authorize\|--materialize]` | Default: authorize then materialize |
+| `apply` | `[name]` `[--provision\|--configure\|--authorize\|--materialize\|--finalize\|--destroy]` `[--tags TAGS]` | Default: authorize then materialize. Each flag runs that playbook (`--provision` also runs configure and authorize; `--materialize` also runs authorize). `--finalize` and `--destroy` do not delete the VM. `--tags` limits every playbook in the run |
 | `attach` | `[name]` `[-c\|--continue]` `[-s\|--session ID]` `[--resume [ID]]` `[--agent opencode\|claude\|cursor]` `[-- …agent args]` | Reopens last remembered session by default; `--agent` picks which installed agent |
 | `ssh` | `[name]` `[-- command]` | Shell on the VM in `/workspace`. A command after `--` runs instead of a login shell |
 | `dev` | `[name]` `[--path /workspace]` `[--browser]` `[--editor code\|cursor\|…]` | Remote-SSH by default; `--editor` opens another IDE from `editor.enabled`. Defaults to `editor.default` |
 | `list` | | Lists envs, or `No remote environments` |
-| `destroy` | `[name …]` | Runs finalize then destroy playbooks first; multi-name OK |
+| `delete` | `[name …]` `[--tags TAGS]` | Runs finalize then destroy playbooks, then deletes the VM; multi-name OK. `--tags` limits both playbooks |
 | `cache` | `list\|clear` `[--system\|--workspace] [--all] [-y]` | List or clear; unused by default, `--all` includes current |
 | `vars encrypt` | `[--stdin-name VAR]` `[--personal]` | Vault into shared or identity vars (after master-key unlock) |
 | `vars decrypt` | `[VAR]` | Decrypt from shared or identity vars |
@@ -221,7 +221,7 @@ Playbooks load `.rig/vars.yml` then `.rig/vars.{identity}.yml` (personal wins), 
 | `rig_workspace_root` | `/workspace` |
 | `rig_version` | Installed `rig` package version |
 | `rig_boot_source` | `base` \| `system` \| `workspace` |
-| `rig_action` | `create` \| `apply` \| `destroy` |
+| `rig_action` | `create` \| `apply` \| `destroy` (`rig delete` still sets `destroy`) |
 | `rig_project_dir` | Local project path |
 | `rig_ssh_key_name` / `rig_ssh_key_path` | Local key under `/tmp` |
 | `rig_firewall_name` | Firewall resource name |
@@ -240,7 +240,7 @@ Also available from vars files (defaults): `workspace_root`, `coding_agent_type`
 | Personal master key | Prompted on init/unlock; **never stored**. Unwraps data keys from `vars.{identity}.yml`. |
 | `rig_identity_data_key` / `rig_shared_data_key` | Master-key wraps inside `vars.{identity}.yml` (committed). |
 | `/tmp/.rig/.personal-data-key` / `.shared-data-key` | Materialized Ansible vault passwords after unlock (tmpfs). |
-| `/tmp/<env>-key` | Per-env SSH private key (attach / apply / destroy finalizers). |
+| `/tmp/<env>-key` | Per-env SSH private key (attach / apply / delete finalizers). |
 
 `RIG_IDENTITY` overrides the configured identity. Teammates joining an existing workspace paste the shared data key once (`rig vars export-shared-key` from an unlocked machine).
 

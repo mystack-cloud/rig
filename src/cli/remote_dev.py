@@ -1772,14 +1772,16 @@ class RemoteDevEnvironment:
         force_system: bool = False,
         force_workspace: bool = False,
         action: Optional[str] = None,
+        ansible_tags: Optional[Sequence[str]] = None,
     ) -> bool:
         """
         Re-run selected lifecycle playbooks against an existing remote VM.
 
-        Stages: ``provision``, ``configure``, ``authorize``, ``materialize``
-        (order preserved). ``authorize`` is never skipped via snapshots.
-        Snapshot is taken only after ``configure``. Used by ``rig create`` and
-        ``rig apply``.
+        Stages: ``provision``, ``configure``, ``authorize``, ``materialize``,
+        ``finalize``, ``destroy`` (order preserved). ``authorize`` is never
+        skipped via snapshots. Snapshot is taken only after ``configure``.
+        ``finalize`` and ``destroy`` run the playbooks only. Used by
+        ``rig create`` and ``rig apply``.
         """
         if soft_fail_workspace:
             soft_fail_materialize = True
@@ -1787,11 +1789,12 @@ class RemoteDevEnvironment:
             log.error("VM is not ready for provisioning (missing IP or SSH key)")
             return False
 
-        wanted = tuple(p for p in playbooks if p in STAGES_CREATE)
+        allowed = STAGES_CREATE + STAGES_DESTROY
+        wanted = tuple(p for p in playbooks if p in allowed)
         if not wanted:
             log.error(
                 "No playbooks selected (use provision, configure, authorize, "
-                "and/or materialize)"
+                "materialize, finalize, and/or destroy)"
             )
             return False
 
@@ -1921,16 +1924,29 @@ class RemoteDevEnvironment:
             "configure": ansible.configure_playbook_path,
             "authorize": ansible.authorize_playbook_path,
             "materialize": ansible.materialize_playbook_path,
+            "finalize": ansible.finalize_playbook_path,
+            "destroy": ansible.destroy_playbook_path,
         }
 
         materialize_failed = False
+        playbook_tags = ansible_tag_arg(ansible_tags)
         for kind in wanted:
             path = path_by_kind.get(kind)
             if not path or not os.path.exists(path):
                 log.error("%s playbook not found: %s", kind.capitalize(), path)
                 return False
-            log.info("Running %s playbook %s", kind, path)
-            if not ansible._run_one_playbook(path, stream=stream):
+            run_kwargs: Dict[str, Any] = {"stream": stream}
+            if playbook_tags:
+                run_kwargs["ansible_args"] = ["--tags", playbook_tags]
+                log.info(
+                    "Running %s playbook %s --tags %s",
+                    kind,
+                    path,
+                    playbook_tags,
+                )
+            else:
+                log.info("Running %s playbook %s", kind, path)
+            if not ansible._run_one_playbook(path, **run_kwargs):
                 if kind == "materialize" and soft_fail_materialize:
                     log.warning(
                         "Materialize playbook failed (often an invalid git PAT); "
@@ -2026,7 +2042,7 @@ class RemoteDevEnvironment:
         """
         Refresh firewall source IPs (and exposed ports) for ``firewall.mode``.
 
-        Called before attach / apply / dev / destroy. ``dynamic_add`` keeps
+        Called before attach / apply / dev / delete. ``dynamic_add`` keeps
         existing IPs and only adds the current client IP; ``dynamic_replace``
         rewrites the allow-list. Soft-fails with a warning when the firewall id
         is missing or the API update fails.
@@ -2117,7 +2133,7 @@ class RemoteDevEnvironment:
         """
         Populate vm_id / firewall_id / ssh_key_id from saved state or Hetzner API.
 
-        Needed for ``rig destroy --name …`` which constructs a fresh environment
+        Needed for ``rig delete --name …`` which constructs a fresh environment
         object without IDs from the original setup session.
         """
         # 1) Shared bucket state
@@ -2161,6 +2177,7 @@ class RemoteDevEnvironment:
         self,
         project_dir: Optional[str] = None,
         stream: bool = True,
+        ansible_tags: Optional[Sequence[str]] = None,
     ) -> bool:
         """
         Run ``finalize`` then ``destroy`` playbooks before deleting the VM.
@@ -2202,25 +2219,39 @@ class RemoteDevEnvironment:
         ansible.rig_vars = build_rig_ansible_vars(self, project, action="destroy")
 
         ok = True
+        playbook_tags = ansible_tag_arg(ansible_tags)
         for kind in STAGES_DESTROY:
             path = path_by_kind.get(kind)
             if not path or not os.path.exists(path):
                 log.debug("Skipping %s playbook (not found)", kind)
                 continue
-            log.info("Running %s playbook %s", kind, path)
-            if not ansible._run_one_playbook(path, stream=stream):
+            run_kwargs: Dict[str, Any] = {"stream": stream}
+            if playbook_tags:
+                run_kwargs["ansible_args"] = ["--tags", playbook_tags]
+                log.info("Running %s playbook %s --tags %s", kind, path, playbook_tags)
+            else:
+                log.info("Running %s playbook %s", kind, path)
+            if not ansible._run_one_playbook(path, **run_kwargs):
                 log.warning("%s playbook failed; continuing with VM deletion", kind.capitalize())
                 ok = False
         return ok
 
-    def cleanup(self, project_dir: Optional[str] = None):
+    def cleanup(
+        self,
+        project_dir: Optional[str] = None,
+        ansible_tags: Optional[Sequence[str]] = None,
+    ):
         """Clean up the remote environment (finalize → destroy playbooks, then delete VM)."""
-        log.info("Destroying remote environment '%s'", self.name)
+        log.info("Deleting remote environment '%s'", self.name)
         project_dir = os.path.abspath(project_dir or os.getcwd())
         self.resolve_resources()
         # Refresh client IP allow-list before finalize/destroy (needs SSH to the VM).
         self.ensure_firewall_access(project_dir=project_dir)
-        self.run_destroy_playbooks(project_dir=project_dir, stream=True)
+        self.run_destroy_playbooks(
+            project_dir=project_dir,
+            stream=True,
+            ansible_tags=ansible_tags,
+        )
 
         if self.vm_id:
             log.debug("Deleting VM id=%s", self.vm_id)
@@ -3024,6 +3055,20 @@ SNAPSHOT_AFTER = "configure"
 SNAPSHOT_COVERED: Tuple[str, ...] = ("provision", "configure")
 ALWAYS_RUN = frozenset({"authorize"})
 
+
+def ansible_tag_arg(tags: Optional[Sequence[str]]) -> Optional[str]:
+    """Join ``rig apply --tags`` values into one ansible ``--tags`` argument."""
+    if not tags:
+        return None
+    parts: List[str] = []
+    for value in tags:
+        for piece in str(value).split(","):
+            piece = piece.strip()
+            if piece:
+                parts.append(piece)
+    return ",".join(parts) or None
+
+
 # Auto-generated provision playbook (.rig/provision.yml).
 # Referenced from root rig.yml playbooks.provision.
 PROVISION_PLAYBOOK = r"""---
@@ -3577,7 +3622,7 @@ MATERIALIZE_PLAYBOOK = """---
 
 FINALIZE_PLAYBOOK = """---
 # Finalize: user-defined destruction hooks before managed destroy
-# (``rig destroy``). May target off-VM resources (DNS, volumes, cloud APIs,
+# (``rig delete``). May target off-VM resources (DNS, volumes, cloud APIs,
 # SaaS tenants) as well as the host. Runs with rig_* vars (e.g. rig_env_name).
 - name: Finalize workspace
   hosts: remote_vm
@@ -5384,6 +5429,7 @@ class AnsibleManager:
         extra_vars: Optional[Dict[str, Any]] = None,
         vault_password: Optional[str] = None,
         stream: bool = False,
+        ansible_args: Optional[Sequence[str]] = None,
     ) -> bool:
         import shlex
 
@@ -5477,6 +5523,8 @@ class AnsibleManager:
         self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_search_path(rig_dir)
         self.ansible_env['ANSIBLE_COLLECTIONS_PATH'] = collections_path
         cmd.extend(ansible_verbosity_args())
+        if ansible_args:
+            cmd.extend(ansible_args)
 
         log.debug("Inventory: %s", self.inventory_path)
         if os.path.exists(vars_path):

@@ -90,7 +90,7 @@ def test_list_errors_without_token(capsys):
 
 def test_destroy_errors_without_token(capsys):
     with patch("cli.main._load_credentials", return_value=True), _no_hetzner_token():
-        assert main(["destroy", "a"]) == 1
+        assert main(["delete", "a"]) == 1
     assert "credentials" in capsys.readouterr().err.lower()
 
 
@@ -396,9 +396,9 @@ def test_destroy_multiple_names_and_failure(tok_env, capsys):
         second.cleanup.side_effect = RuntimeError("nope")
         env_cls.side_effect = [first, second]
 
-        assert main(["destroy", "ok-env", "bad-env"]) == 1
+        assert main(["delete", "ok-env", "bad-env"]) == 1
     err = capsys.readouterr().err
-    assert "Failed to destroy" in err
+    assert "Failed to delete" in err
 
 
 def test_destroy_uses_last_env(tok_env, capsys):
@@ -411,7 +411,7 @@ def test_destroy_uses_last_env(tok_env, capsys):
     ):
         inst = MagicMock()
         env_cls.return_value = inst
-        assert main(["destroy"]) == 0
+        assert main(["delete"]) == 0
         inst.cleanup.assert_called_once()
 
 
@@ -419,7 +419,7 @@ def test_destroy_no_name_and_no_last(tok_env, capsys):
     with patch("cli.main._load_credentials"), patch(
         "cli.main.StorageManager", side_effect=ValueError("no storage")
     ), patch("cli.main.resolve_env_name", return_value=None):
-        assert main(["destroy"]) == 1
+        assert main(["delete"]) == 1
     assert "required" in capsys.readouterr().err.lower()
 
 
