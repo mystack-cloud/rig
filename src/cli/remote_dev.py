@@ -4539,7 +4539,8 @@ class Workspace:
             repo for repo in (project.config.get("repos") or [])
             if isinstance(repo, dict) and repo.get("name")
         ]
-        by_name = {repo["name"]: dict(repo) for repo in existing_repos}
+        existing_by_name = {repo["name"]: dict(repo) for repo in existing_repos}
+        by_name: Dict[str, Dict[str, Any]] = {}
 
         from cli.git import GitManager
         git_manager = GitManager(project)
@@ -4548,6 +4549,8 @@ class Workspace:
             project.set_vars("git.clone_repos", [])
         if project.get_vars("git.ssh_repos") is None:
             project.set_vars("git.ssh_repos", [])
+
+        from cli.encrypt import to_https_git_url
 
         for repo in selected:
             repo_name = repo["name"]
@@ -4559,11 +4562,12 @@ class Workspace:
             relative = None
             if local_path:
                 relative = os.path.relpath(local_path, self.path)
-            entry: Dict[str, Any] = dict(by_name.get(repo_name) or {"name": repo_name})
+            entry: Dict[str, Any] = dict(
+                existing_by_name.get(repo_name) or {"name": repo_name}
+            )
             if relative and relative not in (".", ""):
                 entry["path"] = relative.replace(os.sep, "/")
             if url:
-                from cli.encrypt import to_https_git_url
                 # Always record/clone HTTPS so PATs work for clone + gh/glab auth.
                 https_url = to_https_git_url(url)
                 if https_url != url:
@@ -4596,6 +4600,31 @@ class Workspace:
                         if not git_manager.set_repo_password_var(https_url, password_var):
                             git_manager.set_repo_password_var(url, password_var)
             by_name[repo_name] = entry
+
+        kept_names = set(by_name)
+        kept_urls = set()
+        for entry in by_name.values():
+            url = entry.get("url")
+            if not url:
+                continue
+            kept_urls.add(str(url))
+            kept_urls.add(to_https_git_url(str(url)))
+
+        git_config = project.get_vars("git") or {}
+        for key in ("clone_repos", "ssh_repos"):
+            filtered: List[Dict[str, Any]] = []
+            for item in git_config.get(key, []) or []:
+                if not isinstance(item, dict):
+                    continue
+                repo_url = item.get("repo")
+                dest = str(item.get("dest") or "")
+                dest_name = dest.rstrip("/").split("/")[-1] if dest else ""
+                if repo_url in kept_urls or dest_name in kept_names:
+                    filtered.append(item)
+            git_config[key] = filtered
+        project.set_vars("git", git_config)
+        git_manager.repos_to_clone = git_config.get("clone_repos", [])
+        git_manager.ssh_repos = git_config.get("ssh_repos", [])
 
         project.config["repos"] = list(by_name.values())
 
@@ -4690,7 +4719,10 @@ def interactive_env_init(
     if context["in_git_repo"] and current:
         print(f"Current git repo: {current}")
     if already:
-        print("Existing rig.yml found — reinitializing and adding any missing files.")
+        print(
+            "Existing rig.yml found — reinitializing; selected projects replace "
+            "the current repo set (other files stay additive)."
+        )
 
     # Identity + master-key wraps before any vaulted secret prompts.
     # If wraps already exist, unlock into /tmp/.rig (no re-bootstrap).
