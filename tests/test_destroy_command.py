@@ -1,4 +1,4 @@
-"""Tests for rig destroy / resource resolution."""
+"""Tests for rig delete / resource resolution."""
 
 import os
 import sys
@@ -18,12 +18,16 @@ def test_destroy_cli_does_not_pass_hetzner_token():
     ) as env_cls:
         instance = MagicMock()
         env_cls.return_value = instance
-        assert main(["destroy", "--name", "dev-37ffecd3"]) == 0
+        assert main(["delete", "--name", "dev-37ffecd3"]) == 0
         env_cls.assert_called_once()
         kwargs = env_cls.call_args.kwargs
         assert kwargs.get("name") == "dev-37ffecd3"
         assert "hetzner_token" not in kwargs
         instance.cleanup.assert_called_once()
+        assert instance.cleanup.call_args.kwargs["ansible_tags"] is None
+
+        assert main(["delete", "--name", "dev-37ffecd3", "--tags", "cleanup"]) == 0
+        assert instance.cleanup.call_args.kwargs["ansible_tags"] == ["cleanup"]
 
 
 def test_destroy_accepts_positional_name():
@@ -34,7 +38,7 @@ def test_destroy_accepts_positional_name():
     ) as env_cls:
         instance = MagicMock()
         env_cls.return_value = instance
-        assert main(["destroy", "dev-pos1"]) == 0
+        assert main(["delete", "dev-pos1"]) == 0
         assert env_cls.call_args.kwargs.get("name") == "dev-pos1"
         instance.cleanup.assert_called_once()
 
@@ -47,7 +51,7 @@ def test_destroy_accepts_multiple_names():
     ) as env_cls:
         instance = MagicMock()
         env_cls.return_value = instance
-        assert main(["destroy", "dev-a", "dev-b", "--name", "dev-c"]) == 0
+        assert main(["delete", "dev-a", "dev-b", "--name", "dev-c"]) == 0
         names = [call.kwargs.get("name") for call in env_cls.call_args_list]
         assert names == ["dev-a", "dev-b", "dev-c"]
         assert instance.cleanup.call_count == 3
@@ -57,7 +61,7 @@ def test_destroy_requires_at_least_one_name(capsys):
     with patch("cli.main._load_credentials"), patch.dict(
         os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
     ), patch("cli.main.resolve_env_name", return_value=None):
-        assert main(["destroy"]) == 1
+        assert main(["delete"]) == 1
     assert "at least one environment name" in capsys.readouterr().err.lower()
 
 
@@ -71,7 +75,7 @@ def test_destroy_falls_back_to_last_env():
     ) as clear:
         instance = MagicMock()
         env_cls.return_value = instance
-        assert main(["destroy"]) == 0
+        assert main(["delete"]) == 0
         assert env_cls.call_args.kwargs.get("name") == "dev-last"
         instance.cleanup.assert_called_once()
         clear.assert_called_once_with("dev-last")
@@ -114,7 +118,11 @@ def test_cleanup_resolves_then_deletes():
     with patch.object(env, "run_destroy_playbooks", return_value=True) as finalizers_pb:
         env.cleanup(project_dir="/tmp/project")
 
-    finalizers_pb.assert_called_once_with(project_dir="/tmp/project", stream=True)
+    finalizers_pb.assert_called_once_with(
+        project_dir="/tmp/project",
+        stream=True,
+        ansible_tags=None,
+    )
     env.manager.delete_vm.assert_called_once_with(11)
     env.manager.delete_firewall.assert_called_once_with(33)
     env.manager.delete_ssh_key.assert_called_once_with(22)
@@ -175,6 +183,13 @@ def test_run_destroy_playbooks_invokes_ansible(tmp_path):
             paths = [c.args[0] for c in instance._run_one_playbook.call_args_list]
             assert paths[0].endswith("finalize.yml")
             assert paths[1].endswith("destroy.yml")
+            assert env.run_destroy_playbooks(
+                project_dir=str(tmp_path),
+                ansible_tags=["cleanup"],
+            ) is True
+            tagged = instance._run_one_playbook.call_args_list[-2:]
+            assert tagged[0].kwargs["ansible_args"] == ["--tags", "cleanup"]
+            assert tagged[1].kwargs["ansible_args"] == ["--tags", "cleanup"]
     finally:
         try:
             os.remove("/tmp/dev-pb-key")

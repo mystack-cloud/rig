@@ -451,6 +451,6 @@ def test_destroy_clears_matching_last_env():
     ) as clear_session:
         instance = MagicMock()
         env_cls.return_value = instance
-        assert main(["destroy", "dev-gone"]) == 0
+        assert main(["delete", "dev-gone"]) == 0
         clear.assert_called_once_with("dev-gone")
         clear_session.assert_called_once_with("dev-gone")

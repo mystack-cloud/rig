@@ -87,6 +87,14 @@ def test_run_one_playbook_injects_rig_vars_as_json(tmp_path):
     assert loaded["rig_workspace_name"] == "ws"
     assert loaded["rig_repos"][0]["name"] == "app"
 
+    with patch("cli.remote_dev.subprocess.run", side_effect=fake_run):
+        assert manager._run_one_playbook(
+            str(tmp_path / ".rig" / "materialize.yml"),
+            stream=False,
+            ansible_args=["--tags", "git,deps"],
+        )
+    assert captured["cmd"][captured["cmd"].index("--tags") + 1] == "git,deps"
+
 
 def test_apply_playbooks_sets_rig_vars(tmp_path):
     cfg = ProjectConfig(str(tmp_path))

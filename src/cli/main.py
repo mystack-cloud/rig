@@ -363,7 +363,8 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         log.error("Environment name is required (no last environment remembered)")
         log.info(
             "Usage: rig apply [name] "
-            "[--provision|--configure|--authorize|--materialize]"
+            "[--provision|--configure|--authorize|--materialize|--finalize|--destroy] "
+            "[--tags TAGS]"
         )
         return 1
 
@@ -372,13 +373,23 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     want_configure = getattr(args, "configure", False)
     want_authorize = getattr(args, "authorize", False) or getattr(args, "authnz", False)
     want_materialize = getattr(args, "materialize", False)
+    want_finalize = getattr(args, "finalize", False)
+    want_destroy_playbook = getattr(args, "destroy", False)
 
     selected = []
     if want_provision:
         selected.extend(["provision", "configure", "authorize"])
     if want_configure and "configure" not in selected:
         selected.append("configure")
-    if want_authorize and not want_provision and not want_configure and not want_materialize:
+    authorize_only = (
+        want_authorize
+        and not want_provision
+        and not want_configure
+        and not want_materialize
+        and not want_finalize
+        and not want_destroy_playbook
+    )
+    if authorize_only:
         selected = ["authorize"]
     elif want_authorize and "authorize" not in selected:
         selected.append("authorize")
@@ -387,12 +398,17 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             selected.append("authorize")
         if "materialize" not in selected:
             selected.append("materialize")
+    if want_finalize and "finalize" not in selected:
+        selected.append("finalize")
+    if want_destroy_playbook and "destroy" not in selected:
+        selected.append("destroy")
     if not selected:
         # Default apply: re-authorize then materialize.
         selected = ["authorize", "materialize"]
 
-    # Preserve lifecycle order.
-    order = ("provision", "configure", "authorize", "materialize")
+    # Preserve lifecycle order. finalize/destroy run the playbooks only;
+    # deleting the VM is ``rig delete``.
+    order = ("provision", "configure", "authorize", "materialize", "finalize", "destroy")
     playbooks = tuple(stage for stage in order if stage in selected)
 
     storage_manager = None
@@ -421,6 +437,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             playbooks=playbooks,
             soft_fail_materialize=False,
             action="apply",
+            ansible_tags=getattr(args, "tags", None),
         )
         return 0 if ok else 1
     except Exception as e:
@@ -529,7 +546,7 @@ def _cmd_list(_args: argparse.Namespace) -> int:
         return 1
 
 
-def _cmd_destroy(args: argparse.Namespace) -> int:
+def _cmd_delete(args: argparse.Namespace) -> int:
     _load_credentials()
     hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
     if not hetzner_token:
@@ -555,7 +572,7 @@ def _cmd_destroy(args: argparse.Namespace) -> int:
             log.info("Using last environment '%s'", last)
         else:
             log.error("At least one environment name is required (no last environment remembered)")
-            log.info("Usage: rig destroy [name ...]   or   rig destroy --name <name>")
+            log.info("Usage: rig delete [name ...] [--tags TAGS]   or   rig delete --name <name>")
             return 1
 
     storage_manager = None
@@ -568,16 +585,19 @@ def _cmd_destroy(args: argparse.Namespace) -> int:
     for name in names:
         try:
             env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
-            env.cleanup(project_dir=os.getcwd())
+            env.cleanup(
+                project_dir=os.getcwd(),
+                ansible_tags=getattr(args, "tags", None),
+            )
             clear_last_env(name)
             clear_last_session(name)
-            log.info("Environment '%s' destroyed", name)
+            log.info("Environment '%s' deleted", name)
         except Exception as e:
-            log.error("Error destroying environment '%s': %s", name, e)
+            log.error("Error deleting environment '%s': %s", name, e)
             failures.append(name)
 
     if failures:
-        log.error("Failed to destroy: %s", ", ".join(failures))
+        log.error("Failed to delete: %s", ", ".join(failures))
         return 1
     return 0
 
@@ -964,6 +984,26 @@ def main(argv=None):
         action="store_true",
         help="Run authorize then materialize (or materialize with other flags)",
     )
+    apply_parser.add_argument(
+        "--finalize",
+        action="store_true",
+        help="Run finalize.yml (does not delete the VM)",
+    )
+    apply_parser.add_argument(
+        "--destroy",
+        action="store_true",
+        help="Run destroy.yml (does not delete the VM)",
+    )
+    apply_parser.add_argument(
+        "--tags",
+        action="append",
+        default=None,
+        metavar="TAGS",
+        help=(
+            "Ansible --tags for every playbook in this run "
+            "(comma-separated; may be repeated)."
+        ),
+    )
     # Legacy aliases
     apply_parser.add_argument(
         "--system",
@@ -1124,24 +1164,34 @@ def main(argv=None):
         help="list = show only; clear = list, confirm, delete (default: clear)",
     )
 
-    destroy_parser = subparsers.add_parser(
-        "destroy",
+    delete_parser = subparsers.add_parser(
+        "delete",
         help=(
-            "Destroy remote environments (runs finalize then destroy playbooks first; "
+            "Delete remote environments (runs finalize then destroy playbooks first; "
             "uses last env if name omitted)"
         ),
     )
-    destroy_parser.add_argument(
+    delete_parser.add_argument(
         "names",
         nargs="*",
         metavar="name",
-        help="Environment name(s) to destroy (defaults to last handled env in /tmp/.rig/last-env)",
+        help="Environment name(s) to delete (defaults to last handled env in /tmp/.rig/last-env)",
     )
-    destroy_parser.add_argument(
+    delete_parser.add_argument(
         "--name",
         action="append",
         dest="name_flags",
         help="Environment name (repeatable; kept for compatibility)",
+    )
+    delete_parser.add_argument(
+        "--tags",
+        action="append",
+        default=None,
+        metavar="TAGS",
+        help=(
+            "Ansible --tags for the finalize and destroy playbooks "
+            "(comma-separated; may be repeated)"
+        ),
     )
 
     vars_parser = subparsers.add_parser(
@@ -1212,8 +1262,8 @@ def main(argv=None):
         return _cmd_list(args)
     if args.command == "cache":
         return _cmd_cache(args)
-    if args.command == "destroy":
-        return _cmd_destroy(args)
+    if args.command == "delete":
+        return _cmd_delete(args)
     if args.command == "vars":
         if args.vars_command == "encrypt":
             return _cmd_encrypt(args)
