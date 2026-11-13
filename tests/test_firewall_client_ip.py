@@ -9,10 +9,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from cli.remote_dev import (
     ProjectConfig,
     RemoteDevEnvironment,
+    RemoteDevManager,
     as_cidr,
     default_firewall_rules,
     detect_client_public_ip,
+    firewall_config_needs_client_ip,
     firewall_source_ips,
+    normalize_firewall_mode_name,
     normalize_firewall_ports,
     resolve_firewall_mode,
 )
@@ -92,9 +95,27 @@ def test_normalize_firewall_ports_accepts_forms():
         [8080, "3000-3001", {"port": 53, "protocol": "udp", "description": "DNS"}]
     )
     assert ports == [
-        {"protocol": "tcp", "port": "8080", "description": "Allow TCP 8080"},
-        {"protocol": "tcp", "port": "3000-3001", "description": "Allow TCP 3000-3001"},
-        {"protocol": "udp", "port": "53", "description": "DNS"},
+        {
+            "protocol": "tcp",
+            "port": "8080",
+            "description": "Allow TCP 8080",
+            "mode": None,
+            "allowed_ips": None,
+        },
+        {
+            "protocol": "tcp",
+            "port": "3000-3001",
+            "description": "Allow TCP 3000-3001",
+            "mode": None,
+            "allowed_ips": None,
+        },
+        {
+            "protocol": "udp",
+            "port": "53",
+            "description": "DNS",
+            "mode": None,
+            "allowed_ips": None,
+        },
     ]
 
 
@@ -109,6 +130,218 @@ def test_default_firewall_rules_include_app_ports():
     assert ("udp", "53") in ports
     app = next(r for r in rules if r.get("port") == "8080")
     assert app["source_ips"] == ["203.0.113.9/32"]
+
+
+def test_port_overrides_mode_and_allowed_ips():
+    firewall = {"mode": "dynamic_add", "allowed_ips": ["203.0.113.0/24"]}
+    rules = default_firewall_rules(
+        ["198.51.100.1/32", "203.0.113.9/32", "203.0.113.0/24"],
+        ports=[
+            8080,
+            {"port": 443, "mode": "open"},
+            {"port": 9090, "mode": "static", "allowed_ips": ["198.51.100.10/32"]},
+            {"port": 8443, "allowed_ips": ["192.0.2.10/32"]},
+            {"port": 7443, "mode": "dynamic_replace", "allowed_ips": ["10.1.0.0/16"]},
+            {"port": 9443, "mode": "static", "allowed_ips": []},
+            {"port": 22, "mode": "open"},
+        ],
+        firewall_cfg=firewall,
+        client_ip="203.0.113.9",
+        existing_port_ips={
+            ("tcp", "8443"): ["192.0.2.5/32"],
+            ("tcp", "7443"): ["198.51.100.9/32"],
+        },
+    )
+    by_port = {rule.get("port"): rule["source_ips"] for rule in rules if rule.get("port")}
+    ssh = ["198.51.100.1/32", "203.0.113.9/32", "203.0.113.0/24"]
+    assert by_port["22"] == ssh
+    assert by_port["8080"] == ssh
+    assert by_port["443"] == ["0.0.0.0/0", "::/0"]
+    assert by_port["9090"] == ["198.51.100.10/32"]
+    assert by_port["8443"] == ["192.0.2.5/32", "203.0.113.9/32", "192.0.2.10/32"]
+    assert "203.0.113.0/24" not in by_port["8443"]
+    assert by_port["7443"] == ["203.0.113.9/32", "10.1.0.0/16"]
+    assert "9443" not in by_port
+    icmp = next(rule for rule in rules if rule["protocol"] == "icmp")
+    assert icmp["source_ips"] == ssh
+
+
+def test_unknown_port_mode_inherits_and_duplicate_is_skipped(caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    ports = normalize_firewall_ports(
+        [
+            {"port": 443, "mode": "nope"},
+            {"port": 443, "mode": "open"},
+            {"port": 53, "protocol": "udp", "allowed_ips": []},
+        ]
+    )
+    assert ports[0]["mode"] is None
+    assert ports[0]["allowed_ips"] is None
+    assert len([item for item in ports if item["port"] == "443"]) == 1
+    assert ports[1]["allowed_ips"] == []
+    assert any("Unknown firewall port mode" in record.message for record in caplog.records)
+    assert any("duplicate" in record.message for record in caplog.records)
+
+
+def test_static_firewall_still_opens_when_allowed_ips_empty():
+    assert "0.0.0.0/0" in firewall_source_ips({"mode": "static", "allowed_ips": []})
+
+
+def test_client_ip_required_when_only_a_port_is_dynamic():
+    cfg = {"mode": "static", "allowed_ips": ["203.0.113.0/24"]}
+    assert firewall_config_needs_client_ip(cfg, [{"port": 443, "mode": "open"}]) is False
+    assert firewall_config_needs_client_ip(
+        cfg, [{"port": 8080, "mode": "dynamic_add"}]
+    ) is True
+    # SSH stays on the firewall mode, so a dynamic override on port 22 does not count.
+    assert firewall_config_needs_client_ip(
+        cfg, [{"port": 22, "mode": "dynamic_add"}]
+    ) is False
+
+
+def test_firewall_port_parsing_edge_cases():
+    assert normalize_firewall_mode_name(None) is None
+    assert normalize_firewall_mode_name("   ") is None
+
+    ports = normalize_firewall_ports(
+        [
+            {"port": "  "},
+            "",
+            {"port": 80, "mode": ""},
+            {"port": 81, "mode": None},
+            {"port": 82, "allowed_ips": None},
+            {"port": 83, "allowed_ips": "198.51.100.8"},
+            {"port": 84, "allowed_ips": "   "},
+            {"port": 85, "allowed_ips": {"not": "a list"}},
+            {"port": 86, "allowed_ips": [None, "  ", "10.0.0.1"]},
+        ]
+    )
+    by_port = {item["port"]: item for item in ports}
+    assert "80" in by_port and by_port["80"]["mode"] is None
+    assert by_port["81"]["mode"] is None
+    assert by_port["82"]["allowed_ips"] == []
+    assert by_port["83"]["allowed_ips"] == ["198.51.100.8"]
+    assert by_port["84"]["allowed_ips"] == []
+    assert by_port["85"]["allowed_ips"] is None
+    assert by_port["86"]["allowed_ips"] == ["10.0.0.1"]
+
+    rules = default_firewall_rules(
+        ["203.0.113.9/32"],
+        extra_rules=[{"direction": "in", "protocol": "tcp", "port": "9", "source_ips": ["10.0.0.1/32"]}],
+        ports=[8080],
+    )
+    assert any(rule.get("port") == "9" for rule in rules)
+
+
+def test_set_firewall_rules_posts_per_port_sources():
+    manager = RemoteDevManager(hetzner_token="tok")
+    captured = {}
+
+    def fake_request(_method, _path, data=None):
+        captured["data"] = data
+        return {"action": {}}
+
+    manager._request = fake_request  # type: ignore[method-assign]
+    manager.set_firewall_rules(
+        1,
+        ["203.0.113.9/32"],
+        ports=[{"port": 443, "mode": "open"}, {"port": 9090, "allowed_ips": ["198.51.100.10/32"]}],
+        firewall_cfg={"mode": "dynamic_add", "allowed_ips": ["203.0.113.0/24"]},
+        client_ip="203.0.113.9",
+    )
+    by_port = {
+        rule.get("port"): rule["source_ips"]
+        for rule in captured["data"]["rules"]
+        if rule.get("port")
+    }
+    assert by_port["22"] == ["203.0.113.9/32"]
+    assert by_port["443"] == ["0.0.0.0/0", "::/0"]
+    assert by_port["9090"] == ["203.0.113.9/32", "198.51.100.10/32"]
+
+
+def test_ensure_firewall_access_rewrites_port_sources(tmp_path):
+    cfg = ProjectConfig(str(tmp_path))
+    assert cfg.init(name="ws", agent_type="opencode")
+    cfg.set("firewall.ports", [{"port": 443, "mode": "open"}])
+    cfg.save(write_vars=False)
+
+    env = RemoteDevEnvironment(name="dev-port-mode")
+    env.firewall_id = 15
+    env.manager = MagicMock()
+    env.manager.get_firewall.return_value = {
+        "firewall": {
+            "rules": [
+                {
+                    "direction": "in",
+                    "protocol": "tcp",
+                    "port": "22",
+                    "source_ips": ["198.51.100.1/32", "203.0.113.9/32"],
+                },
+                {
+                    "direction": "in",
+                    "protocol": "tcp",
+                    "port": "443",
+                    "source_ips": ["198.51.100.1/32", "203.0.113.9/32"],
+                },
+            ]
+        }
+    }
+
+    with patch("cli.remote_dev.detect_client_public_ip", return_value="203.0.113.9"):
+        assert env.ensure_firewall_access(project_dir=str(tmp_path)) is True
+
+    kwargs = env.manager.set_firewall_rules.call_args.kwargs
+    assert kwargs["client_ip"] == "203.0.113.9"
+    assert kwargs["existing_port_ips"][("tcp", "443")] == [
+        "198.51.100.1/32",
+        "203.0.113.9/32",
+    ]
+    rules = default_firewall_rules(
+        env.manager.set_firewall_rules.call_args.args[1],
+        ports=kwargs["ports"],
+        firewall_cfg=kwargs["firewall_cfg"],
+        client_ip=kwargs["client_ip"],
+        existing_port_ips=kwargs["existing_port_ips"],
+    )
+    by_port = {rule.get("port"): rule["source_ips"] for rule in rules if rule.get("port")}
+    assert by_port["22"] == ["198.51.100.1/32", "203.0.113.9/32"]
+    assert by_port["443"] == ["0.0.0.0/0", "::/0"]
+
+
+def test_ensure_firewall_access_skips_when_port_sources_match(tmp_path):
+    cfg = ProjectConfig(str(tmp_path))
+    assert cfg.init(name="ws", agent_type="opencode")
+    cfg.set("firewall.ports", [{"port": 443, "mode": "open"}])
+    cfg.save(write_vars=False)
+
+    env = RemoteDevEnvironment(name="dev-port-open")
+    env.firewall_id = 16
+    env.manager = MagicMock()
+    env.manager.get_firewall.return_value = {
+        "firewall": {
+            "rules": [
+                {
+                    "direction": "in",
+                    "protocol": "tcp",
+                    "port": "22",
+                    "source_ips": ["198.51.100.1/32", "203.0.113.9/32"],
+                },
+                {
+                    "direction": "in",
+                    "protocol": "tcp",
+                    "port": "443",
+                    "source_ips": ["0.0.0.0/0", "::/0"],
+                },
+            ]
+        }
+    }
+
+    with patch("cli.remote_dev.detect_client_public_ip", return_value="203.0.113.9"):
+        assert env.ensure_firewall_access(project_dir=str(tmp_path)) is True
+
+    env.manager.set_firewall_rules.assert_not_called()
 
 
 def test_init_writes_firewall_mode_default(tmp_path):

@@ -776,6 +776,24 @@ def _dedupe_cidrs(items: List[str]) -> List[str]:
     return deduped
 
 
+def normalize_firewall_mode_name(raw: Any) -> Optional[str]:
+    """Normalize a mode string. ``None`` when the value is empty."""
+    if raw is None:
+        return None
+    mode = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    if not mode:
+        return None
+    aliases = {
+        "none": "open",
+        "off": "open",
+        "unrestricted": "open",
+        "replace": "dynamic_replace",
+        "dynamic": "dynamic_add",
+        "add": "dynamic_add",
+    }
+    return aliases.get(mode, mode)
+
+
 def resolve_firewall_mode(firewall_cfg: Optional[Dict[str, Any]] = None) -> str:
     """
     Resolve ``firewall.mode``.
@@ -787,17 +805,8 @@ def resolve_firewall_mode(firewall_cfg: Optional[Dict[str, Any]] = None) -> str:
     """
     cfg = firewall_cfg or {}
     raw = cfg.get("mode")
-    if raw is not None:
-        mode = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
-        aliases = {
-            "none": "open",
-            "off": "open",
-            "unrestricted": "open",
-            "replace": "dynamic_replace",
-            "dynamic": "dynamic_add",
-            "add": "dynamic_add",
-        }
-        mode = aliases.get(mode, mode)
+    if raw is not None and str(raw).strip():
+        mode = normalize_firewall_mode_name(raw)
         if mode not in FIREWALL_MODES:
             log.warning(
                 "Unknown firewall.mode %r; using %s",
@@ -805,7 +814,7 @@ def resolve_firewall_mode(firewall_cfg: Optional[Dict[str, Any]] = None) -> str:
                 DEFAULT_FIREWALL_MODE,
             )
             return DEFAULT_FIREWALL_MODE
-        return mode
+        return mode  # type: ignore[return-value]
     if "lock_to_client_ip" in cfg:
         return "dynamic_add" if cfg.get("lock_to_client_ip") else "open"
     return DEFAULT_FIREWALL_MODE
@@ -820,6 +829,7 @@ def firewall_source_ips(
     *,
     client_ip: Optional[str] = None,
     existing_ips: Optional[List[str]] = None,
+    open_fallback: bool = True,
 ) -> List[str]:
     """
     Build inbound ``source_ips`` for the env firewall.
@@ -828,6 +838,9 @@ def firewall_source_ips(
     - ``static``: ``allowed_ips`` only (open fallback if empty)
     - ``dynamic_replace``: current client IP + ``allowed_ips`` (replaces previous)
     - ``dynamic_add`` (default): keep ``existing_ips``, add client IP + ``allowed_ips``
+
+    ``open_fallback`` is false for a port that explicitly sets ``allowed_ips: []``
+    under ``static``, so that port stays closed instead of opening to the world.
     """
     cfg = firewall_cfg or {}
     mode = resolve_firewall_mode(cfg)
@@ -842,7 +855,10 @@ def firewall_source_ips(
         return list(_OPEN_SOURCE_IPS)
 
     if mode == "static":
-        return _dedupe_cidrs(extras) or list(_OPEN_SOURCE_IPS)
+        resolved = _dedupe_cidrs(extras)
+        if resolved:
+            return resolved
+        return [] if not open_fallback else list(_OPEN_SOURCE_IPS)
 
     if mode == "dynamic_replace":
         sources: List[str] = []
@@ -866,22 +882,53 @@ def firewall_source_ips(
     return _dedupe_cidrs(sources) or list(_OPEN_SOURCE_IPS)
 
 
+def _port_mode(raw: Any) -> Optional[str]:
+    """Return a port mode, or None to inherit ``firewall.mode``."""
+    if raw is None or not str(raw).strip():
+        return None
+    mode = normalize_firewall_mode_name(raw)
+    if mode not in FIREWALL_MODES:
+        log.warning("Unknown firewall port mode %r; using firewall.mode", raw)
+        return None
+    return mode
+
+
+def _port_allowed_ips(raw: Any) -> Optional[List[str]]:
+    """Return an explicit allow-list, or None when the key should be ignored."""
+    if raw is None:
+        return []
+    if isinstance(raw, (str, int)):
+        text = str(raw).strip()
+        return [text] if text else []
+    if isinstance(raw, list):
+        return [str(item) for item in raw if item is not None and str(item).strip()]
+    log.warning("Ignoring firewall port allowed_ips of type %s", type(raw).__name__)
+    return None
+
+
 def normalize_firewall_ports(
     ports: Optional[List[Any]] = None,
-) -> List[Dict[str, str]]:
+) -> List[Dict[str, Any]]:
     """
-    Normalize ``firewall.ports`` entries to ``{protocol, port, description}``.
+    Normalize ``firewall.ports`` entries.
 
     Accepted forms:
-      - ``8080`` / ``"8080"`` / ``"8000-8010"`` → TCP
+      - ``8080`` / ``"8080"`` / ``"8000-8010"`` → TCP, inherit firewall mode
       - ``{port: 8080}`` / ``{port: 53, protocol: udp, description: "..."}``
+      - ``{port: 443, mode: open}`` overrides the source policy
+      - ``{port: 9090, allowed_ips: ["198.51.100.10/32"]}`` replaces ``firewall.allowed_ips``
+
+    ``mode`` None and ``allowed_ips`` None both mean inherit. An explicit
+    ``allowed_ips: []`` is an empty list, not inherit.
     """
-    normalized: List[Dict[str, str]] = []
+    normalized: List[Dict[str, Any]] = []
     seen = set()
     for item in ports or []:
         protocol = "tcp"
         port: Optional[str] = None
         description = ""
+        mode: Optional[str] = None
+        allowed_ips: Optional[List[str]] = None
         if isinstance(item, dict):
             raw_port = item.get("port")
             if raw_port is None:
@@ -889,6 +936,10 @@ def normalize_firewall_ports(
             port = str(raw_port).strip()
             protocol = str(item.get("protocol") or "tcp").strip().lower() or "tcp"
             description = str(item.get("description") or "").strip()
+            if "mode" in item:
+                mode = _port_mode(item.get("mode"))
+            if "allowed_ips" in item:
+                allowed_ips = _port_allowed_ips(item.get("allowed_ips"))
         else:
             port = str(item).strip()
         if not port:
@@ -898,6 +949,7 @@ def normalize_firewall_ports(
             continue
         key = (protocol, port)
         if key in seen:
+            log.warning("Skipping duplicate firewall port %s/%s", protocol, port)
             continue
         seen.add(key)
         normalized.append(
@@ -905,17 +957,84 @@ def normalize_firewall_ports(
                 "protocol": protocol,
                 "port": port,
                 "description": description or f"Allow {protocol.upper()} {port}",
+                "mode": mode,
+                "allowed_ips": allowed_ips,
             }
         )
     return normalized
+
+
+def firewall_config_needs_client_ip(
+    firewall_cfg: Optional[Dict[str, Any]] = None,
+    ports: Optional[List[Any]] = None,
+) -> bool:
+    """True when SSH or any declared port uses a dynamic mode."""
+    cfg = firewall_cfg or {}
+    if firewall_needs_client_ip(resolve_firewall_mode(cfg)):
+        return True
+    declared = ports if ports is not None else cfg.get("ports")
+    for entry in normalize_firewall_ports(declared):
+        if entry["protocol"] == "tcp" and entry["port"] == "22":
+            continue
+        mode = entry.get("mode") or resolve_firewall_mode(cfg)
+        if firewall_needs_client_ip(mode):
+            return True
+    return False
+
+
+def sources_for_port(
+    entry: Dict[str, Any],
+    *,
+    firewall_cfg: Optional[Dict[str, Any]],
+    client_ip: Optional[str],
+    existing_ips: Optional[List[str]],
+    inherited_sources: List[str],
+) -> List[str]:
+    """
+    Source IPs for one app port.
+
+    An empty list means the port is not opened. Ports that omit both ``mode``
+    and ``allowed_ips`` use the same sources as SSH.
+    """
+    if not entry.get("mode") and entry.get("allowed_ips") is None:
+        return list(inherited_sources)
+
+    cfg = firewall_cfg or {}
+    effective_mode = entry.get("mode") or resolve_firewall_mode(cfg)
+    if entry.get("allowed_ips") is None:
+        allowed = list(cfg.get("allowed_ips") or [])
+        explicit_empty_static = False
+    else:
+        allowed = list(entry["allowed_ips"])
+        explicit_empty_static = effective_mode == "static" and not allowed
+    sources = firewall_source_ips(
+        {"mode": effective_mode, "allowed_ips": allowed},
+        client_ip=client_ip,
+        existing_ips=existing_ips,
+        open_fallback=not explicit_empty_static,
+    )
+    if not sources:
+        log.warning(
+            "Firewall port %s/%s has no source IPs; not opening it",
+            entry["protocol"],
+            entry["port"],
+        )
+    return sources
 
 
 def default_firewall_rules(
     source_ips: List[str],
     extra_rules: Optional[List[Dict[str, Any]]] = None,
     ports: Optional[List[Any]] = None,
+    firewall_cfg: Optional[Dict[str, Any]] = None,
+    client_ip: Optional[str] = None,
+    existing_port_ips: Optional[Dict[Tuple[str, str], List[str]]] = None,
 ) -> List[Dict[str, Any]]:
-    """SSH + ICMP + optional app ports used for create and set_rules refresh."""
+    """SSH + ICMP + optional app ports used for create and set_rules refresh.
+
+    SSH and ICMP always use ``source_ips`` (the firewall-level policy). Each
+    port uses that list unless it sets ``mode`` or ``allowed_ips``.
+    """
     rules: List[Dict[str, Any]] = [
         {
             "direction": "in",
@@ -931,16 +1050,27 @@ def default_firewall_rules(
             "description": "Allow ICMP",
         },
     ]
+    existing = existing_port_ips or {}
     for entry in normalize_firewall_ports(ports):
         # Never duplicate the built-in SSH rule.
         if entry["protocol"] == "tcp" and entry["port"] == "22":
+            continue
+        key = (entry["protocol"], entry["port"])
+        port_sources = sources_for_port(
+            entry,
+            firewall_cfg=firewall_cfg,
+            client_ip=client_ip,
+            existing_ips=list(existing.get(key) or []),
+            inherited_sources=source_ips,
+        )
+        if not port_sources:
             continue
         rules.append(
             {
                 "direction": "in",
                 "protocol": entry["protocol"],
                 "port": entry["port"],
-                "source_ips": list(source_ips),
+                "source_ips": port_sources,
                 "description": entry["description"],
             }
         )
@@ -1028,6 +1158,9 @@ class RemoteDevManager:
         allowed_ips: Optional[list] = None,
         extra_rules: Optional[list] = None,
         ports: Optional[List[Any]] = None,
+        firewall_cfg: Optional[Dict[str, Any]] = None,
+        client_ip: Optional[str] = None,
+        existing_port_ips: Optional[Dict[Tuple[str, str], List[str]]] = None,
     ) -> Dict[str, Any]:
         """Create firewall with SSH + ICMP (+ optional app ports) for ``allowed_ips``."""
         if allowed_ips is None:
@@ -1038,6 +1171,9 @@ class RemoteDevManager:
                 list(allowed_ips),
                 extra_rules=extra_rules,
                 ports=ports,
+                firewall_cfg=firewall_cfg,
+                client_ip=client_ip,
+                existing_port_ips=existing_port_ips,
             ),
         }
         result = self._request('POST', '/firewalls', data)
@@ -1053,6 +1189,9 @@ class RemoteDevManager:
         allowed_ips: List[str],
         extra_rules: Optional[List[Dict[str, Any]]] = None,
         ports: Optional[List[Any]] = None,
+        firewall_cfg: Optional[Dict[str, Any]] = None,
+        client_ip: Optional[str] = None,
+        existing_port_ips: Optional[Dict[Tuple[str, str], List[str]]] = None,
     ) -> Dict[str, Any]:
         """Replace firewall rules (Hetzner ``set_rules`` action)."""
         data = {
@@ -1060,6 +1199,9 @@ class RemoteDevManager:
                 list(allowed_ips),
                 extra_rules=extra_rules,
                 ports=ports,
+                firewall_cfg=firewall_cfg,
+                client_ip=client_ip,
+                existing_port_ips=existing_port_ips,
             ),
         }
         return self._request(
@@ -1646,8 +1788,9 @@ class RemoteDevEnvironment:
         try:
             firewall_config = self._firewall_config(project_dir)
             mode = resolve_firewall_mode(firewall_config)
+            ports = firewall_config.get("ports") or []
             client_ip = None
-            if firewall_needs_client_ip(mode):
+            if firewall_config_needs_client_ip(firewall_config, ports):
                 client_ip = detect_client_public_ip()
                 if not client_ip:
                     log.error(
@@ -1661,7 +1804,6 @@ class RemoteDevEnvironment:
                 client_ip=client_ip,
                 existing_ips=None,
             )
-            ports = firewall_config.get("ports") or []
             extra_rules = firewall_config.get("extra_rules")
             port_label = ", ".join(
                 f"{p['protocol']}/{p['port']}" for p in normalize_firewall_ports(ports)
@@ -1678,6 +1820,8 @@ class RemoteDevEnvironment:
                 firewall_ips,
                 extra_rules=extra_rules,
                 ports=ports,
+                firewall_cfg=firewall_config,
+                client_ip=client_ip,
             )
             self.firewall_id = fw_result.get('firewall', {}).get('id')
             log.debug("Firewall created (id=%s)", self.firewall_id)
@@ -2073,7 +2217,7 @@ class RemoteDevEnvironment:
 
         # open/static still refresh when declared app ports change.
         client_ip: Optional[str] = None
-        if firewall_needs_client_ip(mode):
+        if firewall_config_needs_client_ip(firewall_config, ports):
             client_ip = detect_client_public_ip()
             if not client_ip:
                 log.warning(
@@ -2085,7 +2229,7 @@ class RemoteDevEnvironment:
             current = self.manager.get_firewall(self.firewall_id)
             rules = (current.get("firewall") or {}).get("rules") or []
             ssh_sources: List[str] = []
-            current_ports: set = set()
+            current_port_ips: Dict[Tuple[str, str], List[str]] = {}
             for rule in rules:
                 if rule.get("direction") != "in":
                     continue
@@ -2094,7 +2238,7 @@ class RemoteDevEnvironment:
                 if proto == "tcp" and port == "22":
                     ssh_sources = list(rule.get("source_ips") or [])
                 elif proto in ("tcp", "udp") and port and port != "22":
-                    current_ports.add((proto, port))
+                    current_port_ips[(proto, port)] = list(rule.get("source_ips") or [])
 
             if mode == "open":
                 desired = list(_OPEN_SOURCE_IPS)
@@ -2107,18 +2251,29 @@ class RemoteDevEnvironment:
                     existing_ips=ssh_sources if mode == "dynamic_add" else None,
                 )
 
-            desired_ports = {
-                (p["protocol"], p["port"])
-                for p in normalize_firewall_ports(ports)
-                if not (p["protocol"] == "tcp" and p["port"] == "22")
+            desired_rules = default_firewall_rules(
+                desired,
+                ports=ports,
+                firewall_cfg=firewall_config,
+                client_ip=client_ip,
+                existing_port_ips=current_port_ips,
+            )
+            desired_port_ips = {
+                (str(rule.get("protocol")), str(rule.get("port"))): list(rule.get("source_ips") or [])
+                for rule in desired_rules
+                if rule.get("protocol") in ("tcp", "udp") and rule.get("port") not in (None, "", "22")
             }
             sources_unchanged = set(ssh_sources) == set(desired)
-            ports_unchanged = current_ports == desired_ports
+            ports_unchanged = {
+                key: tuple(sorted(value)) for key, value in current_port_ips.items()
+            } == {
+                key: tuple(sorted(value)) for key, value in desired_port_ips.items()
+            }
             if sources_unchanged and ports_unchanged:
                 log.debug(
                     "Firewall already allows %s (ports=%s)",
                     ", ".join(desired),
-                    sorted(f"{p}/{n}" for p, n in desired_ports) or "none",
+                    sorted(f"{proto}/{num}" for proto, num in desired_port_ips) or "none",
                 )
                 return True
 
@@ -2127,14 +2282,17 @@ class RemoteDevEnvironment:
                 mode,
                 ", ".join(ssh_sources) or "unset",
                 ", ".join(desired),
-                sorted(f"{p}/{n}" for p, n in current_ports) or "none",
-                sorted(f"{p}/{n}" for p, n in desired_ports) or "none",
+                sorted(f"{proto}/{num}" for proto, num in current_port_ips) or "none",
+                sorted(f"{proto}/{num}" for proto, num in desired_port_ips) or "none",
             )
             self.manager.set_firewall_rules(
                 self.firewall_id,
                 desired,
                 extra_rules=extra_rules,
                 ports=ports,
+                firewall_cfg=firewall_config,
+                client_ip=client_ip,
+                existing_port_ips=current_port_ips,
             )
             return True
         except Exception as exc:
@@ -3737,8 +3895,11 @@ class ProjectConfig:
                 # current CLI public IP when missing (re-checked on access).
                 "mode": DEFAULT_FIREWALL_MODE,
                 "allowed_ips": [],  # used by static; also merged into dynamic modes
-                # Extra inbound ports (same source IPs as SSH), e.g. app listeners:
-                # ports: [8080, "3000-3001", {port: 53, protocol: udp}]
+                # Extra inbound ports. Omit mode/allowed_ips to inherit the firewall.
+                # ports:
+                #   - 8080
+                #   - {port: 443, mode: open}
+                #   - {port: 9090, mode: static, allowed_ips: ["198.51.100.10/32"]}
                 "ports": [],
             },
             "agent": {

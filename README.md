@@ -89,7 +89,7 @@ host:
 firewall:
   mode: dynamic_add   # open | static | dynamic_replace | dynamic_add
   allowed_ips: []     # static allow-list; also merged into dynamic modes
-  ports: []           # extra inbound ports, e.g. [8080, "3000-3001", {port: 53, protocol: udp}]
+  ports: []           # extra inbound ports; each may set mode and allowed_ips
 agent:
   default: opencode       # default for `rig attach`; or claude | cursor
   enabled: [opencode]     # agents installed on the VM
@@ -116,7 +116,17 @@ Firewall modes:
 
 Attach / apply / dev / delete refresh the firewall for dynamic modes when the client IP changes, and keep `ports` in sync.
 
-`firewall.ports` opens extra inbound listeners with the same source-IP policy as SSH (TCP by default; use `{port, protocol}` for UDP).
+`firewall.ports` opens extra inbound listeners. A bare port or a mapping with no `mode` uses `firewall.mode` and `firewall.allowed_ips`, same as SSH (TCP by default; use `{port, protocol}` for UDP). Set `mode` to `open`, `static`, `dynamic_replace`, or `dynamic_add` for that port only. Set `allowed_ips` to replace the firewall list for that port; omit it to inherit. `allowed_ips: []` on a `static` port does not fall back to world access. SSH (22) and ICMP stay on `firewall.mode`.
+
+```yaml
+ports:
+  - 8080                         # firewall.mode + firewall.allowed_ips
+  - port: 443
+    mode: open                   # 0.0.0.0/0 and ::/0
+  - port: 9090
+    mode: static
+    allowed_ips: ["198.51.100.10/32"]
+```
 
 Remote project files live under `/workspace` (not `/root`).
 
