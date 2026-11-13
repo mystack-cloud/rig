@@ -1308,6 +1308,18 @@ class RemoteDevManager:
             log.warning("Could not ensure state bucket: %s", e)
             return False
 
+    def _state_bucket_present(self) -> bool:
+        """Return True if the shared state bucket exists (never creates it)."""
+        if not self.storage_manager:
+            return False
+        try:
+            buckets = self.storage_manager.list_buckets()
+            if self.state_bucket in buckets:
+                return True
+        except Exception as e:
+            log.debug("Could not list buckets for state check: %s", e)
+        return self.storage_manager.bucket_exists(self.state_bucket)
+
     def state_object_path(self, name: Optional[str] = None) -> str:
         """Bucket path of the state index, or of one environment record."""
         if name:
@@ -2290,7 +2302,7 @@ class RemoteDevEnvironment:
             yaml.dump(state, f, default_flow_style=False, sort_keys=False)
 
         if self.manager.storage_manager:
-            if self.manager._ensure_state_bucket():
+            if self.manager._state_bucket_present():
                 self.manager.storage_manager.upload_file(
                     self.manager.state_bucket,
                     '/tmp/state.yml',
@@ -2302,7 +2314,10 @@ class RemoteDevEnvironment:
                 )
                 log.debug("State synced to %s", self.manager.state_object_path())
             else:
-                log.warning("Could not update state bucket")
+                log.debug(
+                    "State bucket %r not found; skipped remote state sync after destroy",
+                    self.manager.state_bucket,
+                )
         else:
             log.debug("No storage manager; skipped remote state cleanup")
 

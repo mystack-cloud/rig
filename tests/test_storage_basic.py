@@ -335,6 +335,48 @@ class TestStorageErrorHandling:
         )
         assert StorageManager._is_not_found(err)
 
+    def test_bucket_exists(self, hetzner_token, s3_credentials, test_bucket_name):
+        from cli.storage import StorageManager
+        from botocore.exceptions import ClientError
+
+        storage = StorageManager()
+        client = MagicMock()
+        client.head_bucket.return_value = {}
+
+        missing = ClientError(
+            error_response={
+                "Error": {"Code": "NoSuchBucket"},
+                "ResponseMetadata": {"HTTPStatusCode": 404},
+            },
+            operation_name="HeadBucket",
+        )
+        forbidden = ClientError(
+            error_response={
+                "Error": {"Code": "AccessDenied"},
+                "ResponseMetadata": {"HTTPStatusCode": 403},
+            },
+            operation_name="HeadBucket",
+        )
+
+        hard = ClientError(
+            error_response={
+                "Error": {"Code": "InternalError"},
+                "ResponseMetadata": {"HTTPStatusCode": 500},
+            },
+            operation_name="HeadBucket",
+        )
+
+        with patch.object(storage, "_get_s3_client", return_value=client):
+            assert storage.bucket_exists(test_bucket_name) is True
+            client.head_bucket.side_effect = missing
+            assert storage.bucket_exists(test_bucket_name) is False
+            client.head_bucket.side_effect = forbidden
+            assert storage.bucket_exists(test_bucket_name) is True
+            client.head_bucket.side_effect = hard
+            assert storage.bucket_exists(test_bucket_name) is False
+            client.head_bucket.side_effect = RuntimeError("network down")
+            assert storage.bucket_exists(test_bucket_name) is False
+
     def test_wait_for_bucket_hard_error_and_timeout(
         self, hetzner_token, s3_credentials, test_bucket_name
     ):

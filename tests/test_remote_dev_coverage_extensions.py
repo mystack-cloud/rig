@@ -427,6 +427,42 @@ class TestRemoteDevManagerCoverage:
         mgr = RemoteDevManager("tok", Storage(), is_test=True)
         assert mgr._ensure_state_bucket() is True
 
+        assert RemoteDevManager("tok", None)._state_bucket_present() is False
+
+        bucket = "rig-state-unit"
+
+        class StorageListed:
+            def list_buckets(self):
+                return [bucket]
+
+            def bucket_exists(self, name):
+                raise AssertionError("bucket_exists should not run when listed")
+
+        mgr_listed = RemoteDevManager("tok", StorageListed(), is_test=True)
+        mgr_listed.state_bucket = bucket
+        assert mgr_listed._state_bucket_present() is True
+
+        class StorageHead:
+            def list_buckets(self):
+                return []
+
+            def bucket_exists(self, name):
+                return name == bucket
+
+        mgr_head = RemoteDevManager("tok", StorageHead(), is_test=True)
+        mgr_head.state_bucket = bucket
+        assert mgr_head._state_bucket_present() is True
+
+        class StorageListFails:
+            def list_buckets(self):
+                raise RuntimeError("list failed")
+
+            def bucket_exists(self, name):
+                return False
+
+        mgr_fail = RemoteDevManager("tok", StorageListFails(), is_test=True)
+        assert mgr_fail._state_bucket_present() is False
+
         mgr.list_dev_environments = lambda prefix="dev-": []
         from cli import log as rig_log
 
@@ -1311,7 +1347,7 @@ class TestRemoteDevCleanupAndDestroy:
             "environments": [{"name": "clean-me", "id": "x"}],
             "updated_at": "old",
         }
-        env.manager._ensure_state_bucket.return_value = False
+        env.manager._state_bucket_present.return_value = False
         env.manager.storage_manager = MagicMock()
 
         monkeypatch.setattr(RemoteDevEnvironment, "resolve_resources", lambda self: None)
@@ -1320,9 +1356,15 @@ class TestRemoteDevCleanupAndDestroy:
         monkeypatch.setattr(RemoteDevEnvironment, "remove_ssh_config_host", lambda self, **k: (_ for _ in ()).throw(OSError))
 
         env.cleanup(project_dir=str(tmp_path))
+        env.manager.storage_manager.upload_file.assert_not_called()
+
+        env.manager._state_bucket_present.return_value = True
+        env.cleanup(project_dir=str(tmp_path))
+        env.manager.storage_manager.upload_file.assert_called_once()
+        env.manager.storage_manager.delete_object.assert_called_once()
 
         env.manager.storage_manager = None
-        env.manager._ensure_state_bucket.reset_mock()
+        env.manager._state_bucket_present.reset_mock()
         env.cleanup(project_dir=str(tmp_path))
 
         env2 = RemoteDevEnvironment(name="clean-min")

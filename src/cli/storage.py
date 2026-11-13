@@ -99,7 +99,7 @@ class StorageManager:
             except Exception as exc:
                 log.warning("HeadBucket for %r failed: %s", bucket_name, exc)
                 return False
-        log.warning("Timed out waiting for bucket %r to become ready", bucket_name)
+        log.warning("Timed out waiting for bucket %r to be available", bucket_name)
         return False
 
     def _wait_for_object(
@@ -122,11 +122,30 @@ class StorageManager:
                 )
                 return False
         log.warning(
-            "Timed out waiting for object %r/%r to become ready",
+            "Timed out waiting for object %r/%r to be available",
             bucket_name,
             object_name,
         )
         return False
+
+    def bucket_exists(self, bucket_name: str) -> bool:
+        """Return True if HeadBucket succeeds (missing bucket is False)."""
+        s3_client = self._get_s3_client()
+        try:
+            s3_client.head_bucket(Bucket=bucket_name)
+            return True
+        except ClientError as exc:
+            http = int(exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") or 0)
+            if self._is_not_found(exc):
+                return False
+            # Gateway may return 403 while the bucket is still propagating.
+            if http == 403:
+                return True
+            log.debug("HeadBucket for %r failed: %s", bucket_name, exc)
+            return False
+        except Exception as exc:
+            log.debug("HeadBucket for %r failed: %s", bucket_name, exc)
+            return False
 
     def create_bucket(self, bucket_name: str, location: Optional[str] = None) -> bool:
         """Create a new bucket using Hetzner Object Storage"""
