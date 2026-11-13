@@ -15,6 +15,7 @@ from cli.remote_dev import (
     detect_client_public_ip,
     firewall_config_needs_client_ip,
     firewall_source_ips,
+    normalize_firewall_mode_name,
     normalize_firewall_ports,
     resolve_firewall_mode,
 )
@@ -194,6 +195,44 @@ def test_client_ip_required_when_only_a_port_is_dynamic():
     assert firewall_config_needs_client_ip(
         cfg, [{"port": 8080, "mode": "dynamic_add"}]
     ) is True
+    # SSH stays on the firewall mode, so a dynamic override on port 22 does not count.
+    assert firewall_config_needs_client_ip(
+        cfg, [{"port": 22, "mode": "dynamic_add"}]
+    ) is False
+
+
+def test_firewall_port_parsing_edge_cases():
+    assert normalize_firewall_mode_name(None) is None
+    assert normalize_firewall_mode_name("   ") is None
+
+    ports = normalize_firewall_ports(
+        [
+            {"port": "  "},
+            "",
+            {"port": 80, "mode": ""},
+            {"port": 81, "mode": None},
+            {"port": 82, "allowed_ips": None},
+            {"port": 83, "allowed_ips": "198.51.100.8"},
+            {"port": 84, "allowed_ips": "   "},
+            {"port": 85, "allowed_ips": {"not": "a list"}},
+            {"port": 86, "allowed_ips": [None, "  ", "10.0.0.1"]},
+        ]
+    )
+    by_port = {item["port"]: item for item in ports}
+    assert "80" in by_port and by_port["80"]["mode"] is None
+    assert by_port["81"]["mode"] is None
+    assert by_port["82"]["allowed_ips"] == []
+    assert by_port["83"]["allowed_ips"] == ["198.51.100.8"]
+    assert by_port["84"]["allowed_ips"] == []
+    assert by_port["85"]["allowed_ips"] is None
+    assert by_port["86"]["allowed_ips"] == ["10.0.0.1"]
+
+    rules = default_firewall_rules(
+        ["203.0.113.9/32"],
+        extra_rules=[{"direction": "in", "protocol": "tcp", "port": "9", "source_ips": ["10.0.0.1/32"]}],
+        ports=[8080],
+    )
+    assert any(rule.get("port") == "9" for rule in rules)
 
 
 def test_set_firewall_rules_posts_per_port_sources():
