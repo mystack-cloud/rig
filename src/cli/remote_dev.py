@@ -1480,14 +1480,17 @@ class RemoteDevManager:
         """Create a new bucket under a fresh name and record it in vars.yml."""
         from cli.state_bucket import new_state_bucket, write_state_bucket
 
+        storage = self.storage_manager
+        if storage is None:
+            raise StateBucketError("No storage manager available to create a state bucket")
         workspace, profile = self._bucket_context()
-        existing = set(self.storage_manager.list_buckets())
-        exists = getattr(self.storage_manager, 'bucket_exists', None)
+        existing = set(storage.list_buckets())
+        exists = getattr(storage, 'bucket_exists', None)
         for _ in range(3):
             name = new_state_bucket()
             if name in existing or (exists and exists(name)):
                 continue  # name taken (possibly by another customer)
-            if not self.storage_manager.create_bucket(name):
+            if not storage.create_bucket(name):
                 continue
             path = write_state_bucket(workspace, profile, name)
             self._state_bucket = name

@@ -301,3 +301,9 @@ def test_save_state_swallows_unexpected_errors(tmp_path):
     manager = make(tmp_path, FakeStorage(existing=["rig-aaaaaaaa"]))
     manager.list_dev_environments = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))
     assert manager._save_state({"name": "dev-x"}) is False
+
+
+def test_generate_requires_storage_manager(tmp_path):
+    manager = RemoteDevManager("tok", None, workspace_dir=str(tmp_path), profile="default")
+    with pytest.raises(StateBucketError):
+        manager._generate_state_bucket()
