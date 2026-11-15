@@ -125,6 +125,17 @@ def setup_test_env(request):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_rig_config(tmp_path, monkeypatch):
+    """
+    Point ~/.rig/config at a per-test file.
+
+    rig init / RemoteDevManager persist ``state_bucket`` (and identity) into
+    the user config; tests must never read or write the real one.
+    """
+    monkeypatch.setenv("RIG_CONFIG", str(tmp_path / "rig-config"))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_rig_tmp_keys(tmp_path, monkeypatch):
     """
     Point ephemeral data-key paths at a per-test directory.
