@@ -2412,3 +2412,46 @@ class TestAnsibleVaultCmdBranches:
             lambda self: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         assert m.configure(str(tmp_path)) is False
+
+
+class TestListOwnerFilter:
+    def _mgr(self, monkeypatch):
+        mgr = RemoteDevManager("tok", None)
+        monkeypatch.setattr(
+            RemoteDevManager,
+            "_load_state",
+            lambda self: {
+                "environments": [
+                    {"name": "dev-a", "owner": "alice"},
+                    {"name": "dev-b", "owner": "bob"},
+                    {"name": "dev-legacy"},
+                ]
+            },
+        )
+        return mgr
+
+    def test_owner_filters_to_identity(self, monkeypatch):
+        mgr = self._mgr(monkeypatch)
+        assert [e["name"] for e in mgr.list_dev_environments("dev-", owner="alice")] == ["dev-a"]
+
+    def test_no_owner_returns_everything(self, monkeypatch):
+        mgr = self._mgr(monkeypatch)
+        assert len(mgr.list_dev_environments("dev-")) == 3
+
+    def test_owner_filter_skips_api_fallback(self, monkeypatch):
+        mgr = self._mgr(monkeypatch)
+
+        def boom(*a, **k):
+            raise AssertionError("API fallback must not run")
+
+        monkeypatch.setattr(RemoteDevManager, "_request", boom)
+        assert mgr.list_dev_environments("dev-", owner="carol") == []
+
+    def test_environment_list_defaults_to_current_identity(self, monkeypatch):
+        monkeypatch.setenv("RIG_IDENTITY", "alice")
+        env = RemoteDevEnvironment.__new__(RemoteDevEnvironment)
+        env.manager = MagicMock()
+        env.list_environments()
+        env.manager.list_dev_environments.assert_called_with("dev-", owner="alice")
+        env.list_environments(all_identities=True)
+        env.manager.list_dev_environments.assert_called_with("dev-")

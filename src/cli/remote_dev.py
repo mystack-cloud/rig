@@ -1601,6 +1601,7 @@ class RemoteDevManager:
                 'created_at': environment.get('created_at'),
                 'type': environment.get('type'),
                 'region': environment.get('region'),
+                'owner': environment.get('owner'),
                 'updated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
 
@@ -1652,14 +1653,25 @@ class RemoteDevManager:
             log.warning("Could not load state: %s", e)
             return {'environments': []}
 
-    def list_dev_environments(self, prefix: str = "dev-") -> list:
-        """List all development environments with given prefix"""
+    def list_dev_environments(self, prefix: str = "dev-", owner: Optional[str] = None) -> list:
+        """List development environments with given prefix.
+
+        The state bucket is shared by the whole Workspace, so records carry an
+        ``owner`` (Identity). With ``owner`` set, only that Identity's records
+        are returned; records without an owner (legacy) are excluded. With
+        ``owner=None`` every record is returned (used for state merges and
+        ``rig list --all``).
+        """
         # First try to load from shared state
         state = self._load_state()
         environments = state.get('environments', [])
 
         # Filter by prefix
         dev_envs = [env for env in environments if env.get('name', '').startswith(prefix)]
+        if owner is not None:
+            dev_envs = [env for env in dev_envs if env.get('owner') == owner]
+            # The Hetzner API fallback cannot attribute servers to an Identity.
+            return dev_envs
 
         # If no state found, fall back to direct API call
         if not dev_envs:
@@ -1962,6 +1974,7 @@ class RemoteDevEnvironment:
             'region': self.region,
             'ssh_key_id': self.ssh_key_id,
             'firewall_id': self.firewall_id,
+            'owner': self._owner_identity(),
             'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         }
         if self.manager._save_state(env_state):
@@ -2667,9 +2680,20 @@ class RemoteDevEnvironment:
             return {'error': 'VPN support not available'}
         return self.vpn_manager.check_vpn_status(self.vpn_interface)
 
-    def list_environments(self) -> list:
-        """List all development environments"""
-        return self.manager.list_dev_environments("dev-")
+    @staticmethod
+    def _owner_identity() -> str:
+        from cli.vault_keys import resolve_identity
+        return resolve_identity()
+
+    def list_environments(self, all_identities: bool = False) -> list:
+        """List development environments owned by the current Identity.
+
+        With ``all_identities`` every Identity's environments in the shared
+        state bucket are returned.
+        """
+        if all_identities:
+            return self.manager.list_dev_environments("dev-")
+        return self.manager.list_dev_environments("dev-", owner=self._owner_identity())
 
     def install_agent(self, agent_type: str = "opencode") -> bool:
         """Install a coding agent on the remote VM"""
@@ -2764,6 +2788,7 @@ echo "Agent installation complete!"
                 'firewall_id': self.firewall_id,
                 'agent_installed': True,
                 'agent_type': agent_type,
+                'owner': self._owner_identity(),
                 'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
             state['environments'].append(env_state)

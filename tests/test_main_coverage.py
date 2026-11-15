@@ -119,6 +119,18 @@ def test_list_empty_and_nonempty(tok_env, capsys):
             assert "a" in err
 
 
+def test_list_all_passes_flag_and_shows_owner(tok_env, capsys):
+    with patch("cli.main._load_credentials"):
+        with patch("cli.main.RemoteDevEnvironment") as env_cls:
+            inst = env_cls.return_value
+            inst.list_environments.return_value = [
+                {"name": "dev-a", "status": "active", "owner": "bob"}
+            ]
+            assert main(["list", "--all"]) == 0
+            inst.list_environments.assert_called_with(all_identities=True)
+            assert "[bob]" in capsys.readouterr().err
+
+
 def test_list_exception(tok_env, capsys):
     with patch("cli.main._load_credentials"):
         with patch("cli.main.RemoteDevEnvironment") as env_cls:

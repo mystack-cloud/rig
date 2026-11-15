@@ -19,3 +19,4 @@ The fixed default bucket name `rig` collided with other Hetzner customers, becau
 - Generating a name edits `vars.yml`, so init prints a reminder to commit it.
 - There is no migration from the legacy `rig` bucket. Existing environments there must be cleaned up manually.
 - Test mode (`is_test`) uses its own Test bucket and never reads or writes `vars.yml` or `~/.rig/config`.
+- The bucket is shared by every Identity using the Profile, but visibility is per Identity. Each environment record stores an `owner` (the Identity that created it). `rig list` shows only the caller's environments; `rig list --all` shows everyone's, labelled with the owner. Records without an `owner` (created before this) appear only under `--all`. This is a visibility default, not access control: anyone with the bucket credentials can read all records.
