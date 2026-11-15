@@ -518,7 +518,7 @@ def _cmd_dev(args: argparse.Namespace) -> int:
         return 1
 
 
-def _cmd_list(_args: argparse.Namespace) -> int:
+def _cmd_list(args: argparse.Namespace) -> int:
     _load_credentials()
     hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
     if not hetzner_token:
@@ -533,13 +533,15 @@ def _cmd_list(_args: argparse.Namespace) -> int:
 
     try:
         env = RemoteDevEnvironment(storage_manager=storage_manager)
-        environments = env.list_environments()
+        all_ids = bool(getattr(args, "all", False))
+        environments = env.list_environments(all_identities=True) if all_ids else env.list_environments()
         if not environments:
             log.info("No remote environments")
             return 0
         log.info("Remote environments:")
         for env_info in environments:
-            log.info("  - %s (%s)", env_info.get("name"), env_info.get("status"))
+            owner = f" [{env_info.get('owner') or 'unknown'}]" if all_ids else ""
+            log.info("  - %s (%s)%s", env_info.get("name"), env_info.get("status"), owner)
         return 0
     except Exception as e:
         log.error("Error listing environments: %s", e)
@@ -1121,7 +1123,15 @@ def main(argv=None):
         ),
     )
 
-    subparsers.add_parser("list", help="List remote environments")
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List your remote environments (--all: every identity's)",
+    )
+    list_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Include environments owned by other identities in this workspace",
+    )
 
     cache_parser = subparsers.add_parser(
         "cache",

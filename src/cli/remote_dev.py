@@ -1541,16 +1541,46 @@ class RemoteDevManager:
             log.debug("Could not list buckets for state check: %s", e)
         return self.storage_manager.bucket_exists(self.state_bucket)
 
-    def state_object_path(self, name: Optional[str] = None) -> str:
-        """Bucket path of the state index, or of one environment record."""
+    def _records_prefix(self, owner: Optional[str] = None) -> str:
+        """Key prefix holding per-environment records (optionally one owner's)."""
+        base = f"{self.state_prefix}/by-owner/"
+        return f"{base}{owner}/" if owner else base
+
+    def _record_key(self, owner: str, name: str) -> str:
+        return f"{self._records_prefix(owner)}{name}.yml"
+
+    def state_object_path(self, name: Optional[str] = None, owner: Optional[str] = None) -> str:
+        """Bucket path of one environment record (or the records prefix)."""
         if name:
-            key = f"{self.state_prefix}/environments/{name}.yml"
+            key = self._record_key(owner or "unknown", name)
         else:
-            key = f"{self.state_prefix}/state.yml"
+            key = self._records_prefix(owner)
         return f"{self.state_bucket}/{key}"
 
+    def _read_yaml_object(self, key: str) -> Optional[Dict]:
+        """Download one object and parse it as YAML; None if unavailable."""
+        import tempfile
+        assert self.storage_manager is not None
+        fd, tmp = tempfile.mkstemp(suffix=".yml")
+        os.close(fd)
+        try:
+            if not self.storage_manager.download_file(self.state_bucket, key, tmp):
+                return None
+            with open(tmp, 'r') as f:
+                data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else None
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
     def _save_state(self, environment: Dict) -> bool:
-        """Save environment state to shared bucket - only basic facts"""
+        """Write this environment's own record to the shared bucket.
+
+        Each environment is a separate object (``by-owner/<owner>/<name>.yml``),
+        so concurrent saves from different people never touch the same key.
+        """
         if not self.storage_manager:
             return False
 
@@ -1560,64 +1590,48 @@ class RemoteDevManager:
                 log.warning("Could not ensure state bucket exists")
                 return False
 
-            # Get all environments first
-            existing = self.list_dev_environments()
+            from cli.vault_keys import resolve_identity
+            env_name = environment.get('name') or 'unknown'
 
-            # Check if environment already exists
-            found = False
-            for env in existing:
-                if env.get('name') == environment.get('name'):
-                    found = True
+            # Read right before write: if the record already exists (possibly
+            # updated by someone else), merge into it instead of clobbering it.
+            # The existing record keeps its owner and created_at.
+            key = None
+            existing: Dict[str, Any] = {}
+            suffix = f"/{env_name}.yml"
+            for candidate in self.storage_manager.list_objects(
+                self.state_bucket, self._records_prefix()
+            ):
+                if candidate.endswith(suffix):
+                    key = candidate
+                    existing = self._read_yaml_object(candidate) or {}
                     break
 
-            if not found:
-                # Add new environment
-                existing.append(environment)
+            record = dict(existing)
+            record.update({k: v for k, v in environment.items() if v is not None})
+            if key:
+                owner = existing.get('owner') or key.split('/')[-2]
+                if existing.get('created_at'):
+                    record['created_at'] = existing['created_at']
+            else:
+                owner = environment.get('owner') or resolve_identity()
+                key = self._record_key(owner, env_name)
+            record['owner'] = owner
+            record['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
-            # Convert to list format for storage (only basic facts)
-            state_data = {
-                'environments': existing,
-                'updated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            }
+            import tempfile
+            fd, tmp = tempfile.mkstemp(suffix=".yml")
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    yaml.dump(record, f, default_flow_style=False, sort_keys=False)
+                self.storage_manager.upload_file(self.state_bucket, tmp, key)
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
-            # Write temp file for upload FIRST
-            with open('/tmp/state.yml', 'w') as f:
-                yaml.dump(state_data, f, default_flow_style=False, sort_keys=False)
-
-            # Upload state to bucket
-            self.storage_manager.upload_file(
-                self.state_bucket,
-                '/tmp/state.yml',
-                f"{self.state_prefix}/state.yml"
-            )
-
-            # Save detailed environment data to separate file
-            env_name = environment.get('name', 'unknown')
-            env_data = {
-                'vm_id': environment.get('id'),
-                'vm_ip': environment.get('ip'),
-                'ssh_key_id': environment.get('ssh_key_id'),
-                'firewall_id': environment.get('firewall_id'),
-                'created_at': environment.get('created_at'),
-                'type': environment.get('type'),
-                'region': environment.get('region'),
-                'updated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            }
-
-            with open(f'/tmp/{env_name}.yml', 'w') as f:
-                yaml.dump(env_data, f, default_flow_style=False, sort_keys=False)
-
-            self.storage_manager.upload_file(
-                self.state_bucket,
-                f'/tmp/{env_name}.yml',
-                f"{self.state_prefix}/environments/{env_name}.yml"
-            )
-
-            log.debug(
-                "State synced to %s and %s",
-                self.state_object_path(),
-                self.state_object_path(env_name),
-            )
+            log.debug("State synced to %s", self.state_object_path(env_name, owner))
             return True
         except StateBucketError:
             raise
@@ -1625,8 +1639,63 @@ class RemoteDevManager:
             log.warning("Could not save state: %s", e)
             return False
 
-    def _load_state(self) -> Dict:
-        """Load environment state from shared bucket"""
+    def _delete_state(self, name: str) -> bool:
+        """Remove an environment's record(s), whoever owns them."""
+        if not self.storage_manager:
+            log.debug("No storage manager; skipped remote state cleanup")
+            return False
+        if not self._state_bucket_present():
+            log.debug(
+                "State bucket %r not found; skipped remote state cleanup",
+                self.state_bucket,
+            )
+            return False
+        assert self.storage_manager is not None
+        suffix = f"/{name}.yml"
+        for key in self.storage_manager.list_objects(self.state_bucket, self._records_prefix()):
+            if key.endswith(suffix):
+                self.storage_manager.delete_object(self.state_bucket, key)
+        self._drop_legacy_record(name)
+        log.debug("State removed for %s", name)
+        return True
+
+    def _drop_legacy_record(self, name: str) -> None:
+        """Best effort: purge a pre-per-object ``state.yml`` entry (read-mostly)."""
+        try:
+            assert self.storage_manager is not None
+            legacy = self._read_yaml_object(f"{self.state_prefix}/state.yml")
+            if not legacy:
+                return
+            envs = legacy.get('environments') or []
+            kept = [e for e in envs if e.get('name') != name]
+            if len(kept) == len(envs):
+                return
+            legacy['environments'] = kept
+            import tempfile
+            fd, tmp = tempfile.mkstemp(suffix=".yml")
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    yaml.dump(legacy, f, default_flow_style=False, sort_keys=False)
+                self.storage_manager.upload_file(
+                    self.state_bucket, tmp, f"{self.state_prefix}/state.yml"
+                )
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+            self.storage_manager.delete_object(
+                self.state_bucket, f"{self.state_prefix}/environments/{name}.yml"
+            )
+        except Exception as e:
+            log.debug("Could not clean legacy state record: %s", e)
+
+    def _load_state(self, owner: Optional[str] = None) -> Dict:
+        """Load environment records from the shared bucket.
+
+        With ``owner`` only that Identity's records are read. Otherwise every
+        record is read, plus entries from a legacy ``state.yml`` index.
+        """
         if not self.storage_manager:
             return {'environments': []}
 
@@ -1635,31 +1704,51 @@ class RemoteDevManager:
             if not self._state_bucket_present():
                 return {'environments': []}
 
-            # Download state from bucket
-            self.storage_manager.download_file(
-                self.state_bucket,
-                f"{self.state_prefix}/state.yml",
-                '/tmp/state.yml'
-            )
+            environments: List[Dict] = []
+            seen = set()
+            for key in self.storage_manager.list_objects(
+                self.state_bucket, self._records_prefix(owner)
+            ):
+                if not key.endswith(".yml"):
+                    continue
+                record = self._read_yaml_object(key)
+                if record and record.get('name'):
+                    environments.append(record)
+                    seen.add(record['name'])
 
-            with open('/tmp/state.yml', 'r') as f:
-                data = yaml.safe_load(f) or {'environments': []}
-            log.debug("State loaded")
-            return data
+            if owner is None:
+                legacy = self._read_yaml_object(f"{self.state_prefix}/state.yml") or {}
+                for entry in legacy.get('environments') or []:
+                    if entry.get('name') not in seen:
+                        environments.append(entry)
+
+            log.debug("State loaded (%d environments)", len(environments))
+            return {'environments': environments}
         except StateBucketError:
             raise
         except Exception as e:
             log.warning("Could not load state: %s", e)
             return {'environments': []}
 
-    def list_dev_environments(self, prefix: str = "dev-") -> list:
-        """List all development environments with given prefix"""
+    def list_dev_environments(self, prefix: str = "dev-", owner: Optional[str] = None) -> list:
+        """List development environments with given prefix.
+
+        The state bucket is shared by the whole Workspace, so records carry an
+        ``owner`` (Identity). With ``owner`` set, only that Identity's records
+        are returned; records without an owner (legacy) are excluded. With
+        ``owner=None`` every record is returned (used for state merges and
+        ``rig list --all``).
+        """
         # First try to load from shared state
-        state = self._load_state()
+        state = self._load_state(owner=owner)
         environments = state.get('environments', [])
 
         # Filter by prefix
         dev_envs = [env for env in environments if env.get('name', '').startswith(prefix)]
+        if owner is not None:
+            dev_envs = [env for env in dev_envs if env.get('owner') == owner]
+            # The Hetzner API fallback cannot attribute servers to an Identity.
+            return dev_envs
 
         # If no state found, fall back to direct API call
         if not dev_envs:
@@ -1962,6 +2051,7 @@ class RemoteDevEnvironment:
             'region': self.region,
             'ssh_key_id': self.ssh_key_id,
             'firewall_id': self.firewall_id,
+            'owner': self._owner_identity(),
             'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         }
         if self.manager._save_state(env_state):
@@ -2534,33 +2624,7 @@ class RemoteDevEnvironment:
             log.debug("No SSH key id to delete")
 
         log.debug("Removing state from shared bucket")
-        state = self.manager._load_state()
-        environments = [env for env in state.get('environments', []) if env.get('name') != self.name]
-        state['environments'] = environments
-        state['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-
-        with open('/tmp/state.yml', 'w') as f:
-            yaml.dump(state, f, default_flow_style=False, sort_keys=False)
-
-        if self.manager.storage_manager:
-            if self.manager._state_bucket_present():
-                self.manager.storage_manager.upload_file(
-                    self.manager.state_bucket,
-                    '/tmp/state.yml',
-                    f"{self.manager.state_prefix}/state.yml"
-                )
-                self.manager.storage_manager.delete_object(
-                    self.manager.state_bucket,
-                    f"{self.manager.state_prefix}/environments/{self.name}.yml"
-                )
-                log.debug("State synced to %s", self.manager.state_object_path())
-            else:
-                log.debug(
-                    "State bucket %r not found; skipped remote state sync after destroy",
-                    self.manager.state_bucket,
-                )
-        else:
-            log.debug("No storage manager; skipped remote state cleanup")
+        self.manager._delete_state(self.name)
 
         log.debug("Cleaning up local SSH keys and config host")
         subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}'], capture_output=True)
@@ -2667,9 +2731,20 @@ class RemoteDevEnvironment:
             return {'error': 'VPN support not available'}
         return self.vpn_manager.check_vpn_status(self.vpn_interface)
 
-    def list_environments(self) -> list:
-        """List all development environments"""
-        return self.manager.list_dev_environments("dev-")
+    @staticmethod
+    def _owner_identity() -> str:
+        from cli.vault_keys import resolve_identity
+        return resolve_identity()
+
+    def list_environments(self, all_identities: bool = False) -> list:
+        """List development environments owned by the current Identity.
+
+        With ``all_identities`` every Identity's environments in the shared
+        state bucket are returned.
+        """
+        if all_identities:
+            return self.manager.list_dev_environments("dev-")
+        return self.manager.list_dev_environments("dev-", owner=self._owner_identity())
 
     def install_agent(self, agent_type: str = "opencode") -> bool:
         """Install a coding agent on the remote VM"""
@@ -2745,14 +2820,7 @@ echo "Agent installation complete!"
 
             print(f"✓ {agent_type} agent installed successfully")
 
-            # Update state with agent info
-            state = self.manager._load_state()
-            state['environments'] = [
-                env for env in state.get('environments', [])
-                if env.get('name') != self.name
-            ]
-
-            # Add environment with agent info
+            # Update this environment's record with agent info
             env_state = {
                 'name': self.name,
                 'id': self.vm_id,
@@ -2764,21 +2832,10 @@ echo "Agent installation complete!"
                 'firewall_id': self.firewall_id,
                 'agent_installed': True,
                 'agent_type': agent_type,
+                'owner': self._owner_identity(),
                 'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
-            state['environments'].append(env_state)
-            state['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-
-            with open('/tmp/state.yml', 'w') as f:
-                yaml.dump(state, f, default_flow_style=False, sort_keys=False)
-
-            if self.manager.storage_manager:
-                self.manager.storage_manager.upload_file(
-                    self.manager.state_bucket,
-                    '/tmp/state.yml',
-                    f"{self.manager.state_prefix}/state.yml"
-                )
-                log.debug("State synced to %s", self.manager.state_object_path())
+            self.manager._save_state(env_state)
 
             return True
 

@@ -417,6 +417,9 @@ class TestRemoteDevManagerCoverage:
             def upload_file(self, bucket, local, remote):
                 uploads.append((bucket, local, remote))
 
+            def list_objects(self, bucket, prefix=""):
+                return []
+
             def download_file(self, bucket, remote, local):
                 data = {"environments": [{"name": "dev-old", "id": 1}], "updated_at": "t"}
                 with open(local, "w") as f:
@@ -474,9 +477,8 @@ class TestRemoteDevManagerCoverage:
         capsys.readouterr()
         assert mgr._save_state({"name": "dev-new", "id": 2, "ip": "1.1.1.1"}) is True
         debug = capsys.readouterr().err
-        index = f"{mgr.state_bucket}/{mgr.state_prefix}/state.yml"
-        record = f"{mgr.state_bucket}/{mgr.state_prefix}/environments/dev-new.yml"
-        assert f"State synced to {index} and {record}" in debug
+        record = mgr.state_object_path("dev-new", "mlewk")
+        assert "State synced to" in debug and "/by-owner/" in debug and record.endswith("dev-new.yml")
         rig_log.configure_logging()
         assert uploads
 
@@ -499,7 +501,7 @@ class TestRemoteDevManagerCoverage:
     def test_list_dev_environments_fallback_api(self, monkeypatch):
         mgr = RemoteDevManager("tok", None)
 
-        def load_empty(self):
+        def load_empty(self, owner=None):
             return {"environments": []}
 
         monkeypatch.setattr(RemoteDevManager, "_load_state", load_empty)
@@ -750,7 +752,8 @@ class TestRemoteDevEnvironmentCoverage:
         monkeypatch.setattr("cli.remote_dev.subprocess.run", fake_run)
         assert env.install_agent("opencode") is True
         assert runs["n"] == 3
-        assert env.manager.storage_manager.upload_file.called
+        env.manager._save_state.assert_called_once()
+        assert env.manager._save_state.call_args[0][0]["agent_installed"] is True
 
     def test_install_agent_subprocess_error(self, monkeypatch):
         env = RemoteDevEnvironment(name="agent-y")
@@ -1356,12 +1359,7 @@ class TestRemoteDevCleanupAndDestroy:
         monkeypatch.setattr(RemoteDevEnvironment, "remove_ssh_config_host", lambda self, **k: (_ for _ in ()).throw(OSError))
 
         env.cleanup(project_dir=str(tmp_path))
-        env.manager.storage_manager.upload_file.assert_not_called()
-
-        env.manager._state_bucket_present.return_value = True
-        env.cleanup(project_dir=str(tmp_path))
-        env.manager.storage_manager.upload_file.assert_called_once()
-        env.manager.storage_manager.delete_object.assert_called_once()
+        env.manager._delete_state.assert_called_with("clean-me")
 
         env.manager.storage_manager = None
         env.manager._state_bucket_present.reset_mock()
@@ -2412,3 +2410,46 @@ class TestAnsibleVaultCmdBranches:
             lambda self: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         assert m.configure(str(tmp_path)) is False
+
+
+class TestListOwnerFilter:
+    def _mgr(self, monkeypatch):
+        mgr = RemoteDevManager("tok", None)
+        monkeypatch.setattr(
+            RemoteDevManager,
+            "_load_state",
+            lambda self, owner=None: {
+                "environments": [
+                    {"name": "dev-a", "owner": "alice"},
+                    {"name": "dev-b", "owner": "bob"},
+                    {"name": "dev-legacy"},
+                ]
+            },
+        )
+        return mgr
+
+    def test_owner_filters_to_identity(self, monkeypatch):
+        mgr = self._mgr(monkeypatch)
+        assert [e["name"] for e in mgr.list_dev_environments("dev-", owner="alice")] == ["dev-a"]
+
+    def test_no_owner_returns_everything(self, monkeypatch):
+        mgr = self._mgr(monkeypatch)
+        assert len(mgr.list_dev_environments("dev-")) == 3
+
+    def test_owner_filter_skips_api_fallback(self, monkeypatch):
+        mgr = self._mgr(monkeypatch)
+
+        def boom(*a, **k):
+            raise AssertionError("API fallback must not run")
+
+        monkeypatch.setattr(RemoteDevManager, "_request", boom)
+        assert mgr.list_dev_environments("dev-", owner="carol") == []
+
+    def test_environment_list_defaults_to_current_identity(self, monkeypatch):
+        monkeypatch.setenv("RIG_IDENTITY", "alice")
+        env = RemoteDevEnvironment.__new__(RemoteDevEnvironment)
+        env.manager = MagicMock()
+        env.list_environments()
+        env.manager.list_dev_environments.assert_called_with("dev-", owner="alice")
+        env.list_environments(all_identities=True)
+        env.manager.list_dev_environments.assert_called_with("dev-")
