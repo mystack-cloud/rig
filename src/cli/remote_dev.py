@@ -1639,6 +1639,65 @@ class RemoteDevManager:
             log.warning("Could not save state: %s", e)
             return False
 
+    # -- Environment Outputs (ADR 0002) ------------------------------------
+
+    outputs_prefix = "remote-dev/outputs"
+
+    def _outputs_key(self, name: str) -> str:
+        """One Outputs object per Environment name (no owner segment)."""
+        return f"{self.outputs_prefix}/{name}.yml"
+
+    def load_outputs(self, name: str) -> Optional[Dict]:
+        """Stored Outputs for an Environment, or None if none were recorded."""
+        if not self.storage_manager or not self._state_bucket_present():
+            return None
+        return self._read_yaml_object(self._outputs_key(name))
+
+    def save_outputs(self, name: str, new: Dict) -> bool:
+        """Shallow-merge *new* into the Environment's stored Outputs."""
+        if not self.storage_manager:
+            return False
+        from cli.outputs import merge_outputs
+        try:
+            if not self._ensure_state_bucket():
+                log.warning("Could not ensure state bucket exists")
+                return False
+            merged = merge_outputs(self._read_yaml_object(self._outputs_key(name)), new)
+            merged['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            import tempfile
+            fd, tmp = tempfile.mkstemp(suffix=".yml")
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    yaml.dump(merged, f, default_flow_style=False, sort_keys=False)
+                os.chmod(tmp, 0o600)
+                self.storage_manager.upload_file(self.state_bucket, tmp, self._outputs_key(name))
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+            return True
+        except StateBucketError:
+            raise
+        except Exception as e:
+            log.warning("Could not save outputs: %s", e)
+            return False
+
+    def find_record(self, name: str) -> Optional[Dict]:
+        """The stored record of the Environment called *name*, whoever owns it."""
+        for record in self._load_state().get('environments', []):
+            if record.get('name') == name:
+                return record
+        return None
+
+    def conflicting_owner(self, name: str, owner: str) -> Optional[str]:
+        """Owner of an existing *name* when it isn't *owner*, else None."""
+        record = self.find_record(name)
+        if not record:
+            return None
+        existing = record.get('owner')
+        return existing if existing and existing != owner else None
+
     def _delete_state(self, name: str) -> bool:
         """Remove an environment's record(s), whoever owns them."""
         if not self.storage_manager:
@@ -1656,6 +1715,7 @@ class RemoteDevManager:
             if key.endswith(suffix):
                 self.storage_manager.delete_object(self.state_bucket, key)
         self._drop_legacy_record(name)
+        self.storage_manager.delete_object(self.state_bucket, self._outputs_key(name))
         log.debug("State removed for %s", name)
         return True
 
@@ -1931,8 +1991,85 @@ class RemoteDevEnvironment:
             log.error("SSH key generation failed: %s", e)
             return False
 
+    def exists(self) -> bool:
+        """True when a record for this Environment is in the State bucket."""
+        return self.manager.find_record(self.name) is not None
+
+    def stored_outputs(self) -> Optional[Dict]:
+        """The Outputs stored for this Environment (None if none recorded)."""
+        return self.manager.load_outputs(self.name)
+
+    def inspect_details(self) -> Optional[Dict[str, Any]]:
+        """Technical details of this Environment, or None if it is unknown.
+
+        Combines the stored record with live Hetzner server data. If the live
+        lookup fails, the stored data is returned with ``stale`` set.
+        """
+        self.resolve_resources()
+        record = self.manager.find_record(self.name)
+        if record is None and not self.vm_id:
+            return None
+        record = record or {}
+        details: Dict[str, Any] = {
+            'name': self.name,
+            'owner': record.get('owner'),
+            'id': record.get('id') or self.vm_id,
+            'status': None,
+            'ip': record.get('ip') or self.vm_ip,
+            'type': record.get('type'),
+            'region': record.get('region'),
+            'ssh_key_id': record.get('ssh_key_id') or self.ssh_key_id,
+            'firewall_id': record.get('firewall_id') or self.firewall_id,
+            'created_at': record.get('created_at'),
+            'updated_at': record.get('updated_at'),
+            'stale': False,
+        }
+        try:
+            if not self.vm_id:
+                raise ValueError("no server id")
+            server = (self.manager.get_vm(self.vm_id) or {}).get('server') or {}
+            if not server:
+                raise ValueError("server not found")
+            details['status'] = server.get('status')
+            details['ip'] = _ipv4_from_public_net(server.get('public_net') or {}) or details['ip']
+            details['type'] = (server.get('server_type') or {}).get('name') or details['type']
+            details['region'] = (server.get('datacenter') or {}).get('name') or details['region']
+        except Exception as exc:
+            log.debug("Live server lookup failed for %s: %s", self.name, exc)
+            details['stale'] = True
+        details['connection'] = {
+            'host': details['ip'],
+            'user': 'root',
+            'ssh_key_path': f'/tmp/{self.ssh_key_name}',
+        }
+        return details
+
+    def name_available(self) -> bool:
+        """False when another owner already holds this name in the State bucket.
+
+        Environment names are unique across owners (ADR 0002): Outputs are
+        keyed by name alone. The owner re-creating its own name is allowed.
+        """
+        if not self.manager.storage_manager:
+            return True
+        from cli.state_bucket import StateBucketNotConfigured
+        try:
+            other = self.manager.conflicting_owner(self.name, self._owner_identity())
+        except StateBucketNotConfigured:
+            return True  # no bucket yet, so nothing can conflict
+        if other:
+            log.error(
+                "Environment name '%s' is already used by '%s'; choose another name",
+                self.name,
+                other,
+            )
+            return False
+        return True
+
     def setup(self, project_dir: Optional[str] = None):
         """Set up the complete remote development environment"""
+        if not self.name_available():
+            return False
         log.info("Creating remote environment '%s'", self.name)
 
         # Prefer matching Hetzner snapshots for faster boot / fewer playbooks.
@@ -2285,6 +2422,10 @@ class RemoteDevEnvironment:
                     continue
                 log.error("%s playbook failed", kind.capitalize())
                 return False
+            # Outputs published by this stage (never from destroy).
+            captured = getattr(ansible, "last_outputs", None)
+            if captured and kind != "destroy":
+                self.manager.save_outputs(self.name, captured)
             # Snapshot only after configure (build layer); never after authorize.
             if kind == SNAPSHOT_AFTER:
                 if not self._snapshot_after_playbook(kind, project):
@@ -5739,6 +5880,8 @@ class AnsibleManager:
                 return False
         return True
 
+    last_outputs: Optional[Dict[str, Any]] = None
+
     def _run_one_playbook(
         self,
         playbook_path: str,
@@ -5746,6 +5889,48 @@ class AnsibleManager:
         vault_password: Optional[str] = None,
         stream: bool = False,
         ansible_args: Optional[Sequence[str]] = None,
+    ) -> bool:
+        """Run one playbook and capture the Outputs it publishes (ADR 0002).
+
+        The playbook receives ``rig_outputs_file`` and may write its
+        ``rig_outputs`` dict there. After a successful run the parsed content
+        is left in ``self.last_outputs`` (None when nothing valid was written).
+        """
+        import tempfile
+        from cli.outputs import read_outputs_file
+
+        self.last_outputs = None
+        out_dir = os.path.join("/tmp", ".rig", "ansible-outputs")
+        os.makedirs(out_dir, mode=0o700, exist_ok=True)
+        fd, outputs_path = tempfile.mkstemp(suffix=".yml", dir=out_dir)
+        os.close(fd)
+        try:
+            ok = self._exec_playbook(
+                playbook_path,
+                extra_vars=extra_vars,
+                vault_password=vault_password,
+                stream=stream,
+                ansible_args=ansible_args,
+                outputs_file=outputs_path,
+            )
+            if ok:
+                # read_outputs_file treats a missing or empty file as no outputs
+                self.last_outputs = read_outputs_file(outputs_path)
+            return ok
+        finally:
+            try:
+                os.unlink(outputs_path)
+            except OSError:
+                pass
+
+    def _exec_playbook(
+        self,
+        playbook_path: str,
+        extra_vars: Optional[Dict[str, Any]] = None,
+        vault_password: Optional[str] = None,
+        stream: bool = False,
+        ansible_args: Optional[Sequence[str]] = None,
+        outputs_file: Optional[str] = None,
     ) -> bool:
         import shlex
 
@@ -5808,6 +5993,9 @@ class AnsibleManager:
             if filtered_identity:
                 cmd.extend(["-e", f"@{filtered_identity}"])
                 vars_path = filtered_identity
+
+        if outputs_file:
+            cmd.extend(["-e", f"rig_outputs_file={outputs_file}"])
 
         # Runtime rig_* context (and caller extras) after vars.yml so they win.
         if extra_vars:

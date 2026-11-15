@@ -4,6 +4,7 @@ Main entry point for the remote development environment CLI
 """
 
 import argparse
+import json
 import sys
 import os
 from typing import List, Optional
@@ -344,6 +345,93 @@ def _cmd_ssh(args: argparse.Namespace) -> int:
         return env.open_ssh(remote_command=remote)
     except Exception as e:
         log.error("Error connecting to environment: %s", e)
+        return 1
+
+
+def _env_for_readonly_cmd(args: argparse.Namespace, usage: str, need_storage: bool = False):
+    """Shared setup for inspect/describe.
+
+    Returns ``(env, name)`` on success, or ``(None, exit_code)``.
+    """
+    _load_credentials()
+    if not os.getenv('HETZNER_CLOUD_API_TOKEN'):
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return None, 1
+    name = resolve_env_name(getattr(args, "name", None), getattr(args, "name_flag", None))
+    if not name:
+        log.error("Environment name is required (no last environment remembered)")
+        log.info("Usage: %s", usage)
+        return None, 1
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        if need_storage:
+            log.error("Object storage credentials are missing; cannot read environment state")
+            return None, 1
+    return RemoteDevEnvironment(name=name, storage_manager=storage_manager), name
+
+
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    """Print the technical details of one environment."""
+    from cli.outputs import format_kv
+    env, name = _env_for_readonly_cmd(args, "rig inspect [name] [--json]")
+    if env is None:
+        return name
+    try:
+        details = env.inspect_details()
+        if details is None:
+            log.error("Environment '%s' not found", name)
+            return 1
+        remember_last_env(name)
+        if details.get("stale"):
+            log.warning("Live server data unavailable; showing stored data (stale)")
+        if getattr(args, "json", False):
+            print(json.dumps(details, indent=2, default=str))
+        else:
+            print(format_kv(details))
+        return 0
+    except Exception as e:
+        log.error("Error inspecting environment: %s", e)
+        return 1
+
+
+def _cmd_describe(args: argparse.Namespace) -> int:
+    """Print the outputs published by an environment's playbooks."""
+    from cli.outputs import (
+        OUTPUTS_KEY,
+        SENSITIVE_KEY,
+        format_kv,
+        mask_outputs,
+    )
+    env, name = _env_for_readonly_cmd(
+        args, "rig describe [name] [--json] [--show-secrets]", need_storage=True
+    )
+    if env is None:
+        return name
+    try:
+        if not env.exists():
+            log.error("Environment '%s' not found", name)
+            return 1
+        remember_last_env(name)
+        stored = env.stored_outputs() or {}
+        outputs = stored.get(OUTPUTS_KEY) or {}
+        use_json = bool(getattr(args, "json", False))
+        if not outputs:
+            if use_json:
+                print("{}")
+            else:
+                log.info("No outputs recorded for %s", name)
+            return 0
+        shown = mask_outputs(
+            outputs,
+            sensitive=stored.get(SENSITIVE_KEY) or [],
+            show_secrets=bool(getattr(args, "show_secrets", False)),
+        )
+        print(json.dumps(shown, indent=2, default=str) if use_json else format_kv(shown))
+        return 0
+    except Exception as e:
+        log.error("Error describing environment: %s", e)
         return 1
 
 
@@ -1133,6 +1221,25 @@ def main(argv=None):
         help="Include environments owned by other identities in this workspace",
     )
 
+    for cmd_name, cmd_help in (
+        ("inspect", "Show technical details of an environment (stored + live)"),
+        ("describe", "Show the outputs published by an environment's playbooks"),
+    ):
+        sub = subparsers.add_parser(cmd_name, help=cmd_help)
+        sub.add_argument(
+            "name",
+            nargs="?",
+            help="Environment name (defaults to last handled env in /tmp/.rig/last-env)",
+        )
+        sub.add_argument("--name", dest="name_flag", help="Environment name (same as positional)")
+        sub.add_argument("--json", action="store_true", help="Machine-readable JSON on stdout")
+        if cmd_name == "describe":
+            sub.add_argument(
+                "--show-secrets",
+                action="store_true",
+                help="Show sensitive output values instead of masking them",
+            )
+
     cache_parser = subparsers.add_parser(
         "cache",
         help="Manage Hetzner snapshots created after the configure (build) stage",
@@ -1270,6 +1377,10 @@ def main(argv=None):
         return _cmd_dev(args)
     if args.command == "list":
         return _cmd_list(args)
+    if args.command == "inspect":
+        return _cmd_inspect(args)
+    if args.command == "describe":
+        return _cmd_describe(args)
     if args.command == "cache":
         return _cmd_cache(args)
     if args.command == "delete":

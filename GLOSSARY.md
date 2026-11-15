@@ -16,6 +16,14 @@ _Avoid_: Production bucket, installation bucket
 A project repository containing a `.rig/` directory, which owns its own State buckets.
 _Avoid_: Project (ambiguous with a Hetzner Cloud project)
 
+**Environment**:
+A remote development machine provisioned by rig, owned by one identity and tracked in a State bucket.
+_Avoid_: Instance, VM, server
+
+**Outputs**:
+The named values that an Environment's playbooks publish for the user (URLs, ports, credentials), kept alongside the Environment and shown by `rig describe`.
+_Avoid_: Facts, results
+
 **Test bucket**:
 A throwaway state bucket used only by automated test runs.
 _Avoid_: Dev bucket
