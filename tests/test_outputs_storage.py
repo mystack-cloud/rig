@@ -189,3 +189,22 @@ def test_setup_stops_when_name_taken(monkeypatch):
         env, "resolve_boot_image", lambda **k: pytest.fail("setup must stop before provisioning")
     )
     assert env.setup() is False
+
+
+# ---- missing outputs must not trigger download retries ---------------------------
+
+class NoDownloadOfMissing(MemStorage):
+    """download_file on a missing key mimics StorageManager's 30s retry loop."""
+
+    def download_file(self, bucket, key, path):
+        assert key in self.objects, f"downloaded a missing key: {key}"
+        return super().download_file(bucket, key, path)
+
+
+def test_missing_outputs_are_not_downloaded(monkeypatch, tmp_path):
+    monkeypatch.setenv("STATE_BUCKET", "rig-test")
+    m = RemoteDevManager("tok", NoDownloadOfMissing(), workspace_dir=str(tmp_path), profile="default")
+    assert m.load_outputs("dev-1") is None
+    # first save must not try to read a previous (absent) object either
+    assert m.save_outputs("dev-1", {"rig_outputs": {"a": 1}})
+    assert m.load_outputs("dev-1")["rig_outputs"] == {"a": 1}

@@ -1651,7 +1651,20 @@ class RemoteDevManager:
         """Stored Outputs for an Environment, or None if none were recorded."""
         if not self.storage_manager or not self._state_bucket_present():
             return None
-        return self._read_yaml_object(self._outputs_key(name))
+        return self._read_outputs_object(name)
+
+    def _read_outputs_object(self, name: str) -> Optional[Dict]:
+        """Read the Outputs object if it exists.
+
+        Existence is checked with a listing first: ``download_file`` retries
+        "not found" for ~30s (eventual consistency after upload), which would
+        make a never-written object look like a hang.
+        """
+        assert self.storage_manager is not None
+        key = self._outputs_key(name)
+        if key not in self.storage_manager.list_objects(self.state_bucket, key):
+            return None
+        return self._read_yaml_object(key)
 
     def save_outputs(self, name: str, new: Dict) -> bool:
         """Shallow-merge *new* into the Environment's stored Outputs."""
@@ -1662,7 +1675,7 @@ class RemoteDevManager:
             if not self._ensure_state_bucket():
                 log.warning("Could not ensure state bucket exists")
                 return False
-            merged = merge_outputs(self._read_yaml_object(self._outputs_key(name)), new)
+            merged = merge_outputs(self._read_outputs_object(name), new)
             merged['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             import tempfile
             fd, tmp = tempfile.mkstemp(suffix=".yml")
