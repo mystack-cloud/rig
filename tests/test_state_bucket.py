@@ -401,3 +401,63 @@ def test_generate_requires_storage_manager(tmp_path):
     manager = RemoteDevManager("tok", None, workspace_dir=str(tmp_path), profile="default")
     with pytest.raises(StateBucketError):
         manager._generate_state_bucket()
+
+
+def test_state_object_path_prefix_and_record(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    m = make(tmp_path, ObjStorage(existing=["rig-aaaaaaaa"]))
+    assert m.state_object_path(owner="alice") == f"rig-aaaaaaaa/{P}/by-owner/alice/"
+    assert m.state_object_path("dev-a").endswith("/by-owner/unknown/dev-a.yml")
+
+
+def test_delete_state_no_storage_manager(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    m = make(tmp_path, ObjStorage(existing=["rig-aaaaaaaa"]))
+    m.storage_manager = None
+    assert m._delete_state("dev-a") is False
+
+
+def test_drop_legacy_record_noops_and_errors(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    storage = ObjStorage(existing=["rig-aaaaaaaa"])
+    m = make(tmp_path, storage)
+    m._drop_legacy_record("dev-a")  # no legacy file
+    storage.objects[f"{P}/state.yml"] = "environments:\n- name: dev-z\n"
+    m._drop_legacy_record("dev-a")  # name absent: untouched
+    assert "dev-z" in storage.objects[f"{P}/state.yml"]
+
+    def boom(*a, **k):
+        raise RuntimeError("x")
+
+    m._read_yaml_object = boom
+    m._drop_legacy_record("dev-a")  # swallowed
+
+
+def test_load_state_skips_non_yaml_and_nameless(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    storage = ObjStorage(
+        {
+            f"{P}/by-owner/alice/notes.txt": "hi",
+            f"{P}/by-owner/alice/bad.yml": "foo: bar\n",
+            f"{P}/by-owner/alice/dev-a.yml": "name: dev-a\n",
+        },
+        existing=["rig-aaaaaaaa"],
+    )
+    names = [e["name"] for e in make(tmp_path, storage)._load_state()["environments"]]
+    assert names == ["dev-a"]
+
+
+def test_temp_file_cleanup_tolerates_unlink_errors(tmp_path, monkeypatch):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    storage = ObjStorage(
+        {f"{P}/state.yml": "environments:\n- name: dev-a\n"}, existing=["rig-aaaaaaaa"]
+    )
+    m = make(tmp_path, storage)
+
+    def bad_unlink(path):
+        raise OSError("nope")
+
+    monkeypatch.setattr("cli.remote_dev.os.unlink", bad_unlink)
+    assert m._save_state({"name": "dev-b", "owner": "alice"}) is True
+    m._drop_legacy_record("dev-a")
+    assert m._read_yaml_object(f"{P}/state.yml") is not None

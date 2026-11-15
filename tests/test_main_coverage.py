@@ -119,6 +119,15 @@ def test_list_empty_and_nonempty(tok_env, capsys):
             assert "a" in err
 
 
+def test_list_without_storage_credentials(tok_env, capsys):
+    with patch("cli.main._load_credentials"), \
+            patch("cli.main.StorageManager", side_effect=ValueError("no creds")), \
+            patch("cli.main.RemoteDevEnvironment") as env_cls:
+        env_cls.return_value.list_environments.return_value = []
+        assert main(["list"]) == 0
+        assert env_cls.call_args.kwargs["storage_manager"] is None
+
+
 def test_list_all_passes_flag_and_shows_owner(tok_env, capsys):
     with patch("cli.main._load_credentials"):
         with patch("cli.main.RemoteDevEnvironment") as env_cls:
