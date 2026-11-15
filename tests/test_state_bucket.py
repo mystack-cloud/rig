@@ -238,28 +238,62 @@ def test_ensure_swallows_unexpected_errors(tmp_path):
     assert make(tmp_path, Boom())._ensure_state_bucket() is False
 
 
-def test_load_state_happy_and_missing_bucket(tmp_path):
+class ObjStorage(FakeStorage):
+    """In-memory object store with the StorageManager object API."""
+
+    def __init__(self, objects=None, **kw):
+        super().__init__(**kw)
+        self.objects = dict(objects or {})
+
+    def upload_file(self, bucket, src, key):
+        with open(src) as fh:
+            self.objects[key] = fh.read()
+        return True
+
+    def download_file(self, bucket, key, dest):
+        if key not in self.objects:
+            return False
+        with open(dest, "w") as fh:
+            fh.write(self.objects[key])
+        return True
+
+    def list_objects(self, bucket, prefix=""):
+        return [k for k in self.objects if k.startswith(prefix)]
+
+    def delete_object(self, bucket, key):
+        self.objects.pop(key, None)
+        return True
+
+
+P = "remote-dev/environments"
+
+
+def test_load_state_reads_records_and_legacy(tmp_path):
     write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
-
-    class Storage(FakeStorage):
-        def download_file(self, bucket, key, dest):
-            with open(dest, "w") as fh:
-                fh.write("environments:\n- name: dev-x\n")
-
-    assert make(tmp_path, Storage(existing=["rig-aaaaaaaa"]))._load_state() == {
-        "environments": [{"name": "dev-x"}]
-    }
-    # Bucket missing: empty state, and nothing is created.
-    empty = Storage()
+    storage = ObjStorage(
+        {
+            f"{P}/by-owner/alice/dev-a.yml": "name: dev-a\nowner: alice\n",
+            f"{P}/by-owner/bob/dev-b.yml": "name: dev-b\nowner: bob\n",
+            f"{P}/state.yml": "environments:\n- name: dev-old\n- name: dev-a\n",
+        },
+        existing=["rig-aaaaaaaa"],
+    )
+    manager = make(tmp_path, storage)
+    names = sorted(e["name"] for e in manager._load_state()["environments"])
+    assert names == ["dev-a", "dev-b", "dev-old"]
+    only = manager._load_state(owner="alice")["environments"]
+    assert [e["name"] for e in only] == ["dev-a"]
+    # Missing bucket: empty state, and nothing is created.
+    empty = ObjStorage()
     assert make(tmp_path, empty)._load_state() == {"environments": []}
     assert empty.created == []
 
 
-def test_load_state_swallows_download_errors(tmp_path):
+def test_load_state_swallows_errors(tmp_path):
     write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
 
     class Storage(FakeStorage):
-        def download_file(self, *a):
+        def list_objects(self, *a, **k):
             raise RuntimeError("nope")
 
     assert make(tmp_path, Storage(existing=["rig-aaaaaaaa"]))._load_state() == {
@@ -280,26 +314,67 @@ def test_save_state_returns_false_when_ensure_fails(tmp_path):
     assert manager._save_state({"name": "dev-x"}) is False
 
 
-def test_save_state_uploads_and_dedupes(tmp_path):
+def test_save_state_writes_only_own_record(tmp_path):
     write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
-
-    class Storage(FakeStorage):
-        uploads = []
-
-        def upload_file(self, bucket, src, key):
-            self.uploads.append((bucket, key))
-
-    storage = Storage(existing=["rig-aaaaaaaa"])
+    storage = ObjStorage(
+        {f"{P}/by-owner/bob/dev-b.yml": "name: dev-b\nowner: bob\n"},
+        existing=["rig-aaaaaaaa"],
+    )
     manager = make(tmp_path, storage)
-    manager.list_dev_environments = lambda *a, **k: [{"name": "dev-x"}]
-    assert manager._save_state({"name": "dev-x"}) is True
-    assert ("rig-aaaaaaaa", "remote-dev/environments/state.yml") in storage.uploads
+    assert manager._save_state({"name": "dev-x", "owner": "alice"}) is True
+    assert f"{P}/by-owner/alice/dev-x.yml" in storage.objects
+    assert storage.objects[f"{P}/by-owner/bob/dev-b.yml"] == "name: dev-b\nowner: bob\n"
+    assert f"{P}/state.yml" not in storage.objects
+
+
+def test_concurrent_saves_do_not_clobber(tmp_path):
+    import threading
+
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    storage = ObjStorage(existing=["rig-aaaaaaaa"])
+    manager = make(tmp_path, storage)
+    threads = [
+        threading.Thread(
+            target=manager._save_state, args=({"name": f"dev-{i}", "owner": f"u{i}"},)
+        )
+        for i in range(8)
+    ]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    names = sorted(e["name"] for e in manager._load_state()["environments"])
+    assert names == [f"dev-{i}" for i in range(8)]
+
+
+def test_delete_state_removes_record_and_legacy_entry(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    storage = ObjStorage(
+        {
+            f"{P}/by-owner/alice/dev-a.yml": "name: dev-a\n",
+            f"{P}/by-owner/alice/dev-keep.yml": "name: dev-keep\n",
+            f"{P}/state.yml": "environments:\n- name: dev-a\n- name: dev-z\n",
+            f"{P}/environments/dev-a.yml": "vm_id: 1\n",
+        },
+        existing=["rig-aaaaaaaa"],
+    )
+    manager = make(tmp_path, storage)
+    assert manager._delete_state("dev-a") is True
+    assert f"{P}/by-owner/alice/dev-a.yml" not in storage.objects
+    assert f"{P}/by-owner/alice/dev-keep.yml" in storage.objects
+    assert f"{P}/environments/dev-a.yml" not in storage.objects
+    assert "dev-z" in storage.objects[f"{P}/state.yml"]
+    assert "dev-a" not in storage.objects[f"{P}/state.yml"]
+
+
+def test_delete_state_without_storage_or_bucket(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    assert make(tmp_path, None)._delete_state("dev-a") is False
+    assert make(tmp_path, ObjStorage())._delete_state("dev-a") is False
 
 
 def test_save_state_swallows_unexpected_errors(tmp_path):
     write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
     manager = make(tmp_path, FakeStorage(existing=["rig-aaaaaaaa"]))
-    manager.list_dev_environments = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))
+    manager._ensure_state_bucket = lambda: (_ for _ in ()).throw(RuntimeError("x"))
     assert manager._save_state({"name": "dev-x"}) is False
 
 

@@ -474,9 +474,8 @@ class TestRemoteDevManagerCoverage:
         capsys.readouterr()
         assert mgr._save_state({"name": "dev-new", "id": 2, "ip": "1.1.1.1"}) is True
         debug = capsys.readouterr().err
-        index = f"{mgr.state_bucket}/{mgr.state_prefix}/state.yml"
-        record = f"{mgr.state_bucket}/{mgr.state_prefix}/environments/dev-new.yml"
-        assert f"State synced to {index} and {record}" in debug
+        record = mgr.state_object_path("dev-new", "mlewk")
+        assert "State synced to" in debug and "/by-owner/" in debug and record.endswith("dev-new.yml")
         rig_log.configure_logging()
         assert uploads
 
@@ -499,7 +498,7 @@ class TestRemoteDevManagerCoverage:
     def test_list_dev_environments_fallback_api(self, monkeypatch):
         mgr = RemoteDevManager("tok", None)
 
-        def load_empty(self):
+        def load_empty(self, owner=None):
             return {"environments": []}
 
         monkeypatch.setattr(RemoteDevManager, "_load_state", load_empty)
@@ -750,7 +749,8 @@ class TestRemoteDevEnvironmentCoverage:
         monkeypatch.setattr("cli.remote_dev.subprocess.run", fake_run)
         assert env.install_agent("opencode") is True
         assert runs["n"] == 3
-        assert env.manager.storage_manager.upload_file.called
+        env.manager._save_state.assert_called_once()
+        assert env.manager._save_state.call_args[0][0]["agent_installed"] is True
 
     def test_install_agent_subprocess_error(self, monkeypatch):
         env = RemoteDevEnvironment(name="agent-y")
@@ -1356,12 +1356,7 @@ class TestRemoteDevCleanupAndDestroy:
         monkeypatch.setattr(RemoteDevEnvironment, "remove_ssh_config_host", lambda self, **k: (_ for _ in ()).throw(OSError))
 
         env.cleanup(project_dir=str(tmp_path))
-        env.manager.storage_manager.upload_file.assert_not_called()
-
-        env.manager._state_bucket_present.return_value = True
-        env.cleanup(project_dir=str(tmp_path))
-        env.manager.storage_manager.upload_file.assert_called_once()
-        env.manager.storage_manager.delete_object.assert_called_once()
+        env.manager._delete_state.assert_called_with("clean-me")
 
         env.manager.storage_manager = None
         env.manager._state_bucket_present.reset_mock()
@@ -2420,7 +2415,7 @@ class TestListOwnerFilter:
         monkeypatch.setattr(
             RemoteDevManager,
             "_load_state",
-            lambda self: {
+            lambda self, owner=None: {
                 "environments": [
                     {"name": "dev-a", "owner": "alice"},
                     {"name": "dev-b", "owner": "bob"},
