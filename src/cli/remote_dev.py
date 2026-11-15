@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any, List, Sequence, Tuple
 import requests
 
 from cli import log as log
+from cli.state_bucket import StateBucketError
 
 # YAML support
 try:
@@ -1082,19 +1083,31 @@ def default_firewall_rules(
 class RemoteDevManager:
     """Manages remote development environments on Hetzner Cloud"""
 
-    def __init__(self, hetzner_token: Optional[str] = None, storage_manager: Optional[Any] = None, is_test: bool = False):
+    def __init__(
+        self,
+        hetzner_token: Optional[str] = None,
+        storage_manager: Optional[Any] = None,
+        is_test: bool = False,
+        workspace_dir: Optional[str] = None,
+        profile: Optional[str] = None,
+    ):
         self.hetzner_token = hetzner_token or os.getenv('HETZNER_CLOUD_API_TOKEN')
         self.base_url = "https://api.hetzner.cloud/v1"
 
         # Storage manager for shared state
         self.storage_manager = storage_manager
-        # Use test bucket if is_test is True, otherwise use production bucket
+        # Test mode uses its own throwaway bucket and never touches vars.yml.
+        # Otherwise the bucket comes from STATE_BUCKET or .rig/vars.yml
+        # (see the ``state_bucket`` property and ADR 0001).
+        self.is_test = is_test
+        self._workspace_dir = workspace_dir
+        self._profile = profile
+        self._state_bucket: Optional[str] = None
         if is_test:
-            import uuid
             test_prefix = os.getenv('TEST_BUCKET_PREFIX', 'test-')
-            self.state_bucket = f"{test_prefix}rig-{uuid.uuid4().hex[:8]}"
+            self._state_bucket = f"{test_prefix}rig-{uuid.uuid4().hex[:8]}"
         else:
-            self.state_bucket = os.getenv('STATE_BUCKET', 'rig')
+            self._state_bucket = os.getenv('STATE_BUCKET') or None
         self.state_prefix = "remote-dev/environments"
 
         if not self.hetzner_token:
@@ -1434,18 +1447,80 @@ class RemoteDevManager:
         public_net = vm.get('server', {}).get('public_net', {})
         return _ipv4_from_public_net(public_net)
 
+    def _bucket_context(self) -> Tuple[str, str]:
+        from cli.config import DEFAULT_PROFILE, RigConfig
+        from cli.state_bucket import find_workspace_dir
+
+        workspace = self._workspace_dir or find_workspace_dir()
+        profile = self._profile or RigConfig().profile or DEFAULT_PROFILE
+        return workspace, profile
+
+    @property
+    def state_bucket(self) -> str:
+        """Configured state bucket (env or vars.yml). Never generates or writes."""
+        if self._state_bucket:
+            return self._state_bucket
+        from cli.state_bucket import StateBucketNotConfigured, read_state_bucket
+
+        workspace, profile = self._bucket_context()
+        name = read_state_bucket(workspace, profile)
+        if not name:
+            raise StateBucketNotConfigured(
+                f"No state bucket configured for profile {profile!r} in {workspace}. "
+                "Create an environment first, or set STATE_BUCKET."
+            )
+        self._state_bucket = name
+        return name
+
+    @state_bucket.setter
+    def state_bucket(self, value: str) -> None:
+        self._state_bucket = value
+
+    def _generate_state_bucket(self) -> str:
+        """Create a new bucket under a fresh name and record it in vars.yml."""
+        from cli.state_bucket import new_state_bucket, write_state_bucket
+
+        workspace, profile = self._bucket_context()
+        existing = set(self.storage_manager.list_buckets())
+        exists = getattr(self.storage_manager, 'bucket_exists', None)
+        for _ in range(3):
+            name = new_state_bucket()
+            if name in existing or (exists and exists(name)):
+                continue  # name taken (possibly by another customer)
+            if not self.storage_manager.create_bucket(name):
+                continue
+            path = write_state_bucket(workspace, profile, name)
+            self._state_bucket = name
+            print(f"Created state bucket {name} for profile {profile!r}. "
+                  f"Commit {path} so your team shares it.")
+            return name
+        raise StateBucketError("Could not create a uniquely named state bucket after 3 attempts")
+
     def _ensure_state_bucket(self) -> bool:
-        """Ensure the state bucket exists, create if not"""
+        """Ensure the state bucket exists, generating a name if none is configured."""
         if not self.storage_manager:
             return False
 
+        from cli.state_bucket import StateBucketNotConfigured
+
         try:
-            # List buckets to check if state bucket exists
-            buckets = self.storage_manager.list_buckets()
-            if self.state_bucket not in buckets:
-                log.debug("State bucket %r not found; creating", self.state_bucket)
-                return self.storage_manager.create_bucket(self.state_bucket)
+            try:
+                name = self.state_bucket
+            except StateBucketNotConfigured:
+                self._generate_state_bucket()
+                return True
+            if name not in self.storage_manager.list_buckets():
+                log.debug("State bucket %r not found; creating", name)
+                if not self.storage_manager.create_bucket(name):
+                    if self.is_test:
+                        return False
+                    raise StateBucketError(
+                        f"State bucket {name!r} is not accessible with these credentials. "
+                        "Check that the profile points at your team's Hetzner project."
+                    )
             return True
+        except StateBucketError:
+            raise
         except Exception as e:
             log.warning("Could not ensure state bucket: %s", e)
             return False
@@ -1454,6 +1529,7 @@ class RemoteDevManager:
         """Return True if the shared state bucket exists (never creates it)."""
         if not self.storage_manager:
             return False
+        self.state_bucket  # raises StateBucketNotConfigured if unconfigured
         try:
             buckets = self.storage_manager.list_buckets()
             if self.state_bucket in buckets:
@@ -1540,6 +1616,8 @@ class RemoteDevManager:
                 self.state_object_path(env_name),
             )
             return True
+        except StateBucketError:
+            raise
         except Exception as e:
             log.warning("Could not save state: %s", e)
             return False
@@ -1550,8 +1628,8 @@ class RemoteDevManager:
             return {'environments': []}
 
         try:
-            # Ensure state bucket exists
-            if not self._ensure_state_bucket():
+            # Read-only: never creates or names a bucket.
+            if not self._state_bucket_present():
                 return {'environments': []}
 
             # Download state from bucket
@@ -1565,6 +1643,8 @@ class RemoteDevManager:
                 data = yaml.safe_load(f) or {'environments': []}
             log.debug("State loaded")
             return data
+        except StateBucketError:
+            raise
         except Exception as e:
             log.warning("Could not load state: %s", e)
             return {'environments': []}

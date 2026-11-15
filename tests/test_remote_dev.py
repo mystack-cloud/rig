@@ -432,24 +432,6 @@ class TestStateBucketNaming(unittest.TestCase):
         finally:
             del os.environ['STATE_BUCKET']
 
-    def test_prod_bucket_default(self):
-        """Test that production bucket defaults to 'rig'"""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-        from cli.remote_dev import RemoteDevManager
-
-        class MockStorageManager:
-            def list_buckets(self):
-                return []
-            def create_bucket(self, name):
-                return True
-
-        os.environ.pop('STATE_BUCKET', None)  # Ensure no env var is set
-        manager = RemoteDevManager('test-token', MockStorageManager(), is_test=False)
-
-        # Verify default prod bucket name
-        self.assertEqual(manager.state_bucket, 'rig',
-                       f"Default prod bucket should be 'rig', got '{manager.state_bucket}'")
-
     def test_test_buckets_are_unique(self):
         """Test that multiple test bucket instances get unique names"""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
