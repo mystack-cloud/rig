@@ -327,6 +327,25 @@ def test_save_state_writes_only_own_record(tmp_path):
     assert f"{P}/state.yml" not in storage.objects
 
 
+def test_save_state_merges_into_existing_record(tmp_path):
+    write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
+    key = f"{P}/by-owner/alice/dev-x.yml"
+    storage = ObjStorage(
+        {key: "name: dev-x\nowner: alice\nip: 1.1.1.1\ncreated_at: t0\nstatus: active\n"},
+        existing=["rig-aaaaaaaa"],
+    )
+    manager = make(tmp_path, storage)
+    # Another identity adds agent info; unset fields must not erase data.
+    assert manager._save_state(
+        {"name": "dev-x", "owner": "bob", "ip": None, "agent_installed": True, "created_at": "t1"}
+    ) is True
+    assert [k for k in storage.objects if "dev-x" in k] == [key]  # no duplicate under bob
+    import yaml
+    rec = yaml.safe_load(storage.objects[key])
+    assert rec["owner"] == "alice" and rec["created_at"] == "t0"
+    assert rec["ip"] == "1.1.1.1" and rec["agent_installed"] is True
+
+
 def test_concurrent_saves_do_not_clobber(tmp_path):
     import threading
 

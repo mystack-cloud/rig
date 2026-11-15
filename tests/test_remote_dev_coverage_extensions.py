@@ -417,6 +417,9 @@ class TestRemoteDevManagerCoverage:
             def upload_file(self, bucket, local, remote):
                 uploads.append((bucket, local, remote))
 
+            def list_objects(self, bucket, prefix=""):
+                return []
+
             def download_file(self, bucket, remote, local):
                 data = {"environments": [{"name": "dev-old", "id": 1}], "updated_at": "t"}
                 with open(local, "w") as f:

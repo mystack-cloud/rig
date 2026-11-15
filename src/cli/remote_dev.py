@@ -1591,20 +1591,40 @@ class RemoteDevManager:
                 return False
 
             from cli.vault_keys import resolve_identity
-            record = dict(environment)
-            owner = record.get('owner') or resolve_identity()
+            env_name = environment.get('name') or 'unknown'
+
+            # Read right before write: if the record already exists (possibly
+            # updated by someone else), merge into it instead of clobbering it.
+            # The existing record keeps its owner and created_at.
+            key = None
+            existing: Dict[str, Any] = {}
+            suffix = f"/{env_name}.yml"
+            for candidate in self.storage_manager.list_objects(
+                self.state_bucket, self._records_prefix()
+            ):
+                if candidate.endswith(suffix):
+                    key = candidate
+                    existing = self._read_yaml_object(candidate) or {}
+                    break
+
+            record = dict(existing)
+            record.update({k: v for k, v in environment.items() if v is not None})
+            if key:
+                owner = existing.get('owner') or key.split('/')[-2]
+                if existing.get('created_at'):
+                    record['created_at'] = existing['created_at']
+            else:
+                owner = environment.get('owner') or resolve_identity()
+                key = self._record_key(owner, env_name)
             record['owner'] = owner
             record['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            env_name = record.get('name') or 'unknown'
 
             import tempfile
             fd, tmp = tempfile.mkstemp(suffix=".yml")
             try:
                 with os.fdopen(fd, 'w') as f:
                     yaml.dump(record, f, default_flow_style=False, sort_keys=False)
-                self.storage_manager.upload_file(
-                    self.state_bucket, tmp, self._record_key(owner, env_name)
-                )
+                self.storage_manager.upload_file(self.state_bucket, tmp, key)
             finally:
                 try:
                     os.unlink(tmp)
