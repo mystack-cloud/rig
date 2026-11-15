@@ -204,6 +204,8 @@ Global: `-v` playbook tasks and debug · `-vv`/`-vvv`/`-vvvv` ansible verbosity 
 | `ssh` | `[name]` `[-- command]` | Shell on the VM in `/workspace`. A command after `--` runs instead of a login shell |
 | `dev` | `[name]` `[--path /workspace]` `[--browser]` `[--editor code\|cursor\|…]` | Remote-SSH by default; `--editor` opens another IDE from `editor.enabled`. Defaults to `editor.default` |
 | `list` | | Lists envs, or `No remote environments` |
+| `inspect` | `[name]` `[--json]` | Technical details of one env: stored record plus live Hetzner status. Falls back to stored data (flagged stale) if the API is unreachable. Data goes to stdout |
+| `describe` | `[name]` `[--json]` `[--show-secrets]` | Outputs published by the env's playbooks (see below). Sensitive values are masked unless `--show-secrets` |
 | `delete` | `[name …]` `[--tags TAGS]` | Runs finalize then destroy playbooks, then deletes the VM; multi-name OK. `--tags` limits both playbooks |
 | `cache` | `list\|clear` `[--system\|--workspace] [--all] [-y]` | List or clear; unused by default, `--all` includes current |
 | `vars encrypt` | `[--stdin-name VAR]` `[--personal]` | Vault into shared or identity vars (after master-key unlock) |
@@ -241,6 +243,31 @@ Playbooks load `.rig/vars.yml` then `.rig/vars.{identity}.yml` (personal wins), 
 Also available from vars files (defaults): `workspace_root`, `coding_agent_type`, `coding_agent_types`, `git.clone_repos`. On `rig init`, git PATs and each coding agent API key default to **personal** storage in `vars.{identity}.yml` (you are asked to confirm once); shared secrets such as `vscode_browser_password` live in `vars.yml`.
 
 `vscode_browser_password` is auto-generated (vaulted) for code-server browser login (`rig dev --browser`). Reveal with `rig vars decrypt vscode_browser_password` (also printed when opening browser mode).
+
+## Playbook outputs
+
+`rig describe` shows the values your playbooks publish. A playbook publishes them by writing YAML to the path in the `rig_outputs_file` extra var, which rig sets on every run. Add a task like this to any playbook, including custom ones:
+
+```yaml
+- name: Publish outputs
+  delegate_to: localhost
+  become: false
+  ansible.builtin.copy:
+    dest: "{{ rig_outputs_file }}"
+    content: "{{ {'rig_outputs': rig_outputs, 'rig_outputs_sensitive': ['my_api_key']} | to_nice_yaml }}"
+  vars:
+    rig_outputs:
+      vscode_url: "https://{{ rig_vm_ip }}:8443"
+      my_api_key: "{{ some_secret }}"
+```
+
+- `rig_outputs` (required) is a dict of name to value. Without it the file is ignored.
+- `rig_outputs_sensitive` (optional) lists extra keys to mask. Keys containing `password`, `secret`, `token` or `key` are always masked.
+- After each successful create-side stage (`provision`, `configure`, `authorize`, `materialize`, `finalize`) rig shallow-merges the file into the stored outputs, so later runs overwrite only the keys they emit. Failed runs and `destroy` store nothing.
+- Outputs are stored as written in the State bucket at `remote-dev/outputs/<name>.yml`, readable by anyone with bucket credentials. Masking is a display default, not access control. `rig delete` removes them.
+- Environment names are unique across owners in a State bucket, and `create` rejects a name another owner already uses.
+
+See `docs/adr/0002-outputs-as-separate-object-via-file-handoff.md`.
 
 ## Credentials
 

@@ -542,6 +542,7 @@ class TestRemoteDevEnvironmentCoverage:
         env.manager.get_vm_ip.return_value = "10.0.0.5"
         env.manager.wait_for_ssh.return_value = True
         env.manager._save_state.return_value = True
+        env.manager.conflicting_owner.return_value = None
 
         monkeypatch.setattr(RemoteDevEnvironment, "resolve_boot_image", lambda self, **k: {})
         monkeypatch.setattr(RemoteDevEnvironment, "generate_ssh_keys", lambda self: True)
