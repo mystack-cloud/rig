@@ -139,9 +139,10 @@ def _local_roles_bytes(project_dir: Optional[str]) -> bytes:
         return b""
     chunks: List[bytes] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames.sort()
+        # Bytecode caches are build artifacts: not content, and not valid UTF-8.
+        dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
         for name in sorted(filenames):
-            if name == ".gitkeep":
+            if name == ".gitkeep" or name.endswith((".pyc", ".pyo")):
                 continue
             path = os.path.join(dirpath, name)
             rel = os.path.relpath(path, root).replace(os.sep, "/")
@@ -154,7 +155,7 @@ def _read_text(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             return handle.read()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return ""
 
 

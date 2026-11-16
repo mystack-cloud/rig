@@ -703,3 +703,21 @@ def test_apply_playbooks_snapshots_after_configure(tmp_path):
             pass
 
     assert snaps == ["configure"]
+
+
+def test_system_hash_ignores_bytecode_and_survives_binary_files(tmp_path):
+    """A stray __pycache__/*.pyc under local_roles must not crash or change the hash."""
+    files = tmp_path / ".rig" / "local_roles" / "awx_mcp" / "files"
+    files.mkdir(parents=True)
+    (files / "proxy.py").write_text("print('hi')\n")
+    before = system_content_hash(project_dir=str(tmp_path), playbook_body="prov")
+
+    cache = files / "__pycache__"
+    cache.mkdir()
+    (cache / "proxy.cpython-312.pyc").write_bytes(b"\xcb\x0d\x0d\x0a\x00\xff")
+    (files / "stray.pyc").write_bytes(b"\xcb\xff")
+    assert system_content_hash(project_dir=str(tmp_path), playbook_body="prov") == before
+
+    # Any other non-UTF-8 file is tolerated instead of raising UnicodeDecodeError.
+    (files / "blob.bin").write_bytes(b"\xcb\xff\xfe")
+    system_content_hash(project_dir=str(tmp_path), playbook_body="prov")
