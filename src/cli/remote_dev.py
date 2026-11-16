@@ -3843,22 +3843,6 @@ PROVISION_PLAYBOOK = r"""---
         mode: "0600"
       when: "'claude' in _rig_agent_types"
 
-    # Skip the first-run theme picker / login wizard and the per-folder trust
-    # prompt. force: false keeps any existing ~/.claude.json untouched.
-    - name: Seed Claude Code onboarding and workspace trust
-      copy:
-        dest: /root/.claude.json
-        mode: "0600"
-        force: false
-        content: "{{ _claude_state | to_nice_json }}"
-      vars:
-        _claude_state:
-          hasCompletedOnboarding: true
-          theme: dark
-          shiftEnterKeyBindingInstalled: true
-          projects: "{{ {workspace_root | default('/workspace'): {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
-      when: "'claude' in _rig_agent_types"
-
     - name: Deploy AGENTS.md as Claude global rules (CLAUDE.md)
       copy:
         src: "{{ playbook_dir }}/AGENTS.md"
@@ -3925,31 +3909,6 @@ PROVISION_PLAYBOOK = r"""---
         src: "{{ playbook_dir }}/.cursor/mcp.json"
         dest: /root/.cursor/mcp.json
         mode: "0600"
-      when: "'cursor' in _rig_agent_types"
-
-    # Pre-trust the workspace so `agent` does not prompt on every start. Cursor
-    # keeps the marker at ~/.cursor/projects/<path slug>/.workspace-trusted.
-    - name: Create Cursor workspace trust directory
-      file:
-        path: "/root/.cursor/projects/{{ _cursor_slug }}"
-        state: directory
-        mode: "0700"
-      vars:
-        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
-      when: "'cursor' in _rig_agent_types"
-
-    - name: Trust the workspace for Cursor CLI
-      copy:
-        dest: "/root/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
-        mode: "0600"
-        force: false
-        content: "{{ _cursor_trust | to_nice_json }}"
-      vars:
-        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
-        _cursor_trust:
-          trustedAt: "{{ ansible_facts['date_time']['iso8601'] | default('2026-01-01T00:00:00Z') }}"
-          workspacePath: "{{ workspace_root | default('/workspace') }}"
-          trustMethod: rig
       when: "'cursor' in _rig_agent_types"
 """
 
@@ -4056,6 +4015,84 @@ AUTHORIZE_PLAYBOOK = r"""---
       when:
         - "'opencode' in _rig_agent_types"
         - rig_opencode_api_key | length > 0
+
+    # --- Skip first-run prompts (theme picker, login wizard, folder trust) ---
+    # Runs on every create (authorize is never snapshotted) and merges into any
+    # existing file: the installer can create ~/.claude.json before we get here.
+    - name: Ensure Claude config directory exists for seeding
+      file:
+        path: /root/.claude
+        state: directory
+        mode: "0700"
+      when: "'claude' in _rig_agent_types"
+
+    - name: Check for existing Claude state files
+      stat:
+        path: "{{ item }}"
+      loop:
+        - /root/.claude.json
+        - /root/.claude/settings.json
+      register: _claude_state_files
+      when: "'claude' in _rig_agent_types"
+
+    - name: Read existing Claude state files
+      slurp:
+        src: "{{ item.item }}"
+      loop: "{{ _claude_state_files.results | default([]) | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list }}"
+      register: _claude_state_contents
+      when: "'claude' in _rig_agent_types"
+
+    - name: Seed Claude Code onboarding, theme and workspace trust
+      vars:
+        _existing: >-
+          {{ dict(_claude_state_contents.results | default([])
+                  | map(attribute='item.item') | zip(
+                    _claude_state_contents.results | default([])
+                    | map(attribute='content')
+                    | map('b64decode') | map('from_json')) ) }}
+        _ws: "{{ workspace_root | default('/workspace') }}"
+        _state_seed:
+          hasCompletedOnboarding: true
+          shiftEnterKeyBindingInstalled: true
+          projects: "{{ {_ws: {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
+        _settings_seed:
+          theme: dark
+      copy:
+        dest: "{{ item.path }}"
+        mode: "0600"
+        content: "{{ ((_existing[item.path] | default({})) | combine(item.seed, recursive=True)) | to_nice_json }}"
+      loop:
+        - path: /root/.claude.json
+          seed: "{{ _state_seed }}"
+        - path: /root/.claude/settings.json
+          seed: "{{ _settings_seed }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: "'claude' in _rig_agent_types"
+
+    # Cursor keeps its trust marker at ~/.cursor/projects/<path slug>/.workspace-trusted.
+    - name: Create Cursor workspace trust directory
+      file:
+        path: "/root/.cursor/projects/{{ _cursor_slug }}"
+        state: directory
+        mode: "0700"
+      vars:
+        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
+      when: "'cursor' in _rig_agent_types"
+
+    - name: Trust the workspace for Cursor CLI
+      copy:
+        dest: "/root/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
+        mode: "0600"
+        force: false
+        content: "{{ _cursor_trust | to_nice_json }}"
+      vars:
+        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
+        _cursor_trust:
+          trustedAt: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%S.000Z') }}"
+          workspacePath: "{{ workspace_root | default('/workspace') }}"
+          trustMethod: rig
+      when: "'cursor' in _rig_agent_types"
 
     - name: Write Claude credentials env file
       copy:

@@ -135,16 +135,19 @@ OPENCODE_MCP: Dict[str, Any] = {
 }
 
 CLAUDE_SETTINGS = {
+    # Bare tool names allow every path; "Tool(*)" warns on recent Claude Code.
     "permissions": {
         "allow": [
-            "Bash(*)",
-            "Edit(*)",
-            "Read(*)",
-            "Write(*)",
-            "Glob(*)",
-            "Grep(*)",
+            "Bash",
+            "Edit",
+            "Read",
+            "Write",
+            "Glob",
+            "Grep",
         ]
     },
+    # Skips the first-run theme picker.
+    "theme": "dark",
     # API key is injected via /etc/profile.d/rig-coding-agent.sh and
     # ~/.claude/credentials.env (CODING_AGENT_API_KEY / ANTHROPIC_API_KEY).
 }

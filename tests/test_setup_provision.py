@@ -849,27 +849,73 @@ def test_claude_api_key_still_exported_as_anthropic_api_key():
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in out
 
 
-def _provision_tasks():
+def _authorize_tasks():
     import yaml
 
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    return {t["name"]: t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if "name" in t}
+
+
+def test_claude_seed_runs_in_authorize_not_snapshotted_provision():
+    """Provision is cached in the system snapshot, so seeding there goes stale."""
     from cli.remote_dev import PROVISION_PLAYBOOK
 
-    return {t["name"]: t for t in yaml.safe_load(PROVISION_PLAYBOOK)[0]["tasks"] if "name" in t}
+    assert "hasCompletedOnboarding" not in PROVISION_PLAYBOOK
+    assert "Seed Claude Code onboarding, theme and workspace trust" in _authorize_tasks()
 
 
-def test_claude_seeds_onboarding_theme_and_workspace_trust():
-    task = _provision_tasks()["Seed Claude Code onboarding and workspace trust"]
-    state = task["vars"]["_claude_state"]
-    assert task["copy"]["dest"] == "/root/.claude.json"
-    assert task["copy"]["force"] is False  # never clobber an existing file
+def test_claude_seed_merges_into_existing_files(tmp_path):
+    """The installer creates ~/.claude.json first; we must merge, not skip."""
+    import json
+    import shutil
+    import subprocess
+
+    import yaml
+
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    if shutil.which("ansible-playbook") is None:
+        import pytest
+
+        pytest.skip("ansible-playbook not installed")
+
+    root = tmp_path / "root"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude.json").write_text(
+        json.dumps({"numStartups": 1, "projects": {"/other": {"x": 1}, "/workspace": {"allowedTools": []}}})
+    )
+    (root / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Edit"]}}))
+
+    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    names = ("Ensure Claude config", "Check for existing Claude", "Read existing Claude", "Seed Claude")
+    tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
+    tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
+    pb = [{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"_rig_agent_types": ["claude"], "workspace_root": "/workspace"},
+        "tasks": tasks,
+    }]
+    (tmp_path / "pb.yml").write_text(yaml.safe_dump(pb))
+    result = subprocess.run(
+        ["ansible-playbook", "-i", "localhost,", str(tmp_path / "pb.yml")],
+        capture_output=True, text=True, cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    state = json.loads((root / ".claude.json").read_text())
+    assert state["numStartups"] == 1  # existing keys kept
     assert state["hasCompletedOnboarding"] is True
-    assert state["theme"] == "dark"
-    assert "hasTrustDialogAccepted" in state["projects"]
-    assert "'claude' in _rig_agent_types" in task["when"]
+    assert state["projects"]["/other"] == {"x": 1}
+    assert state["projects"]["/workspace"]["hasTrustDialogAccepted"] is True
+    assert state["projects"]["/workspace"]["allowedTools"] == []
+    settings = json.loads((root / ".claude" / "settings.json").read_text())
+    assert settings["theme"] == "dark"
+    assert settings["permissions"] == {"allow": ["Edit"]}
 
 
 def test_cursor_workspace_is_pretrusted():
-    tasks = _provision_tasks()
+    tasks = _authorize_tasks()
     mkdir = tasks["Create Cursor workspace trust directory"]
     trust = tasks["Trust the workspace for Cursor CLI"]
     assert trust["copy"]["dest"].endswith("/.workspace-trusted")
@@ -877,3 +923,12 @@ def test_cursor_workspace_is_pretrusted():
     assert trust["vars"]["_cursor_trust"]["workspacePath"].startswith("{{ workspace_root")
     assert mkdir["file"]["path"].startswith("/root/.cursor/projects/")
     assert "'cursor' in _rig_agent_types" in trust["when"]
+
+
+def test_claude_settings_use_bare_permissions_and_dark_theme():
+    from cli.agents import CLAUDE_SETTINGS
+
+    allow = CLAUDE_SETTINGS["permissions"]["allow"]
+    assert not any("(*)" in rule for rule in allow)  # "Tool(*)" triggers warnings
+    assert {"Bash", "Edit", "Read", "Write", "Glob", "Grep"} <= set(allow)
+    assert CLAUDE_SETTINGS["theme"] == "dark"
