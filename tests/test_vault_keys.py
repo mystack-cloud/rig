@@ -142,3 +142,24 @@ def test_snapshot_hash_skips_identity_vars(tmp_path):
     assert "vars.yml" in paths
     assert "vars.alice.yml" not in paths
     assert "materialize.yml" in paths
+
+
+def test_write_filtered_vars_copy_drops_connection_vars(tmp_path):
+    """ansible_connection etc. as extra vars would force ssh on delegate_to: localhost."""
+    from cli.vault_keys import write_filtered_vars_copy
+
+    src = tmp_path / "vars.yml"
+    src.write_text(
+        "ansible_user: root\n"
+        "ansible_connection: ssh\n"
+        "ansible_python_interpreter: /usr/bin/python3\n"
+        "code_server_port: 8080\n"
+    )
+    out = write_filtered_vars_copy(str(src), str(tmp_path / "out.yml"))
+    text = open(out, encoding="utf-8").read()
+    assert "ansible_" not in text
+    assert "code_server_port: 8080" in text
+
+    only = tmp_path / "only.yml"
+    only.write_text("ansible_connection: ssh\n")
+    assert write_filtered_vars_copy(str(only), str(tmp_path / "o2.yml")) is None

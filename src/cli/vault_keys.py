@@ -413,7 +413,15 @@ def write_filtered_vars_copy(src_path: str, dest_path: str) -> Optional[str]:
         return None
     with open(src_path, "r", encoding="utf-8") as handle:
         content = handle.read()
-    filtered = filter_wrap_fields_from_yaml_text(content).strip()
+    filtered = filter_wrap_fields_from_yaml_text(content)
+    # Host connection vars belong in the inventory. As extra vars (highest
+    # precedence) they also hit ``delegate_to: localhost`` and force SSH there.
+    filtered = re.sub(
+        r"^ansible_(?:connection|user|python_interpreter):[^\n]*\n?",
+        "",
+        filtered,
+        flags=re.MULTILINE,
+    ).strip()
     if not filtered:
         return None
     if not filtered.endswith("\n"):
