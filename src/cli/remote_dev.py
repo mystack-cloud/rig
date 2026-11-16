@@ -4022,7 +4022,11 @@ AUTHORIZE_PLAYBOOK = r"""---
         mode: "0600"
         content: |
           CODING_AGENT_API_KEY={{ rig_claude_api_key }}
+          {% if rig_claude_api_key.startswith('sk-ant-oat01') %}
+          CLAUDE_CODE_OAUTH_TOKEN={{ rig_claude_api_key }}
+          {% else %}
           ANTHROPIC_API_KEY={{ rig_claude_api_key }}
+          {% endif %}
       no_log: true
       when:
         - "'claude' in _rig_agent_types"
