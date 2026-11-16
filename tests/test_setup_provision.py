@@ -821,3 +821,29 @@ def test_create_provider_override(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "not available yet" in err
     assert "gcp" in err
+
+
+def _render_claude_credentials(token):
+    import jinja2
+    import yaml
+
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    task = next(t for t in play["tasks"] if t["name"] == "Write Claude credentials env file")
+    # Ansible templates with trim_blocks enabled.
+    env = jinja2.Environment(trim_blocks=True)
+    return env.from_string(task["copy"]["content"]).render(rig_claude_api_key=token)
+
+
+def test_claude_oauth_token_exported_as_claude_code_oauth_token():
+    out = _render_claude_credentials("sk-ant-oat01-abc")
+    assert "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-abc\n" in out
+    assert "ANTHROPIC_API_KEY" not in out
+    assert "{%" not in out
+
+
+def test_claude_api_key_still_exported_as_anthropic_api_key():
+    out = _render_claude_credentials("sk-ant-api03-xyz")
+    assert "ANTHROPIC_API_KEY=sk-ant-api03-xyz\n" in out
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in out
