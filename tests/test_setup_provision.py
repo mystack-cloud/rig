@@ -885,7 +885,7 @@ def test_claude_seed_merges_into_existing_files(tmp_path):
     (root / ".claude.json").write_text(
         json.dumps({"numStartups": 1, "projects": {"/other": {"x": 1}, "/workspace": {"allowedTools": []}}})
     )
-    (root / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Edit"]}}))
+    (root / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Edit(*)", "Read(*)", "Bash(git push:*)"], "deny": ["Read(.env)"]}}))
 
     play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
     names = ("Ensure Claude config", "Check for existing Claude", "Read existing Claude", "Seed Claude")
@@ -911,7 +911,11 @@ def test_claude_seed_merges_into_existing_files(tmp_path):
     assert state["projects"]["/workspace"]["allowedTools"] == []
     settings = json.loads((root / ".claude" / "settings.json").read_text())
     assert settings["theme"] == "dark"
-    assert settings["permissions"] == {"allow": ["Edit"]}
+    # "Tool(*)" is normalised to bare "Tool"; specific rules and deny are kept.
+    assert settings["permissions"] == {
+        "allow": ["Edit", "Read", "Bash(git push:*)"],
+        "deny": ["Read(.env)"],
+    }
 
 
 def test_cursor_workspace_is_pretrusted():

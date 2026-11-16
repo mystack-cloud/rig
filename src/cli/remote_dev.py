@@ -4057,10 +4057,17 @@ AUTHORIZE_PLAYBOOK = r"""---
           projects: "{{ {_ws: {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
         _settings_seed:
           theme: dark
+        _merged: "{{ (_existing[item.path] | default({})) | combine(item.seed, recursive=True) }}"
+        # "Tool(*)" allow rules warn on current Claude Code; bare "Tool" is equivalent.
+        _final: >-
+          {{ _merged | combine({'permissions': {'allow':
+               _merged.permissions.allow | map('regex_replace', '[(][*][)]$', '') | unique | list}},
+             recursive=True)
+             if (_merged.permissions | default({})).allow is defined else _merged }}
       copy:
         dest: "{{ item.path }}"
         mode: "0600"
-        content: "{{ ((_existing[item.path] | default({})) | combine(item.seed, recursive=True)) | to_nice_json }}"
+        content: "{{ _final | to_nice_json }}"
       loop:
         - path: /root/.claude.json
           seed: "{{ _state_seed }}"
