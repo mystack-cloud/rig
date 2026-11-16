@@ -4204,6 +4204,15 @@ MATERIALIZE_PLAYBOOK = """---
         version: "{{ item.version | default(omit) }}"
         accept_hostkey: "{{ item.accept_hostkey | default(true) }}"
         force: "{{ item.force | default(false) }}"
+      register: _git_clone
+      # A fresh VM can hit transient network resets reaching the git host.
+      # Retry those only; auth failures (bad PAT) still fail immediately.
+      retries: 5
+      delay: 5
+      until: >-
+        _git_clone is succeeded
+        or not ((_git_clone.msg | default('')) is search(
+          'Connection reset|Connection timed out|Could not resolve|Recv failure|early EOF|RPC failed|SSL_connect|GnuTLS|Failed to connect'))
       loop: "{{ git.clone_repos | default([]) }}"
       when: git is defined and git.clone_repos is defined
 """

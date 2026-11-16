@@ -936,3 +936,28 @@ def test_claude_settings_use_bare_permissions_and_dark_theme():
     assert not any("(*)" in rule for rule in allow)  # "Tool(*)" triggers warnings
     assert {"Bash", "Edit", "Read", "Write", "Glob", "Grep"} <= set(allow)
     assert CLAUDE_SETTINGS["theme"] == "dark"
+
+
+def test_materialize_clone_retries_only_transient_network_errors():
+    import re
+
+    import yaml
+
+    from cli.remote_dev import MATERIALIZE_PLAYBOOK
+
+    tasks = yaml.safe_load(MATERIALIZE_PLAYBOOK)[0]["tasks"]
+    clone = next(t for t in tasks if t["name"] == "Clone configured git repositories")
+    assert clone["retries"] >= 3 and clone["delay"] > 0
+    until = " ".join(str(clone["until"]).split())
+    pattern = re.search(r"search\(\s*'([^']+)'", until).group(1)
+    for transient in (
+        "fatal: unable to access 'https://github.com/x/y.git/': Recv failure: Connection reset by peer",
+        "Connection timed out",
+    ):
+        assert re.search(pattern, transient), transient
+    for permanent in (
+        "Authentication failed for 'https://github.com/x/y.git/'",
+        "Repository not found.",
+        "could not read Username",
+    ):
+        assert not re.search(pattern, permanent), permanent
