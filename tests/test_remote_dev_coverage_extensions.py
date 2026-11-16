@@ -235,6 +235,48 @@ class TestRemoteDevManagerCoverage:
         monkeypatch.setattr("cli.remote_dev.requests.get", fake_get)
         assert len(mgr.list_snapshots()) == 1
 
+    def test_create_vm_payload_uses_firewalls_list(self, monkeypatch):
+        mgr = RemoteDevManager("tok", None)
+        sent = {}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            sent.update(json)
+            return _mock_response(200, {"server": {"id": 1}})
+
+        monkeypatch.setattr("cli.remote_dev.requests.post", fake_post)
+        mgr.create_vm("vm", "cpx22", "hel1", 5, ssh_key_id=7, firewall_id=9)
+        assert sent["firewalls"] == [{"firewall": 9}]
+        assert "firewall" not in sent
+
+    def test_request_error_includes_hetzner_detail(self, monkeypatch):
+        import requests as _requests
+
+        mgr = RemoteDevManager("tok", None)
+        resp = _mock_response(
+            422, {"error": {"code": "invalid_input", "message": "image has wrong architecture"}}
+        )
+        resp.raise_for_status.side_effect = _requests.HTTPError("422 Client Error")
+        monkeypatch.setattr("cli.remote_dev.requests.post", lambda *a, **k: resp)
+        with pytest.raises(_requests.HTTPError, match="wrong architecture"):
+            mgr.create_vm("vm", "cpx22", "hel1", 5)
+
+    def test_server_type_architecture(self, monkeypatch):
+        mgr = RemoteDevManager("tok", None)
+        monkeypatch.setattr(
+            "cli.remote_dev.requests.get",
+            lambda *a, **k: _mock_response(
+                200, {"server_types": [{"name": "cpx22", "architecture": "x86"}]}
+            ),
+        )
+        assert mgr.get_server_type_architecture("cpx22") == "x86"
+
+        def boom(*a, **k):
+            raise RuntimeError("down")
+
+        monkeypatch.setattr("cli.remote_dev.requests.get", boom)
+        assert mgr.get_server_type_architecture("cax11") == "arm"
+        assert mgr.get_server_type_architecture("cpx22") == "x86"
+
     def test_find_snapshot_by_description(self, monkeypatch):
         mgr = RemoteDevManager("tok", None)
         monkeypatch.setattr(
@@ -1038,6 +1080,35 @@ class TestRemoteDevEnvironmentMore:
         out = env.resolve_boot_image(project_dir=str(project_dir))
         assert out["source"] == "workspace"
         assert env.image == 55
+
+    def test_resolve_boot_image_ignores_wrong_architecture(self, tmp_path, monkeypatch):
+        project_dir = tmp_path / "arch"
+        project_dir.mkdir()
+        assert ProjectConfig(str(project_dir)).init(name="arch", agent_type="opencode")
+
+        env = RemoteDevEnvironment(name="arch-env")
+        env.vm_type = "cpx22"
+        env.manager = MagicMock()
+        env.manager.get_server_type_architecture.return_value = "x86"
+        env.manager.list_snapshots.return_value = [
+            {"id": 1, "architecture": "arm"},
+            {"id": 2, "architecture": "x86"},
+        ]
+        monkeypatch.setattr("cli.snapshots.package_version", lambda: "1.0")
+        monkeypatch.setattr("cli.snapshots.workspace_content_hash", lambda *a, **k: "w")
+        monkeypatch.setattr(
+            "cli.snapshots.system_hash_inputs_from_project", lambda p: {"var_map": {}}
+        )
+        monkeypatch.setattr("cli.snapshots.system_content_hash", lambda **k: "s")
+        seen = {}
+
+        def fake_resolve(images, **kw):
+            seen["ids"] = [i["id"] for i in images]
+            return {"image": None}
+
+        monkeypatch.setattr("cli.snapshots.resolve_boot_snapshot", fake_resolve)
+        env.resolve_boot_image(project_dir=str(project_dir))
+        assert seen["ids"] == [2]
 
     def test_attach_to_agent_paths(self, tmp_path, monkeypatch):
         env = RemoteDevEnvironment(name="att")

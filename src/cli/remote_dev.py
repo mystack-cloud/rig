@@ -1132,7 +1132,17 @@ class RemoteDevManager:
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            detail = ''
+            try:
+                err = response.json().get('error', {})
+                detail = f" - {err.get('code')}: {err.get('message')} {err.get('details') or ''}".rstrip()
+            except Exception:
+                text = getattr(response, 'text', '')
+                detail = f" - {text[:300]}" if isinstance(text, str) and text else ''
+            raise requests.HTTPError(f"{e}{detail}", response=response) from e
         if response.status_code == 204 or not response.content:
             return {}
         return response.json()
@@ -1244,7 +1254,7 @@ class RemoteDevManager:
             data['ssh_keys'] = [ssh_key_id]
 
         if firewall_id:
-            data['firewall'] = {'id': firewall_id}
+            data['firewalls'] = [{'firewall': firewall_id}]
 
         result = self._request('POST', '/servers', data)
         return result
@@ -1296,6 +1306,18 @@ class RemoteDevManager:
         except Exception:
             pass
         return images
+
+    def get_server_type_architecture(self, server_type: str) -> Optional[str]:
+        """Return 'x86' or 'arm' for a Hetzner server type, or None if unknown."""
+        try:
+            result = self._request("GET", f"/server_types?name={server_type}")
+            for st in result.get("server_types") or []:
+                if st.get("name") == server_type:
+                    return st.get("architecture")
+        except Exception as exc:
+            log.debug("Could not look up architecture for %s: %s", server_type, exc)
+        # Fallback: cax* types are arm64, everything else is amd64 (Hetzner 'x86').
+        return "arm" if server_type.lower().startswith("cax") else "x86"
 
     def find_snapshot_by_description(self, description: str) -> Optional[Dict[str, Any]]:
         """Return the first snapshot whose description matches exactly."""
@@ -1945,6 +1967,16 @@ class RemoteDevEnvironment:
         except Exception as exc:
             log.debug("Could not list snapshots for boot reuse: %s", exc)
             images = []
+
+        arch = self.manager.get_server_type_architecture(self.vm_type)
+        if arch:
+            compatible = [i for i in images if i.get("architecture") in (None, arch)]
+            if len(compatible) != len(images):
+                log.debug(
+                    "Ignoring %d snapshot(s) not matching %s architecture of %s",
+                    len(images) - len(compatible), arch, self.vm_type,
+                )
+            images = compatible
 
         decision = resolve_boot_snapshot(
             images,
@@ -4221,9 +4253,8 @@ class ProjectConfig:
 
     def _default_vars(self) -> Dict[str, Any]:
         return {
-            "ansible_user": "root",
-            "ansible_connection": "ssh",
-            "ansible_python_interpreter": "/usr/bin/python3",
+            # Connection vars (ansible_user/connection/python_interpreter) live in the
+            # inventory; as extra vars they'd override localhost delegation.
             "coding_agent_type": "opencode",
             "code_server_port": 8080,
             "code_server_user": "coder",
