@@ -260,6 +260,25 @@ class TestRemoteDevManagerCoverage:
         with pytest.raises(_requests.HTTPError, match="wrong architecture"):
             mgr.create_vm("vm", "cpx22", "hel1", 5)
 
+    def test_request_error_non_json_body(self, monkeypatch):
+        import requests as _requests
+
+        mgr = RemoteDevManager("tok", None)
+        for text, expect in (("gateway exploded", "gateway exploded"), ("", None)):
+            resp = _mock_response(502, {})
+            resp.json.side_effect = ValueError("no json")
+            resp.text = text
+            resp.raise_for_status.side_effect = _requests.HTTPError("502 Bad Gateway")
+            monkeypatch.setattr("cli.remote_dev.requests.post", lambda *a, **k: resp)
+            with pytest.raises(_requests.HTTPError) as exc:
+                mgr.create_vm("vm", "cpx22", "hel1", 5)
+            msg = str(exc.value)
+            assert msg.startswith("502 Bad Gateway")
+            if expect:
+                assert expect in msg
+            else:
+                assert msg == "502 Bad Gateway"
+
     def test_server_type_architecture(self, monkeypatch):
         mgr = RemoteDevManager("tok", None)
         monkeypatch.setattr(
