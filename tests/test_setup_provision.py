@@ -847,3 +847,33 @@ def test_claude_api_key_still_exported_as_anthropic_api_key():
     out = _render_claude_credentials("sk-ant-api03-xyz")
     assert "ANTHROPIC_API_KEY=sk-ant-api03-xyz\n" in out
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in out
+
+
+def _provision_tasks():
+    import yaml
+
+    from cli.remote_dev import PROVISION_PLAYBOOK
+
+    return {t["name"]: t for t in yaml.safe_load(PROVISION_PLAYBOOK)[0]["tasks"] if "name" in t}
+
+
+def test_claude_seeds_onboarding_theme_and_workspace_trust():
+    task = _provision_tasks()["Seed Claude Code onboarding and workspace trust"]
+    state = task["vars"]["_claude_state"]
+    assert task["copy"]["dest"] == "/root/.claude.json"
+    assert task["copy"]["force"] is False  # never clobber an existing file
+    assert state["hasCompletedOnboarding"] is True
+    assert state["theme"] == "dark"
+    assert "hasTrustDialogAccepted" in state["projects"]
+    assert "'claude' in _rig_agent_types" in task["when"]
+
+
+def test_cursor_workspace_is_pretrusted():
+    tasks = _provision_tasks()
+    mkdir = tasks["Create Cursor workspace trust directory"]
+    trust = tasks["Trust the workspace for Cursor CLI"]
+    assert trust["copy"]["dest"].endswith("/.workspace-trusted")
+    assert trust["copy"]["force"] is False
+    assert trust["vars"]["_cursor_trust"]["workspacePath"].startswith("{{ workspace_root")
+    assert mkdir["file"]["path"].startswith("/root/.cursor/projects/")
+    assert "'cursor' in _rig_agent_types" in trust["when"]

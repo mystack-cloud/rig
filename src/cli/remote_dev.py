@@ -3843,6 +3843,22 @@ PROVISION_PLAYBOOK = r"""---
         mode: "0600"
       when: "'claude' in _rig_agent_types"
 
+    # Skip the first-run theme picker / login wizard and the per-folder trust
+    # prompt. force: false keeps any existing ~/.claude.json untouched.
+    - name: Seed Claude Code onboarding and workspace trust
+      copy:
+        dest: /root/.claude.json
+        mode: "0600"
+        force: false
+        content: "{{ _claude_state | to_nice_json }}"
+      vars:
+        _claude_state:
+          hasCompletedOnboarding: true
+          theme: dark
+          shiftEnterKeyBindingInstalled: true
+          projects: "{{ {workspace_root | default('/workspace'): {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
+      when: "'claude' in _rig_agent_types"
+
     - name: Deploy AGENTS.md as Claude global rules (CLAUDE.md)
       copy:
         src: "{{ playbook_dir }}/AGENTS.md"
@@ -3909,6 +3925,31 @@ PROVISION_PLAYBOOK = r"""---
         src: "{{ playbook_dir }}/.cursor/mcp.json"
         dest: /root/.cursor/mcp.json
         mode: "0600"
+      when: "'cursor' in _rig_agent_types"
+
+    # Pre-trust the workspace so `agent` does not prompt on every start. Cursor
+    # keeps the marker at ~/.cursor/projects/<path slug>/.workspace-trusted.
+    - name: Create Cursor workspace trust directory
+      file:
+        path: "/root/.cursor/projects/{{ _cursor_slug }}"
+        state: directory
+        mode: "0700"
+      vars:
+        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
+      when: "'cursor' in _rig_agent_types"
+
+    - name: Trust the workspace for Cursor CLI
+      copy:
+        dest: "/root/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
+        mode: "0600"
+        force: false
+        content: "{{ _cursor_trust | to_nice_json }}"
+      vars:
+        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
+        _cursor_trust:
+          trustedAt: "{{ ansible_facts['date_time']['iso8601'] | default('2026-01-01T00:00:00Z') }}"
+          workspacePath: "{{ workspace_root | default('/workspace') }}"
+          trustMethod: rig
       when: "'cursor' in _rig_agent_types"
 """
 
