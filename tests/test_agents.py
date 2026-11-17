@@ -48,7 +48,7 @@ def test_ensure_agent_scaffold_opencode(tmp_path):
     config = json.loads((rig / ".opencode" / "opencode.json").read_text())
     assert config["model"] == OPENCODE_FREE_MODEL
     assert "CODING_AGENT_API_KEY" not in json.dumps(config)
-    assert (rig / ".opencode" / "mcp.json").is_file()
+    assert not (rig / ".opencode" / "mcp.json").exists()  # MCP servers live in .rig/mcp.json
     # second call does not overwrite
     (rig / "AGENTS.md").write_text("# custom\n")
     ensure_agent_scaffold(str(rig), agent_type="opencode")
@@ -69,7 +69,7 @@ def test_ensure_agent_scaffold_claude(tmp_path):
     rig.mkdir()
     ensure_agent_scaffold(str(rig), agent_type="claude")
     assert (rig / ".claude" / "settings.json").is_file()
-    assert (rig / ".claude" / "mcp.json").is_file()
+    assert not (rig / ".claude" / "mcp.json").exists()
     assert "Workspace rules" in (rig / "AGENTS.md").read_text()
 
 
@@ -78,7 +78,7 @@ def test_ensure_agent_scaffold_cursor(tmp_path):
     rig.mkdir()
     ensure_agent_scaffold(str(rig), agent_type="cursor")
     assert (rig / ".cursor" / "cli-config.json").is_file()
-    assert (rig / ".cursor" / "mcp.json").is_file()
+    assert not (rig / ".cursor" / "mcp.json").exists()
     assert "Workspace rules" in (rig / "AGENTS.md").read_text()
 
 
