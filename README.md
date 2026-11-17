@@ -175,7 +175,7 @@ After you leave an agent TTY, rig captures the printed session / resume id (when
 | `rig-{version}-{hash}` | provision + configure (`authorize` + `materialize` still run) |
 | base image | nothing |
 
-**System hash** = var map (`coding_agent_type`, `coding_agent_types`, `git_providers`, `code_server_*`, `workspace_root`) + `provision.yml` + `configure.yml`. Secrets and `authorize.yml` / `materialize.yml` are not included.
+**System hash** = var map (`coding_agent_type`, `coding_agent_types`, `git_providers`, `code_server_*`, `workspace_root`) + `provision.yml` + `configure.yml` + `requirements.yml` (pins Galaxy role versions). Secrets, `authorize.yml`, `materialize.yml` and the role directories (`.rig/local_roles`, `.rig/roles`) are not included, so editing a role used from `materialize.yml` does not discard the cached image. If `configure.yml` uses a local role, run `rig cache clear` after changing it.
 
 Override with `--force-playbooks` / `--force-system` (force provision+configure) / `--force-workspace` (force materialize).
 

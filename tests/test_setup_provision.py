@@ -847,3 +847,117 @@ def test_claude_api_key_still_exported_as_anthropic_api_key():
     out = _render_claude_credentials("sk-ant-api03-xyz")
     assert "ANTHROPIC_API_KEY=sk-ant-api03-xyz\n" in out
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in out
+
+
+def _authorize_tasks():
+    import yaml
+
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    return {t["name"]: t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if "name" in t}
+
+
+def test_claude_seed_runs_in_authorize_not_snapshotted_provision():
+    """Provision is cached in the system snapshot, so seeding there goes stale."""
+    from cli.remote_dev import PROVISION_PLAYBOOK
+
+    assert "hasCompletedOnboarding" not in PROVISION_PLAYBOOK
+    assert "Seed Claude Code onboarding, theme and workspace trust" in _authorize_tasks()
+
+
+def test_claude_seed_merges_into_existing_files(tmp_path):
+    """The installer creates ~/.claude.json first; we must merge, not skip."""
+    import json
+    import shutil
+    import subprocess
+
+    import yaml
+
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    if shutil.which("ansible-playbook") is None:
+        import pytest
+
+        pytest.skip("ansible-playbook not installed")
+
+    root = tmp_path / "root"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude.json").write_text(
+        json.dumps({"numStartups": 1, "projects": {"/other": {"x": 1}, "/workspace": {"allowedTools": []}}})
+    )
+    (root / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Edit(*)", "Read(*)", "Bash(git push:*)"], "deny": ["Read(.env)"]}}))
+
+    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    names = ("Ensure Claude config", "Check for existing Claude", "Read existing Claude", "Seed Claude")
+    tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
+    tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
+    pb = [{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"_rig_agent_types": ["claude"], "workspace_root": "/workspace"},
+        "tasks": tasks,
+    }]
+    (tmp_path / "pb.yml").write_text(yaml.safe_dump(pb))
+    result = subprocess.run(
+        ["ansible-playbook", "-i", "localhost,", str(tmp_path / "pb.yml")],
+        capture_output=True, text=True, cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    state = json.loads((root / ".claude.json").read_text())
+    assert state["numStartups"] == 1  # existing keys kept
+    assert state["hasCompletedOnboarding"] is True
+    assert state["projects"]["/other"] == {"x": 1}
+    assert state["projects"]["/workspace"]["hasTrustDialogAccepted"] is True
+    assert state["projects"]["/workspace"]["allowedTools"] == []
+    settings = json.loads((root / ".claude" / "settings.json").read_text())
+    assert settings["theme"] == "dark"
+    # "Tool(*)" is normalised to bare "Tool"; specific rules and deny are kept.
+    assert settings["permissions"] == {
+        "allow": ["Edit", "Read", "Bash(git push:*)"],
+        "deny": ["Read(.env)"],
+    }
+
+
+def test_cursor_workspace_is_pretrusted():
+    tasks = _authorize_tasks()
+    mkdir = tasks["Create Cursor workspace trust directory"]
+    trust = tasks["Trust the workspace for Cursor CLI"]
+    assert trust["copy"]["dest"].endswith("/.workspace-trusted")
+    assert trust["copy"]["force"] is False
+    assert trust["vars"]["_cursor_trust"]["workspacePath"].startswith("{{ workspace_root")
+    assert mkdir["file"]["path"].startswith("/root/.cursor/projects/")
+    assert "'cursor' in _rig_agent_types" in trust["when"]
+
+
+def test_claude_settings_use_bare_permissions_and_dark_theme():
+    from cli.agents import CLAUDE_SETTINGS
+
+    allow = CLAUDE_SETTINGS["permissions"]["allow"]
+    assert not any("(*)" in rule for rule in allow)  # "Tool(*)" triggers warnings
+    assert {"Bash", "Edit", "Read", "Write", "Glob", "Grep"} <= set(allow)
+    assert CLAUDE_SETTINGS["theme"] == "dark"
+
+
+def test_materialize_clone_retries_only_transient_network_errors():
+    import re
+
+    import yaml
+
+    from cli.remote_dev import MATERIALIZE_PLAYBOOK
+
+    tasks = yaml.safe_load(MATERIALIZE_PLAYBOOK)[0]["tasks"]
+    clone = next(t for t in tasks if t["name"] == "Clone configured git repositories")
+    assert clone["retries"] >= 3 and clone["delay"] > 0
+    until = " ".join(str(clone["until"]).split())
+    pattern = re.search(r"search\(\s*'([^']+)'", until).group(1)
+    for transient in (
+        "fatal: unable to access 'https://github.com/x/y.git/': Recv failure: Connection reset by peer",
+        "Connection timed out",
+    ):
+        assert re.search(pattern, transient), transient
+    for permanent in (
+        "Authentication failed for 'https://github.com/x/y.git/'",
+        "Repository not found.",
+        "could not read Username",
+    ):
+        assert not re.search(pattern, permanent), permanent

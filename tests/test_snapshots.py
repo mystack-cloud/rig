@@ -136,12 +136,17 @@ def test_workspace_hash_ignores_inventory_system_and_roles(tmp_path):
     assert workspace_content_hash(str(tmp_path)) == baseline
 
     system_before = system_content_hash(project_dir=str(tmp_path), playbook_body="prov")
+    # Role directories are not hashed: editing a role must not discard the cached image.
     local = rig / "local_roles" / "app"
     local.mkdir(parents=True)
-    (local / ".gitkeep").write_text("")
-    assert system_content_hash(project_dir=str(tmp_path), playbook_body="prov") == system_before
     (local / "tasks.yml").write_text("- debug:\n")
-    assert system_content_hash(project_dir=str(tmp_path), playbook_body="prov") != system_before
+    assert system_content_hash(project_dir=str(tmp_path), playbook_body="prov") == system_before
+    # requirements.yml pins Galaxy role versions, so it is.
+    (rig / "requirements.yml").write_text("roles:\n  - name: geerlingguy.docker\n    version: 7.0.0\n")
+    with_reqs = system_content_hash(project_dir=str(tmp_path), playbook_body="prov")
+    assert with_reqs != system_before
+    (rig / "requirements.yml").write_text("roles:\n  - name: geerlingguy.docker\n    version: 7.1.0\n")
+    assert system_content_hash(project_dir=str(tmp_path), playbook_body="prov") != with_reqs
 
     # Agent scaffolds / authnz / AGENTS.md do not affect workspace hash.
     (rig / "AGENTS.md").write_text("# rules\n")
@@ -703,3 +708,29 @@ def test_apply_playbooks_snapshots_after_configure(tmp_path):
             pass
 
     assert snaps == ["configure"]
+
+
+def test_system_hash_ignores_role_directories_including_binary_files(tmp_path):
+    """local_roles / roles (even with stray .pyc or binary files) never affect or break the hash."""
+    rig = tmp_path / ".rig"
+    rig.mkdir()
+    before = system_content_hash(project_dir=str(tmp_path), playbook_body="prov")
+
+    files = rig / "local_roles" / "awx_mcp" / "files"
+    (files / "__pycache__").mkdir(parents=True)
+    (files / "proxy.py").write_text("print('hi')\n")
+    (files / "__pycache__" / "proxy.cpython-312.pyc").write_bytes(b"\xcb\x0d\x0d\x0a\x00\xff")
+    (files / "blob.bin").write_bytes(b"\xcb\xff\xfe")
+    (rig / "roles" / "galaxy_roles").mkdir(parents=True)
+    (rig / "roles" / "galaxy_roles" / "x.yml").write_text("- debug:\n")
+    assert system_content_hash(project_dir=str(tmp_path), playbook_body="prov") == before
+
+
+def test_system_hash_follows_provision_and_configure_playbooks(tmp_path):
+    rig = tmp_path / ".rig"
+    rig.mkdir()
+    (rig / "provision.yml").write_text("# p1\n")
+    (rig / "configure.yml").write_text("# c1\n")
+    base = system_content_hash(project_dir=str(tmp_path))
+    (rig / "configure.yml").write_text("# c2\n")
+    assert system_content_hash(project_dir=str(tmp_path)) != base
