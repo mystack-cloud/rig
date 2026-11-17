@@ -27,3 +27,19 @@ _Avoid_: Facts, results
 **Test bucket**:
 A throwaway state bucket used only by automated test runs.
 _Avoid_: Dev bucket
+
+**Agent**:
+A coding CLI that rig installs on an Environment: OpenCode, Claude Code or Cursor CLI.
+_Avoid_: Coding agent type, CLI, assistant
+
+**Stage**:
+One of the playbook steps rig runs in order when creating an Environment: provision, configure, authorize, materialize, finalize. Only provision and configure are cached in a snapshot.
+_Avoid_: Phase, step
+
+**MCP server**:
+A tool server declared once in the Workspace and installed into every Agent on its Environments.
+_Avoid_: Plugin, tool, integration
+
+**MCP variable**:
+A named value an MCP server needs at runtime, resolved from the vaulted variable whose name matches it ignoring case.
+_Avoid_: MCP secret, MCP env

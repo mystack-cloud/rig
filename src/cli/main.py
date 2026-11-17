@@ -941,6 +941,30 @@ def _cmd_vars_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    from cli import mcp as mcp_cmd
+
+    action = args.mcp_command
+    if action == "add":
+        return mcp_cmd.cmd_add(
+            args.name,
+            url=args.url,
+            command=args.server_command,
+            env=args.env,
+            headers=args.header,
+            kind=args.type,
+            personal=args.personal,
+            force=args.force,
+        )
+    if action == "remove":
+        return mcp_cmd.cmd_remove(args.name)
+    if action == "list":
+        return mcp_cmd.cmd_list()
+    if action == "check":
+        return mcp_cmd.cmd_check()
+    return 2
+
+
 def _cmd_vars_export_shared_key(args: argparse.Namespace) -> int:
     from cli.encrypt import export_shared_data_key
 
@@ -1355,7 +1379,55 @@ def main(argv=None):
         help="Print the shared data key (for teammate onboarding; requires unlock)",
     )
 
-    args = parser.parse_args(argv)
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Declare MCP servers once in .rig/mcp.json for every Agent",
+    )
+    mcp_subparsers = mcp_parser.add_subparsers(dest="mcp_command", help="MCP actions")
+    mcp_add = mcp_subparsers.add_parser(
+        "add",
+        help="Add an MCP server (stdio: put the command after --; remote: --url)",
+        usage="rig mcp add NAME [--env KEY[=VALUE]]... [--header KEY=VALUE]... "
+              "(--url URL | -- COMMAND [ARGS...])",
+        description=(
+            "Examples:\n"
+            "  rig mcp add awx --env AWX_MCP_API_KEY -- python3 -u /opt/awx.py\n"
+            "  rig mcp add ctx --url https://host/mcp --header 'X-Key=${CTX_KEY}'\n"
+            "Values written as ${NAME} are MCP variables, resolved at authorize from "
+            "the vaulted variable with the same name (ignoring case)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    mcp_add.add_argument("name", help="Server name")
+    mcp_add.add_argument("--url", help="Remote server URL")
+    mcp_add.add_argument("--type", choices=["http", "sse"], help="Remote transport (default http)")
+    mcp_add.add_argument(
+        "--env", action="append", default=[], metavar="KEY[=VALUE]",
+        help="Env var for a command server; bare KEY means KEY=${KEY}",
+    )
+    mcp_add.add_argument(
+        "--header", action="append", default=[], metavar="KEY=VALUE",
+        help="Header for a remote server",
+    )
+    mcp_add.add_argument(
+        "--personal", action="store_true",
+        help="Store prompted secrets in vars.{identity}.yml instead of shared vars.yml",
+    )
+    mcp_add.add_argument("--force", action="store_true", help="Replace an existing server")
+    mcp_remove = mcp_subparsers.add_parser("remove", help="Remove an MCP server")
+    mcp_remove.add_argument("name", help="Server name")
+    mcp_subparsers.add_parser("list", help="List MCP servers and whether their variables resolve")
+    mcp_subparsers.add_parser("check", help="Validate .rig/mcp.json; exit 1 on problems")
+
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    server_command: List[str] = []
+    # `rig mcp add NAME [options] -- COMMAND ARGS...`: argparse would let a
+    # trailing positional swallow the options, so split at `--` ourselves.
+    if "--" in raw_argv and "mcp" in raw_argv and "add" in raw_argv:
+        cut = raw_argv.index("--")
+        raw_argv, server_command = raw_argv[:cut], raw_argv[cut + 1:]
+    args = parser.parse_args(raw_argv)
+    args.server_command = server_command
     verbosity = int(getattr(args, "verbose", 0) or 0)
     log.configure_logging(
         verbose=verbosity > 0,
@@ -1385,6 +1457,11 @@ def main(argv=None):
         return _cmd_cache(args)
     if args.command == "delete":
         return _cmd_delete(args)
+    if args.command == "mcp":
+        if not args.mcp_command:
+            mcp_parser.print_help()
+            return 1
+        return _cmd_mcp(args)
     if args.command == "vars":
         if args.vars_command == "encrypt":
             return _cmd_encrypt(args)

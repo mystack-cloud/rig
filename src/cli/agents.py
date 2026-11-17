@@ -7,11 +7,9 @@ Layout under the project (committed, user-editable):
 
   .rig/AGENTS.md                 # shared workspace rules
   .rig/.opencode/opencode.json   # OpenCode config (API key via env)
-  .rig/.opencode/mcp.json        # OpenCode MCP servers
   .rig/.claude/settings.json     # Claude Code settings
-  .rig/.claude/mcp.json          # Claude Code MCP servers (.mcp.json on remote)
   .rig/.cursor/cli-config.json   # Cursor CLI config
-  .rig/.cursor/mcp.json          # Cursor CLI MCP servers
+  .rig/mcp.json                  # MCP servers for every Agent (see `rig mcp`)
 """
 
 from __future__ import annotations
@@ -122,18 +120,6 @@ def sync_opencode_config(
     _write_json(config_path, opencode_config(has_api_key=has_api_key))
     return ".rig/.opencode/opencode.json"
 
-OPENCODE_MCP: Dict[str, Any] = {
-    "mcp": {
-        # Example (disabled). Uncomment / extend as needed:
-        # "context7": {
-        #     "type": "remote",
-        #     "url": "https://mcp.context7.com/mcp",
-        #     "enabled": false,
-        #     "headers": {"CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"},
-        # },
-    }
-}
-
 CLAUDE_SETTINGS = {
     # Bare tool names allow every path; "Tool(*)" warns on recent Claude Code.
     "permissions": {
@@ -152,16 +138,6 @@ CLAUDE_SETTINGS = {
     # ~/.claude/credentials.env (CODING_AGENT_API_KEY / ANTHROPIC_API_KEY).
 }
 
-CLAUDE_MCP: Dict[str, Any] = {
-    "mcpServers": {
-        # Example (disabled). Add servers as needed for Claude Code:
-        # "filesystem": {
-        #     "command": "npx",
-        #     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/root"],
-        # },
-    }
-}
-
 # Cursor CLI (~/.cursor/cli-config.json). API key via CURSOR_API_KEY on the VM.
 CURSOR_CLI_CONFIG: Dict[str, Any] = {
     "permissions": {
@@ -172,11 +148,6 @@ CURSOR_CLI_CONFIG: Dict[str, Any] = {
         ],
     },
 }
-
-CURSOR_MCP: Dict[str, Any] = {
-    "mcpServers": {},
-}
-
 
 def normalize_agent_type(value: Optional[str]) -> str:
     raw = (value or "").strip().lower().replace(" ", "-").replace("_", "-")
@@ -215,7 +186,7 @@ def agent_remote_paths(agent_type: str) -> Dict[str, str]:
         return {
             "config_dir": "/root/.config/opencode",
             "config_file": "/root/.config/opencode/opencode.json",
-            "mcp_file": "/root/.config/opencode/mcp.json",
+            "mcp_file": "/root/.config/opencode/opencode.json",  # `mcp` key, merged at authorize
             "rules_file": "/root/.config/opencode/AGENTS.md",
             "env_file": "/root/.config/opencode/credentials.env",
         }
@@ -230,7 +201,7 @@ def agent_remote_paths(agent_type: str) -> Dict[str, str]:
     return {
         "config_dir": "/root/.claude",
         "config_file": "/root/.claude/settings.json",
-        "mcp_file": "/root/.mcp.json",
+        "mcp_file": "/root/.claude.json",  # `mcpServers` key, merged at authorize
         "rules_file": "/root/.claude/CLAUDE.md",
         "env_file": "/root/.claude/credentials.env",
     }
@@ -277,31 +248,18 @@ def ensure_agent_scaffold(
         )
         if written:
             created.append(written)
-        cfg_dir = os.path.join(rig_dir, ".opencode")
-        mcp_path = os.path.join(cfg_dir, "mcp.json")
-        if force or not os.path.exists(mcp_path):
-            _write_json(mcp_path, OPENCODE_MCP)
-            created.append(".rig/.opencode/mcp.json")
     elif agent == "cursor":
         cfg_dir = os.path.join(rig_dir, ".cursor")
         config_path = os.path.join(cfg_dir, "cli-config.json")
-        mcp_path = os.path.join(cfg_dir, "mcp.json")
         if force or not os.path.exists(config_path):
             _write_json(config_path, CURSOR_CLI_CONFIG)
             created.append(".rig/.cursor/cli-config.json")
-        if force or not os.path.exists(mcp_path):
-            _write_json(mcp_path, CURSOR_MCP)
-            created.append(".rig/.cursor/mcp.json")
     else:
         cfg_dir = os.path.join(rig_dir, ".claude")
         config_path = os.path.join(cfg_dir, "settings.json")
-        mcp_path = os.path.join(cfg_dir, "mcp.json")
         if force or not os.path.exists(config_path):
             _write_json(config_path, CLAUDE_SETTINGS)
             created.append(".rig/.claude/settings.json")
-        if force or not os.path.exists(mcp_path):
-            _write_json(mcp_path, CLAUDE_MCP)
-            created.append(".rig/.claude/mcp.json")
 
     return created
 

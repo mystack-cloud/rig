@@ -38,7 +38,45 @@ Chosen at `rig init` (`agent.enabled` in `rig.yml`, same multi-select as git pro
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude` | One agent: `coding_agent_api_key` (Anthropic). Several agents: `claude_api_key` |
 | [Cursor CLI](https://cursor.com/docs/cli/overview) | `cursor` | One agent: `coding_agent_api_key` (`CURSOR_API_KEY`). Several agents: `cursor_api_key` |
 
-Each selected agent is asked for its own key. Scaffolds land under `.rig/.opencode/`, `.rig/.claude/`, and `.rig/.cursor/` (plus shared `AGENTS.md`). Independent of `editor` (local IDE for `rig dev`).
+Each selected agent is asked for its own key. Scaffolds land under `.rig/.opencode/`, `.rig/.claude/`, and `.rig/.cursor/` (plus shared `AGENTS.md`). MCP servers are declared once in `.rig/mcp.json` ([below](#mcp-servers)). Independent of `editor` (local IDE for `rig dev`).
+
+## MCP servers
+
+Declare an MCP server once in `.rig/mcp.json` and every enabled agent gets it. The file uses Claude's `.mcp.json` schema, and values may reference **MCP variables** as `${NAME}` or `${NAME:-default}`:
+
+```json
+{
+  "mcpServers": {
+    "awx": {
+      "command": "python3",
+      "args": ["-u", "/root/awx-mcp-stdio.py"],
+      "env": { "AWX_MCP_API_KEY": "${AWX_MCP_API_KEY}" }
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "headers": { "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}" }
+    }
+  }
+}
+```
+
+```bash
+rig mcp add awx --env AWX_MCP_API_KEY -- python3 -u /root/awx-mcp-stdio.py
+rig mcp add context7 --url https://mcp.context7.com/mcp --header 'CONTEXT7_API_KEY=${CONTEXT7_API_KEY}'
+rig mcp list      # servers, and whether each variable resolves
+rig mcp check     # same, exit 1 on any problem (also lists ignored legacy files)
+rig mcp remove awx
+```
+
+- Bare `--env KEY` means `KEY=${KEY}`; `--env KEY=value` stores a literal. `add` prompts for each `${NAME}` that has no default and no value yet, and vaults it (shared `vars.yml`; `--personal` for `vars.<identity>.yml`).
+- A variable resolves to the vaulted variable with the same name, **ignoring case**: `AWX_MCP_API_KEY` finds `awx_mcp_api_key`. Two variables that differ only by case are an error. Values come from the vars files, inventory and extra vars, not from play-level `vars:`.
+- The authorize Stage renders each enabled agent's own format and writes it into `~/.claude.json` (`mcpServers`), `~/.cursor/mcp.json` and `opencode.json` (`mcp`) on the Environment. A server with the same name is replaced; servers you added by hand there are kept. Secrets are written into those files (mode 0600).
+- A server whose variable has no value is **skipped with a warning**; the create still succeeds. An invalid `.rig/mcp.json` fails the Stage.
+- Fields rig does not translate (anything other than `type`, `command`, `args`, `env`, `url`, `headers`) are dropped with a warning.
+- `rig mcp add/remove` only edit local files. Push to a running Environment with `rig apply --authorize`; `remove` leaves the old entry on Environments that already have it until they are recreated.
+- Cursor's launcher passes `--approve-mcps`, so servers rig installs never prompt.
+- Support files for a server (for example a stdio wrapper script) are not managed by rig: install them from your own playbook (provision, configure or authorize) and point `command` at that path.
+- The per-agent `.rig/.claude|.cursor|.opencode/mcp.json` files from earlier versions are no longer deployed. If one still declares servers, `rig apply`/`create` and `rig mcp check` warn; move them to `.rig/mcp.json`.
 
 ## IDEs
 
@@ -70,7 +108,8 @@ rig.yml                 # workspace manifest (vm, agent, playbooks, repos)
   requirements.yml      # Galaxy collections/roles
   local_roles/          # committed Ansible roles (searched first)
   AGENTS.md             # agent instructions
-  .opencode/ | .claude/ | .cursor/  # agent config + MCP
+  .opencode/ | .claude/ | .cursor/  # agent config
+  mcp.json              # user; MCP servers for every agent (see `rig mcp`)
   inventory.yml         # generated at create/apply (gitignored)
   collections/ roles/    # Galaxy installs (gitignored)
 ```

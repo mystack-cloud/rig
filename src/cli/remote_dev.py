@@ -395,6 +395,14 @@ def ssh_option_log_level() -> str:
     return "ERROR"
 
 
+def rig_filter_plugins_path(existing: Optional[str] = None) -> str:
+    """Ansible filter-plugin path: rig's own filters, then any already configured."""
+    from cli.ansible_filters import rig_mcp
+
+    own = os.path.dirname(os.path.abspath(rig_mcp.__file__))
+    return os.pathsep.join(p for p in (own, existing) if p)
+
+
 def roles_search_path(rig_dir: str) -> str:
     """Ansible role search path: committed roles, then Galaxy installs."""
     return os.pathsep.join(
@@ -3061,7 +3069,7 @@ echo "Agent installation complete!"
                 "[ -f /root/.cursor/credentials.env ] && . /root/.cursor/credentials.env; "
                 "set +a; "
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
-                f"cd {REMOTE_WORKSPACE_ROOT} && exec agent{suffix}"
+                f"cd {REMOTE_WORKSPACE_ROOT} && exec agent --approve-mcps{suffix}"
             )
         return (
             'export PATH="$HOME/.opencode/bin:/usr/local/bin:$PATH"; '
@@ -3748,30 +3756,6 @@ PROVISION_PLAYBOOK = r"""---
         mode: "0600"
       when: "'opencode' in _rig_agent_types"
 
-    - name: Deploy OpenCode MCP config from .rig/.opencode
-      copy:
-        src: "{{ playbook_dir }}/.opencode/mcp.json"
-        dest: /root/.config/opencode/mcp.json
-        mode: "0600"
-      when: "'opencode' in _rig_agent_types"
-
-    - name: Merge OpenCode MCP servers into opencode.json
-      shell: |
-        python3 - <<'PY'
-        import json
-        cfg_path = "/root/.config/opencode/opencode.json"
-        mcp_path = "/root/.config/opencode/mcp.json"
-        with open(cfg_path, encoding="utf-8") as handle:
-            cfg = json.load(handle)
-        with open(mcp_path, encoding="utf-8") as handle:
-            mcp = json.load(handle)
-        cfg["mcp"] = mcp.get("mcp", mcp)
-        with open(cfg_path, "w", encoding="utf-8") as handle:
-            json.dump(cfg, handle, indent=2)
-            handle.write("\n")
-        PY
-      when: "'opencode' in _rig_agent_types"
-
     - name: Deploy AGENTS.md as OpenCode global rules
       copy:
         src: "{{ playbook_dir }}/AGENTS.md"
@@ -3836,13 +3820,6 @@ PROVISION_PLAYBOOK = r"""---
         mode: "0600"
       when: "'claude' in _rig_agent_types"
 
-    - name: Deploy Claude MCP config as project .mcp.json
-      copy:
-        src: "{{ playbook_dir }}/.claude/mcp.json"
-        dest: /root/.mcp.json
-        mode: "0600"
-      when: "'claude' in _rig_agent_types"
-
     - name: Deploy AGENTS.md as Claude global rules (CLAUDE.md)
       copy:
         src: "{{ playbook_dir }}/AGENTS.md"
@@ -3904,12 +3881,6 @@ PROVISION_PLAYBOOK = r"""---
         mode: "0600"
       when: "'cursor' in _rig_agent_types"
 
-    - name: Deploy Cursor MCP config from .rig/.cursor
-      copy:
-        src: "{{ playbook_dir }}/.cursor/mcp.json"
-        dest: /root/.cursor/mcp.json
-        mode: "0600"
-      when: "'cursor' in _rig_agent_types"
 """
 
 # User image customization (.rig/configure.yml). Cached with provision; never secrets.
@@ -4100,6 +4071,59 @@ AUTHORIZE_PLAYBOOK = r"""---
           workspacePath: "{{ workspace_root | default('/workspace') }}"
           trustMethod: rig
       when: "'cursor' in _rig_agent_types"
+
+    # --- MCP servers: render .rig/mcp.json into each enabled Agent's own config ---
+    # Runs here (not in provision) because it needs vaulted values and because
+    # mcp.json is not part of the snapshot hash. Same-name servers are replaced;
+    # servers added by hand on the Environment are kept.
+    - name: Render MCP servers for each Agent
+      set_fact:
+        _rig_mcp: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/mcp.json', errors='ignore') | default('', true) | rig_mcp_render(_rig_agent_types, hostvars[inventory_hostname]) }}"
+        _rig_mcp_targets:
+          - {agent: claude, path: /root/.claude.json, key: mcpServers, dir: /root}
+          - {agent: cursor, path: /root/.cursor/mcp.json, key: mcpServers, dir: /root/.cursor}
+          - {agent: opencode, path: /root/.config/opencode/opencode.json, key: mcp, dir: /root/.config/opencode}
+      no_log: true
+
+    - name: Select Agents that have MCP servers to install
+      set_fact:
+        _rig_mcp_active: >-
+          {{ _rig_mcp_targets
+             | selectattr('agent', 'in', _rig_mcp | dict2items | selectattr('value') | map(attribute='key') | list)
+             | list }}
+      no_log: true
+
+    - name: Ensure MCP config directories exist
+      file:
+        path: "{{ item.dir }}"
+        state: directory
+        mode: "0700"
+      loop: "{{ _rig_mcp_active }}"
+      loop_control:
+        label: "{{ item.agent }}"
+
+    - name: Read existing Agent MCP configs
+      slurp:
+        src: "{{ item.path }}"
+      register: _rig_mcp_current
+      failed_when: false
+      no_log: true
+      loop: "{{ _rig_mcp_active }}"
+      loop_control:
+        label: "{{ item.agent }}"
+
+    - name: Merge MCP servers into Agent configs
+      copy:
+        dest: "{{ item.path }}"
+        mode: "0600"
+        content: "{{ _existing | rig_mcp_merge(item.key, _rig_mcp[item.agent]) | to_nice_json }}\n"
+      vars:
+        _existing: "{{ (_rig_mcp_current.results[ansible_loop.index0].content | default('', true) | b64decode or '{}') | from_json }}"
+      no_log: true
+      loop: "{{ _rig_mcp_active }}"
+      loop_control:
+        label: "{{ item.agent }}"
+        extended: true
 
     - name: Write Claude credentials env file
       copy:
@@ -6168,6 +6192,15 @@ class AnsibleManager:
         link_local_roles(rig_dir)
         self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_search_path(rig_dir)
         self.ansible_env['ANSIBLE_COLLECTIONS_PATH'] = collections_path
+        self.ansible_env['ANSIBLE_FILTER_PLUGINS'] = rig_filter_plugins_path(
+            self.ansible_env.get('ANSIBLE_FILTER_PLUGINS')
+        )
+        if os.path.basename(playbook_path) == ProjectConfig.AUTHORIZE_YAML:
+            from cli.mcp import legacy_files_with_servers, legacy_warning
+
+            legacy = legacy_files_with_servers(os.path.dirname(rig_dir))
+            if legacy:
+                log.warning("%s", legacy_warning(legacy))
         cmd.extend(ansible_verbosity_args())
         if ansible_args:
             cmd.extend(ansible_args)

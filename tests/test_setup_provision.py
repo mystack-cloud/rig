@@ -961,3 +961,169 @@ def test_materialize_clone_retries_only_transient_network_errors():
         "could not read Username",
     ):
         assert not re.search(pattern, permanent), permanent
+
+
+# ---- MCP servers (.rig/mcp.json) --------------------------------------------
+
+def test_provision_no_longer_deploys_per_agent_mcp_files():
+    from cli.remote_dev import PROVISION_PLAYBOOK
+
+    for retired in ("MCP config", "Merge OpenCode MCP", "/root/.mcp.json", "mcp.json"):
+        assert retired not in PROVISION_PLAYBOOK, retired
+
+
+def test_authorize_renders_mcp_servers_with_the_hostvars_mapping():
+    tasks = _authorize_tasks()
+    render = tasks["Render MCP servers for each Agent"]
+    expr = render["set_fact"]["_rig_mcp"]
+    assert "rig_mcp_render(_rig_agent_types, hostvars[inventory_hostname])" in expr
+    assert "vars)" not in expr.replace("hostvars[inventory_hostname])", "")  # `vars` is deprecated
+    assert render["no_log"] is True
+    assert tasks["Merge MCP servers into Agent configs"]["no_log"] is True
+    targets = {t["agent"]: t for t in render["set_fact"]["_rig_mcp_targets"]}
+    assert targets["claude"]["path"] == "/root/.claude.json" and targets["claude"]["key"] == "mcpServers"
+    assert targets["cursor"]["path"] == "/root/.cursor/mcp.json"
+    assert targets["opencode"]["key"] == "mcp"
+
+
+def test_cursor_launcher_auto_approves_rig_installed_mcp_servers():
+    from cli.remote_dev import RemoteDevEnvironment
+
+    cursor = RemoteDevEnvironment.agent_remote_command("cursor", extra_args=["--resume", "x"])
+    assert "exec agent --approve-mcps --resume x" in cursor
+    # Only Cursor has an approval prompt; the others are launched unchanged.
+    assert "--approve-mcps" not in RemoteDevEnvironment.agent_remote_command("claude")
+    assert "--approve-mcps" not in RemoteDevEnvironment.agent_remote_command("opencode")
+
+
+def test_rig_filter_plugins_path_ships_the_mcp_filters_first():
+    import os
+
+    from cli.remote_dev import rig_filter_plugins_path
+
+    own = rig_filter_plugins_path()
+    assert os.path.isfile(os.path.join(own, "rig_mcp.py"))
+    assert rig_filter_plugins_path("/other") == own + os.pathsep + "/other"
+
+
+def _run_authorize_mcp_tasks(tmp_path, mcp_config, agents, extra_vars=None, files=None):
+    """Run the real MCP authorize tasks under ansible-playbook with /root remapped."""
+    import json
+    import subprocess
+
+    import yaml
+
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK, rig_filter_plugins_path
+
+    root = tmp_path / "root"
+    root.mkdir(exist_ok=True)
+    for rel, data in (files or {}).items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(json.dumps(data))
+    if mcp_config is not None:
+        (tmp_path / "mcp.json").write_text(json.dumps(mcp_config))
+    names = (
+        "Render MCP servers", "Select Agents that have MCP", "Ensure MCP config directories",
+        "Read existing Agent MCP", "Merge MCP servers into Agent",
+    )
+    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
+    assert len(tasks) == len(names)
+    tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
+    playbook = [{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"_rig_agent_types": agents}, "tasks": tasks,
+    }]
+    (tmp_path / "pb.yml").write_text(yaml.safe_dump(playbook))
+    cmd = ["ansible-playbook", "-i", "localhost,", str(tmp_path / "pb.yml")]
+    for k, v in (extra_vars or {}).items():
+        cmd += ["-e", f"{k}={v}"]
+    import os
+
+    env = dict(os.environ, ANSIBLE_FILTER_PLUGINS=rig_filter_plugins_path(), ANSIBLE_NOCOLOR="1")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=tmp_path, env=env)
+    return root, result
+
+
+def _need_ansible():
+    import shutil
+
+    if shutil.which("ansible-playbook") is None:
+        import pytest
+
+        pytest.skip("ansible-playbook not installed")
+
+
+def test_authorize_installs_mcp_servers_into_every_enabled_agent(tmp_path):
+    import json
+    import stat
+
+    _need_ansible()
+    cfg = {"mcpServers": {
+        "awx": {"command": "python3", "args": ["-u", "/x.py"],
+                "env": {"AWX_MCP_API_KEY": "${AWX_MCP_API_KEY}", "U": "${AWX_URL:-https://d/mcp}"}},
+        "ctx": {"url": "https://c/mcp", "headers": {"K": "${CTX_KEY}"}},
+    }}
+    root, result = _run_authorize_mcp_tasks(
+        tmp_path, cfg, ["claude", "cursor", "opencode"],
+        extra_vars={"awx_mcp_api_key": "sekret"},  # lower-case var, upper-case reference
+        files={
+            ".claude.json": {"numStartups": 1, "mcpServers": {
+                "awx": {"command": "OLD", "env": {"STALE": "1"}}, "mine": {"command": "hand"}}},
+            ".config/opencode/opencode.json": {"model": "m", "mcp": {}},
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    claude = json.loads((root / ".claude.json").read_text())
+    assert claude["numStartups"] == 1
+    assert claude["mcpServers"]["awx"] == {
+        "type": "stdio", "command": "python3", "args": ["-u", "/x.py"],
+        "env": {"AWX_MCP_API_KEY": "sekret", "U": "https://d/mcp"},
+    }  # same name replaced whole: no STALE key
+    assert claude["mcpServers"]["mine"] == {"command": "hand"}  # hand-added server kept
+    assert "ctx" not in claude["mcpServers"]  # CTX_KEY has no value
+
+    cursor = json.loads((root / ".cursor" / "mcp.json").read_text())
+    assert cursor["mcpServers"]["awx"]["env"]["AWX_MCP_API_KEY"] == "sekret"
+    opencode = json.loads((root / ".config" / "opencode" / "opencode.json").read_text())
+    assert opencode["model"] == "m"
+    assert opencode["mcp"]["awx"]["command"] == ["python3", "-u", "/x.py"]
+
+    # The skipped server is a warning that names the variable, never the value.
+    assert "MCP server 'ctx' skipped: no value for CTX_KEY" in result.stdout + result.stderr
+    assert "sekret" not in result.stdout + result.stderr
+    for path in (root / ".claude.json", root / ".cursor" / "mcp.json"):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    # Re-running changes nothing.
+    again = _run_authorize_mcp_tasks(
+        tmp_path, None, ["claude", "cursor", "opencode"], extra_vars={"awx_mcp_api_key": "sekret"}
+    )[1]
+    assert "changed=0" in again.stdout
+
+
+def test_authorize_only_touches_enabled_agents_and_skips_without_servers(tmp_path):
+    _need_ansible()
+    cfg = {"mcpServers": {"a": {"command": "c"}}}
+    root, result = _run_authorize_mcp_tasks(tmp_path, cfg, ["cursor"])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (root / ".cursor" / "mcp.json").exists()
+    assert not (root / ".claude.json").exists()
+    assert not (root / ".config").exists()
+
+    empty_dir = tmp_path / "second"
+    empty_dir.mkdir()
+    for config in (None, {"mcpServers": {}}):
+        root2, result2 = _run_authorize_mcp_tasks(empty_dir, config, ["claude", "cursor"])
+        assert result2.returncode == 0, result2.stdout + result2.stderr
+        assert not (root2 / ".claude.json").exists() and not (root2 / ".cursor").exists()
+
+
+def test_authorize_fails_loudly_on_an_invalid_mcp_json(tmp_path):
+    _need_ansible()
+    _root, result = _run_authorize_mcp_tasks(
+        tmp_path, {"mcpServers": {"a": {}}}, ["claude"]
+    )
+    assert result.returncode != 0
+    assert "exactly one of" in result.stdout + result.stderr

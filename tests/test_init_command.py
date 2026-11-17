@@ -391,7 +391,7 @@ def test_interactive_init_scaffolds_opencode_agent_files(tmp_path):
     assert manifest["editor"]["default"] == "cursor"
     assert (rig / ".rig" / "AGENTS.md").is_file()
     assert (rig / ".rig" / ".opencode" / "opencode.json").is_file()
-    assert (rig / ".rig" / ".opencode" / "mcp.json").is_file()
+    assert not (rig / ".rig" / ".opencode" / "mcp.json").exists()
     config = json.loads((rig / ".rig" / ".opencode" / "opencode.json").read_text())
     assert config["model"].startswith("opencode/")
     assert "free" in config["model"] or config["model"] == "opencode/big-pickle"
@@ -426,7 +426,7 @@ def test_interactive_init_scaffolds_claude_agent_files(tmp_path):
     assert vars_data["coding_agent_type"] == "claude"
     assert (rig / ".rig" / "AGENTS.md").is_file()
     assert (rig / ".rig" / ".claude" / "settings.json").is_file()
-    assert (rig / ".rig" / ".claude" / "mcp.json").is_file()
+    assert not (rig / ".rig" / ".claude" / "mcp.json").exists()
     system = (rig / ".rig" / "provision.yml").read_text()
     assert "Deploy AGENTS.md as Claude global rules" in system
 
@@ -453,7 +453,7 @@ def test_interactive_init_scaffolds_cursor_agent_files(tmp_path):
     vars_data = yaml.load((rig / ".rig" / "vars.yml").read_text(), Loader=_VarsLoader)
     assert vars_data["coding_agent_type"] == "cursor"
     assert (rig / ".rig" / ".cursor" / "cli-config.json").is_file()
-    assert (rig / ".rig" / ".cursor" / "mcp.json").is_file()
+    assert not (rig / ".rig" / ".cursor" / "mcp.json").exists()
     system = (rig / ".rig" / "provision.yml").read_text()
     assert "Install Cursor CLI" in system
     assert "'cursor' in _rig_agent_types" in system
@@ -849,7 +849,7 @@ def test_help_lists_top_level_commands_and_hides_internals(capsys):
         main(["--help"])
     assert caught.value.code == 0
     output = capsys.readouterr().out
-    assert "{init,create,apply,attach,ssh,dev,list,inspect,describe,cache,delete,vars}" in output
+    assert "{init,create,apply,attach,ssh,dev,list,inspect,describe,cache,delete,vars,mcp}" in output
     assert "vpn" not in output
     assert "storage" not in output
 
