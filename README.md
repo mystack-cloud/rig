@@ -75,7 +75,7 @@ rig.yml                 # workspace manifest (vm, agent, playbooks, repos)
   collections/ roles/    # Galaxy installs (gitignored)
 ```
 
-Put a committed role at `.rig/local_roles/<name>/` (`tasks/main.yml` and the usual role layout). `rig init` creates the directory. Galaxy roles install into `.rig/roles/` and stay gitignored. Ansible checks that directory before the configured path, so each committed role is linked there and wins over a Galaxy role of the same name. An older `.rig/galaxy_roles/` directory is moved into `roles` on the next init or apply.
+Put a committed role at `.rig/local_roles/<name>/` (`tasks/main.yml` and the usual role layout). `rig init` creates the directory. Galaxy roles install into `.rig/roles/` and stay gitignored. `.rig/local_roles` comes first in the roles path. Give a committed role a name that no Galaxy role uses: if both exist, Ansible's own lookup finds the one in `.rig/roles` first. An older `.rig/galaxy_roles/` directory is moved into `roles` on the next init or apply.
 
 `rig.yml` defaults (edit to configure):
 

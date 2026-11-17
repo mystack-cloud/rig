@@ -403,10 +403,6 @@ def roles_search_path(rig_dir: str) -> str:
     )
 
 
-def _local_role_link_target(name: str) -> str:
-    return os.path.join("..", LOCAL_ROLES_DIRNAME, name)
-
-
 def ensure_local_roles_dir(rig_dir: str) -> bool:
     """Create ``.rig/local_roles`` and a ``.gitkeep`` when that file is missing."""
     path = os.path.join(rig_dir, LOCAL_ROLES_DIRNAME)
@@ -437,55 +433,6 @@ def migrate_galaxy_roles_dir(rig_dir: str) -> List[str]:
         shutil.move(src, dest)
         moved.append(name)
     return moved
-
-
-def unlink_local_role_shadows(rig_dir: str) -> None:
-    """Remove local-role symlinks so Galaxy does not write through them."""
-    roles_root = os.path.join(rig_dir, ROLES_DIRNAME)
-    if not os.path.isdir(roles_root):
-        return
-    for name in os.listdir(roles_root):
-        dest = os.path.join(roles_root, name)
-        if os.path.islink(dest) and os.readlink(dest) == _local_role_link_target(name):
-            os.remove(dest)
-
-
-def link_local_roles(rig_dir: str) -> List[str]:
-    """Symlink committed roles into ``.rig/roles`` so they win Ansible's first lookup.
-
-    Ansible searches ``<playbook_dir>/roles`` before ``ANSIBLE_ROLES_PATH``.
-    Playbooks live in ``.rig`` and Galaxy installs into that same directory, so
-    each committed role is exposed there as a symlink. A Galaxy install with
-    the same name is replaced. A hand-written directory is left in place.
-    """
-    local_root = os.path.join(rig_dir, LOCAL_ROLES_DIRNAME)
-    roles_root = os.path.join(rig_dir, ROLES_DIRNAME)
-    if not os.path.isdir(local_root):
-        return []
-    os.makedirs(roles_root, exist_ok=True)
-    linked: List[str] = []
-    for name in sorted(os.listdir(local_root)):
-        if name.startswith("."):
-            continue
-        src = os.path.join(local_root, name)
-        if not os.path.isdir(src):
-            continue
-        dest = os.path.join(roles_root, name)
-        target = _local_role_link_target(name)
-        if os.path.islink(dest):
-            if os.readlink(dest) == target:
-                continue
-            os.remove(dest)
-        elif os.path.isdir(dest):
-            marker = os.path.join(dest, "meta", ".galaxy_install_info")
-            if not os.path.isfile(marker):
-                continue
-            shutil.rmtree(dest)
-        elif os.path.lexists(dest):
-            continue
-        os.symlink(target, dest)
-        linked.append(name)
-    return linked
 
 
 def ensure_project_gitignore(project_dir: str) -> List[str]:
@@ -5759,7 +5706,6 @@ class AnsibleManager:
                 os.makedirs(os.path.join(rig_dir, name), exist_ok=True)
             ensure_local_roles_dir(rig_dir)
             migrate_galaxy_roles_dir(rig_dir)
-            link_local_roles(rig_dir)
             log.debug(
                 "Roles search path: %s",
                 roles_search_path(rig_dir),
@@ -5835,33 +5781,29 @@ class AnsibleManager:
             os.makedirs(roles_path, exist_ok=True)
             os.makedirs(collections_path, exist_ok=True)
             migrate_galaxy_roles_dir(rig_dir)
-            unlink_local_role_shadows(rig_dir)
             self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_search_path(rig_dir)
             self.ansible_env['ANSIBLE_COLLECTIONS_PATH'] = collections_path
 
-            try:
-                # Install collections (and roles if listed) from the requirements file.
+            # Install collections (and roles if listed) from the requirements file.
+            result = subprocess.run([
+                'ansible-galaxy', 'collection', 'install',
+                '-r', requirements_path,
+                '-p', collections_path,
+            ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                # Older ansible or roles-only file — fall back to generic install.
                 result = subprocess.run([
-                    'ansible-galaxy', 'collection', 'install',
-                    '-r', requirements_path,
-                    '-p', collections_path,
-                ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
-                if result.returncode != 0:
-                    # Older ansible or roles-only file — fall back to generic install.
-                    result = subprocess.run([
-                        'ansible-galaxy', 'install',
-                        '-r', requirements_path,
-                        '-p', roles_path,
-                    ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
-
-                # Also install any classic roles section explicitly.
-                role_result = subprocess.run([
-                    'ansible-galaxy', 'role', 'install',
+                    'ansible-galaxy', 'install',
                     '-r', requirements_path,
                     '-p', roles_path,
                 ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
-            finally:
-                link_local_roles(rig_dir)
+
+            # Also install any classic roles section explicitly.
+            role_result = subprocess.run([
+                'ansible-galaxy', 'role', 'install',
+                '-r', requirements_path,
+                '-p', roles_path,
+            ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0 or role_result.returncode == 0:
                 log.debug("Ansible Galaxy requirements installed")
@@ -6071,7 +6013,6 @@ class AnsibleManager:
 
         rig_dir = self.project_config.rig_dir
         collections_path = os.path.join(rig_dir, 'collections')
-        link_local_roles(rig_dir)
         self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_search_path(rig_dir)
         self.ansible_env['ANSIBLE_COLLECTIONS_PATH'] = collections_path
         cmd.extend(ansible_verbosity_args())
