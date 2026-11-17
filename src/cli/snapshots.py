@@ -130,27 +130,6 @@ def _hash_bytes(*parts: bytes) -> str:
     return digest.hexdigest()[:12]
 
 
-def _local_roles_bytes(project_dir: Optional[str]) -> bytes:
-    """Stable digest of committed roles. Galaxy installs are not included."""
-    if not project_dir:
-        return b""
-    root = os.path.join(project_dir, ".rig", "local_roles")
-    if not os.path.isdir(root):
-        return b""
-    chunks: List[bytes] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        # Bytecode caches are build artifacts: not content, and not valid UTF-8.
-        dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
-        for name in sorted(filenames):
-            if name == ".gitkeep" or name.endswith((".pyc", ".pyo")):
-                continue
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, root).replace(os.sep, "/")
-            chunks.append(rel.encode("utf-8"))
-            chunks.append(_read_text(path).encode("utf-8"))
-    return b"\0".join(chunks)
-
-
 def _read_text(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8") as handle:
@@ -171,11 +150,13 @@ def system_content_hash(
     git_providers: Optional[Iterable[str]] = None,
 ) -> str:
     """
-    Hash for system snapshots: var map + ``provision.yml`` + ``configure.yml``.
+    Hash for system snapshots: var map + ``provision.yml`` + ``configure.yml``
+    + ``requirements.yml`` (which pins Galaxy role/collection versions).
 
-    Committed roles under ``.rig/local_roles`` are included when present.
-    ``.gitkeep`` alone does not change the hash. ``editor`` is ignored
-    (local IDE only; not installed by system.yml).
+    The role directories (``.rig/local_roles``, ``.rig/roles``) are deliberately
+    not hashed: roles are mostly used from ``materialize.yml``, which no
+    snapshot caches, so editing one must not discard the cached image.
+    ``editor`` is ignored (local IDE only; not installed by system.yml).
     """
     if var_map is None and project is not None:
         var_map = extract_snapshot_var_map(project, SYSTEM_SNAPSHOT_VAR_KEYS)
@@ -212,7 +193,7 @@ def system_content_hash(
             except Exception:
                 configure_body = ""
 
-    local_roles = _local_roles_bytes(root)
+    requirements = _read_text(os.path.join(root, ".rig", "requirements.yml")) if root else ""
     parts = [
         b"system-vars",
         _canonical_json(var_map).encode("utf-8"),
@@ -221,8 +202,8 @@ def system_content_hash(
         b"configure-playbook",
         (configure_body or "").encode("utf-8"),
     ]
-    if local_roles:
-        parts.extend([b"local-roles", local_roles])
+    if requirements:
+        parts.extend([b"requirements", requirements.encode("utf-8")])
     return _hash_bytes(*parts)
 
 
