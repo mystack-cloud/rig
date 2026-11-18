@@ -131,3 +131,39 @@ def test_apply_playbooks_sets_rig_vars(tmp_path):
     assert seen["rig_vars"]["rig_env_name"] == "dev-apply"
     assert seen["rig_vars"]["rig_action"] == "apply"
     assert seen["rig_vars"]["rig_workspace_name"] == "ws"
+
+
+def _run_and_capture_env(tmp_path, monkeypatch, **env):
+    for key in ("ANSIBLE_TIMEOUT", "ANSIBLE_SSH_RETRIES"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    cfg = ProjectConfig(str(tmp_path))
+    assert cfg.init(name="ws", agent_type="opencode")
+    (tmp_path / "inventory.yml").write_text("all: {}\n")
+    manager = AnsibleManager(cfg)
+    manager.configure(str(tmp_path))
+    manager.inventory_path = str(tmp_path / "inventory.yml")
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["env"] = kwargs.get("env") or {}
+        return MagicMock(returncode=0, stdout="PLAY RECAP", stderr="")
+
+    with patch("cli.remote_dev.subprocess.run", side_effect=fake_run):
+        assert manager._run_one_playbook(str(tmp_path / ".rig" / "authorize.yml"), stream=False)
+    return seen["env"]
+
+
+def test_playbooks_tolerate_a_slow_ssh_banner_on_a_fresh_vm(tmp_path, monkeypatch):
+    env = _run_and_capture_env(tmp_path, monkeypatch)
+    assert env["ANSIBLE_TIMEOUT"] == "60"  # connect/banner timeout, default is 10
+    assert env["ANSIBLE_SSH_RETRIES"] == "3"
+
+
+def test_user_set_ansible_ssh_settings_are_not_overridden(tmp_path, monkeypatch):
+    env = _run_and_capture_env(
+        tmp_path, monkeypatch, ANSIBLE_TIMEOUT="15", ANSIBLE_SSH_RETRIES="0"
+    )
+    assert env["ANSIBLE_TIMEOUT"] == "15"
+    assert env["ANSIBLE_SSH_RETRIES"] == "0"

@@ -395,6 +395,13 @@ def ssh_option_log_level() -> str:
     return "ERROR"
 
 
+# Ansible SSH tolerance for freshly booted VMs (seconds / attempts).
+ANSIBLE_SSH_DEFAULTS = {
+    'ANSIBLE_TIMEOUT': '60',
+    'ANSIBLE_SSH_RETRIES': '3',
+}
+
+
 def rig_filter_plugins_path(existing: Optional[str] = None) -> str:
     """Ansible filter-plugin path: rig's own filters, then any already configured."""
     from cli.ansible_filters import rig_mcp
@@ -6260,6 +6267,11 @@ class AnsibleManager:
         self.ansible_env['ANSIBLE_FILTER_PLUGINS'] = rig_filter_plugins_path(
             self.ansible_env.get('ANSIBLE_FILTER_PLUGINS')
         )
+        # A fresh VM can be slow to answer the SSH banner while cloud-init is busy.
+        # Ansible's 10s default fails the first task as UNREACHABLE, so allow longer
+        # and retry. Anything the user already set in the environment wins.
+        for key, value in ANSIBLE_SSH_DEFAULTS.items():
+            self.ansible_env.setdefault(key, value)
         if os.path.basename(playbook_path) == ProjectConfig.AUTHORIZE_YAML:
             from cli.mcp import legacy_files_with_servers, legacy_warning
 
