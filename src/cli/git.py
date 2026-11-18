@@ -9,7 +9,8 @@ This module provides functionality for:
 
 import os
 import subprocess
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
 import yaml
 
 if TYPE_CHECKING:
@@ -21,11 +22,11 @@ class GitManager:
 
     def __init__(self, project_config: Optional["ProjectConfig"] = None):
         self.project_config = project_config
-        self.repos_to_clone: List[Dict] = []
-        self.ssh_repos: List[Dict] = []
-        self.git_config: Dict = {}
+        self.repos_to_clone: list[dict] = []
+        self.ssh_repos: list[dict] = []
+        self.git_config: dict = {}
 
-    def load_git_config(self, config_path: Optional[str] = None) -> bool:
+    def load_git_config(self, config_path: str | None = None) -> bool:
         """Load git configuration from vars.yml"""
         try:
             if self.project_config is None:
@@ -45,11 +46,11 @@ class GitManager:
             print(f"Warning: Could not load git config: {e}")
             return False
 
-    def get_repos_to_clone(self) -> List[Dict]:
+    def get_repos_to_clone(self) -> list[dict]:
         """Get list of repositories to clone"""
         return self.repos_to_clone + self.ssh_repos
 
-    def generate_clone_tasks(self) -> List[Dict]:
+    def generate_clone_tasks(self) -> list[dict]:
         """Generate Ansible tasks for cloning repositories"""
         tasks = []
 
@@ -152,7 +153,7 @@ class GitManager:
         repo_url: str,
         dest: str,
         is_ssh: bool = False,
-        password_var: Optional[str] = None,
+        password_var: str | None = None,
     ) -> bool:
         """Add a repository to the clone list"""
         try:

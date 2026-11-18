@@ -674,8 +674,8 @@ remote_vm                  : ok=2    changed=1    unreachable=0    failed=1
 
 
 def test_playbook_failure_excerpt_keeps_the_failed_task():
-    from cli.remote_dev import ansible_verbosity_args, playbook_failure_excerpt
     from cli import log as rig_log
+    from cli.remote_dev import ansible_verbosity_args, playbook_failure_excerpt
 
     excerpt = playbook_failure_excerpt(_PLAYBOOK_OUTPUT)
     assert "Clone private repo" in excerpt

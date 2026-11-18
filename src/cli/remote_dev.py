@@ -5,15 +5,17 @@ Remote Development Environment Module
 import json
 import os
 import re
-import sys
-import uuid
-import time
-import shutil
 import shlex
-import subprocess
+import shutil
 import socket
+import subprocess
+import sys
+import time
+import uuid
 import webbrowser
-from typing import Optional, Dict, Any, List, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any, Optional
+
 import requests
 
 from cli import log as log
@@ -32,7 +34,7 @@ except ImportError:
 
 # WireGuard VPN support (optional)
 try:
-    from .vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
+    from .vpn import VPNManager, get_vpn_status, setup_remote_vpn_connection, teardown_vpn_connection
 
     VPN_AVAILABLE = True
     VPNManagerType = VPNManager
@@ -57,7 +59,7 @@ EDITOR_LABELS = {
 DEFAULT_EDITOR = "code"
 
 
-def normalize_editor_type(value: Optional[str]) -> str:
+def normalize_editor_type(value: str | None) -> str:
     """Normalize a rig.yml / CLI editor preference."""
     raw = (value or "").strip().lower().replace(" ", "-").replace("_", "-")
     aliases = {
@@ -93,7 +95,7 @@ def prompt_editor(
     return normalize_editor_type(answer)
 
 
-def coerce_editor_types(value: Any) -> List[str]:
+def coerce_editor_types(value: Any) -> list[str]:
     """
     Normalize a string, comma-separated string, or list into editor ids.
 
@@ -118,7 +120,7 @@ def coerce_editor_types(value: Any) -> List[str]:
         text = str(value).strip()
         parts = [text] if text else []
 
-    selected: List[str] = []
+    selected: list[str] = []
     seen = set()
     for part in parts:
         editor = normalize_editor_type(part)
@@ -128,14 +130,14 @@ def coerce_editor_types(value: Any) -> List[str]:
     return selected
 
 
-def _editor_block(config: Dict[str, Any]) -> Dict[str, Any]:
+def _editor_block(config: dict[str, Any]) -> dict[str, Any]:
     raw = config.get("editor")
     if isinstance(raw, dict):
         return raw
     return {}
 
 
-def editor_default_field(config: Optional[Dict[str, Any]] = None) -> Any:
+def editor_default_field(config: dict[str, Any] | None = None) -> Any:
     """``editor.default``, or a legacy ``default_editor`` / ``editor`` string."""
     config = config or {}
     raw = _editor_block(config).get("default")
@@ -150,7 +152,7 @@ def editor_default_field(config: Optional[Dict[str, Any]] = None) -> Any:
     return None
 
 
-def editor_enabled_field(config: Optional[Dict[str, Any]] = None) -> Any:
+def editor_enabled_field(config: dict[str, Any] | None = None) -> Any:
     """``editor.enabled``, or the legacy top-level ``editors`` list."""
     config = config or {}
     enabled = _editor_block(config).get("enabled")
@@ -160,8 +162,8 @@ def editor_enabled_field(config: Optional[Dict[str, Any]] = None) -> Any:
 
 
 def resolve_configured_editors(
-    config: Optional[Dict[str, Any]] = None,
-) -> Tuple[List[str], Optional[str]]:
+    config: dict[str, Any] | None = None,
+) -> tuple[list[str], str | None]:
     """
     Return ``(enabled_editors, default_editor)``.
 
@@ -171,7 +173,7 @@ def resolve_configured_editors(
     config returns ``([], None)`` so ``rig dev`` can auto-detect a local binary.
     """
     config = config or {}
-    editors: List[str] = []
+    editors: list[str] = []
     raw_list = editor_enabled_field(config)
     if raw_list:
         try:
@@ -188,7 +190,7 @@ def resolve_configured_editors(
     if not editors:
         return [], None
 
-    primary: Optional[str] = None
+    primary: str | None = None
     raw_primary = editor_default_field(config)
     if isinstance(raw_primary, str) and raw_primary.strip():
         try:
@@ -201,10 +203,10 @@ def resolve_configured_editors(
 
 
 def apply_editor_selection(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     editors: Any,
     default: Any = None,
-) -> List[str]:
+) -> list[str]:
     """
     Write ``editor.default`` and ``editor.enabled`` onto a workspace config dict.
 
@@ -215,7 +217,7 @@ def apply_editor_selection(
         selected = coerce_editor_types(editors) or [DEFAULT_EDITOR]
     except ValueError:
         selected = [DEFAULT_EDITOR]
-    primary: Optional[str] = None
+    primary: str | None = None
     if isinstance(default, str) and default.strip():
         try:
             primary = normalize_editor_type(default)
@@ -238,7 +240,7 @@ def parse_editor_selection(
     answer: str,
     *,
     default: Sequence[str],
-) -> List[str]:
+) -> list[str]:
     """Parse 'all', indexes, or names the same way git project selection works."""
     try:
         defaults = coerce_editor_types(list(default)) or [DEFAULT_EDITOR]
@@ -250,7 +252,7 @@ def parse_editor_selection(
     if raw.lower() in ("all", "*"):
         return list(SUPPORTED_EDITORS)
 
-    selected: List[str] = []
+    selected: list[str] = []
     seen = set()
     tokens = [token.strip() for token in raw.replace(" ", ",").split(",") if token.strip()]
     if not tokens:
@@ -274,7 +276,7 @@ def parse_editor_selection(
 def prompt_editors(
     default: Any = DEFAULT_EDITOR,
     input_fn=None,
-) -> List[str]:
+) -> list[str]:
     """
     Ask which local editors to enable for ``rig dev``.
 
@@ -340,14 +342,14 @@ def prompt_default_editor(
     return chosen
 
 
-def configured_editors(project) -> Tuple[List[str], Optional[str]]:
+def configured_editors(project) -> tuple[list[str], str | None]:
     """Enabled local editors and the default ``rig dev`` target."""
     if project is None or not getattr(project, "config", None):
         return [], None
     return resolve_configured_editors(project.config)
 
 
-def project_editor_preference(project_dir: Optional[str] = None) -> Optional[str]:
+def project_editor_preference(project_dir: str | None = None) -> str | None:
     """Return the default editor from ``rig.yml``, else None (auto-detect)."""
     project = ProjectConfig(os.path.abspath(project_dir or os.getcwd()))
     if not project.load() or not project.config:
@@ -392,7 +394,7 @@ ANSIBLE_SSH_DEFAULTS = {
 }
 
 
-def rig_filter_plugins_path(existing: Optional[str] = None) -> str:
+def rig_filter_plugins_path(existing: str | None = None) -> str:
     """Ansible filter-plugin path: rig's own filters, then any already configured."""
     from cli.ansible_filters import rig_mcp
 
@@ -417,14 +419,14 @@ def ensure_local_roles_dir(rig_dir: str) -> bool:
     return True
 
 
-def migrate_galaxy_roles_dir(rig_dir: str) -> List[str]:
+def migrate_galaxy_roles_dir(rig_dir: str) -> list[str]:
     """Move installs from the old ``.rig/galaxy_roles`` directory into ``.rig/roles``."""
     legacy = os.path.join(rig_dir, LEGACY_GALAXY_ROLES_DIRNAME)
     dest_root = os.path.join(rig_dir, ROLES_DIRNAME)
     if not os.path.isdir(legacy):
         return []
     os.makedirs(dest_root, exist_ok=True)
-    moved: List[str] = []
+    moved: list[str] = []
     for name in sorted(os.listdir(legacy)):
         src = os.path.join(legacy, name)
         if os.path.islink(src) or not os.path.isdir(src):
@@ -437,7 +439,7 @@ def migrate_galaxy_roles_dir(rig_dir: str) -> List[str]:
     return moved
 
 
-def ensure_project_gitignore(project_dir: str) -> List[str]:
+def ensure_project_gitignore(project_dir: str) -> list[str]:
     """
     Ensure ``.gitignore`` ignores Galaxy installs and generated inventory.
 
@@ -448,7 +450,7 @@ def ensure_project_gitignore(project_dir: str) -> List[str]:
     path = os.path.join(os.path.abspath(project_dir), ".gitignore")
     existing = ""
     if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             existing = handle.read()
 
     covered = {line.strip() for line in existing.splitlines() if line.strip() and not line.strip().startswith("#")}
@@ -506,7 +508,7 @@ CLOUD_PROVIDER_ALIASES = {
 }
 
 
-def normalize_cloud_provider(value: Optional[str]) -> str:
+def normalize_cloud_provider(value: str | None) -> str:
     """Normalize a cloud provider name. Empty means Hetzner."""
     raw = (value or "").strip().lower().replace(" ", "-").replace("_", "-")
     if not raw:
@@ -518,7 +520,7 @@ def normalize_cloud_provider(value: Optional[str]) -> str:
     return provider
 
 
-def host_block(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def host_block(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Normalized ``host`` settings.
 
@@ -555,7 +557,7 @@ def host_block(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return block
 
 
-def configured_agents(project) -> Tuple[List[str], str]:
+def configured_agents(project) -> tuple[list[str], str]:
     """Installed coding agents and the default attach target for a project."""
     from cli.agents import resolve_configured_agents
 
@@ -572,8 +574,8 @@ def build_rig_ansible_vars(
     env: "RemoteDevEnvironment",
     project: Optional["ProjectConfig"] = None,
     *,
-    action: Optional[str] = None,
-) -> Dict[str, Any]:
+    action: str | None = None,
+) -> dict[str, Any]:
     """
     Runtime Ansible extras injected into every playbook (``rig_*`` prefix).
 
@@ -606,7 +608,7 @@ def build_rig_ansible_vars(
     ssh_key_path = f"/tmp/{ssh_key_name}" if ssh_key_name else ""
     installed_agents, default_agent = configured_agents(project)
 
-    vars_out: Dict[str, Any] = {
+    vars_out: dict[str, Any] = {
         "rig_env_name": env.name if env else "",
         "rig_workspace_name": workspace_name,
         "rig_cloud_provider": host_cfg.get("provider") or CLOUD_PROVIDER_HETZNER,
@@ -631,8 +633,8 @@ def build_rig_ansible_vars(
     # Git author for commits made on the VM, derived from the developer identity
     # (overridable with git_author_name / git_author_email in the vars files).
     try:
-        from cli.vault_keys import resolve_identity
         from cli.git_author import resolve_git_author
+        from cli.vault_keys import resolve_identity
 
         identity = resolve_identity()
         author = resolve_git_author(
@@ -658,7 +660,7 @@ def remote_workspace_path(*parts: str) -> str:
     return REMOTE_WORKSPACE_ROOT + "/" + "/".join(cleaned)
 
 
-def _ipv4_from_public_net(public_net: Dict[str, Any]) -> Optional[str]:
+def _ipv4_from_public_net(public_net: dict[str, Any]) -> str | None:
     """Read the public IPv4 address from either Hetzner API shape."""
     ipv4 = public_net.get("ipv4") or {}
     if isinstance(ipv4, dict) and ipv4.get("ip"):
@@ -683,7 +685,7 @@ DEFAULT_FIREWALL_MODE = "dynamic_add"
 _OPEN_SOURCE_IPS = ["0.0.0.0/0", "::/0"]
 
 
-def detect_client_public_ip(timeout: float = 5.0) -> Optional[str]:
+def detect_client_public_ip(timeout: float = 5.0) -> str | None:
     """
     Resolve the public IPv4 of the machine running the rig CLI.
 
@@ -714,8 +716,8 @@ def as_cidr(ip_or_cidr: str) -> str:
     return value if "/" in value else f"{value}/32"
 
 
-def _dedupe_cidrs(items: List[str]) -> List[str]:
-    deduped: List[str] = []
+def _dedupe_cidrs(items: list[str]) -> list[str]:
+    deduped: list[str] = []
     seen = set()
     for item in items:
         if item and item not in seen:
@@ -724,7 +726,7 @@ def _dedupe_cidrs(items: List[str]) -> List[str]:
     return deduped
 
 
-def normalize_firewall_mode_name(raw: Any) -> Optional[str]:
+def normalize_firewall_mode_name(raw: Any) -> str | None:
     """Normalize a mode string. ``None`` when the value is empty."""
     if raw is None:
         return None
@@ -742,7 +744,7 @@ def normalize_firewall_mode_name(raw: Any) -> Optional[str]:
     return aliases.get(mode, mode)
 
 
-def resolve_firewall_mode(firewall_cfg: Optional[Dict[str, Any]] = None) -> str:
+def resolve_firewall_mode(firewall_cfg: dict[str, Any] | None = None) -> str:
     """
     Resolve ``firewall.mode``.
 
@@ -773,12 +775,12 @@ def firewall_needs_client_ip(mode: str) -> bool:
 
 
 def firewall_source_ips(
-    firewall_cfg: Optional[Dict[str, Any]] = None,
+    firewall_cfg: dict[str, Any] | None = None,
     *,
-    client_ip: Optional[str] = None,
-    existing_ips: Optional[List[str]] = None,
+    client_ip: str | None = None,
+    existing_ips: list[str] | None = None,
     open_fallback: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Build inbound ``source_ips`` for the env firewall.
 
@@ -805,7 +807,7 @@ def firewall_source_ips(
         return [] if not open_fallback else list(_OPEN_SOURCE_IPS)
 
     if mode == "dynamic_replace":
-        sources: List[str] = []
+        sources: list[str] = []
         if client_cidr:
             sources.append(client_cidr)
         sources.extend(extras)
@@ -822,7 +824,7 @@ def firewall_source_ips(
     return _dedupe_cidrs(sources) or list(_OPEN_SOURCE_IPS)
 
 
-def _port_mode(raw: Any) -> Optional[str]:
+def _port_mode(raw: Any) -> str | None:
     """Return a port mode, or None to inherit ``firewall.mode``."""
     if raw is None or not str(raw).strip():
         return None
@@ -833,7 +835,7 @@ def _port_mode(raw: Any) -> Optional[str]:
     return mode
 
 
-def _port_allowed_ips(raw: Any) -> Optional[List[str]]:
+def _port_allowed_ips(raw: Any) -> list[str] | None:
     """Return an explicit allow-list, or None when the key should be ignored."""
     if raw is None:
         return []
@@ -847,8 +849,8 @@ def _port_allowed_ips(raw: Any) -> Optional[List[str]]:
 
 
 def normalize_firewall_ports(
-    ports: Optional[List[Any]] = None,
-) -> List[Dict[str, Any]]:
+    ports: list[Any] | None = None,
+) -> list[dict[str, Any]]:
     """
     Normalize ``firewall.ports`` entries.
 
@@ -861,14 +863,14 @@ def normalize_firewall_ports(
     ``mode`` None and ``allowed_ips`` None both mean inherit. An explicit
     ``allowed_ips: []`` is an empty list, not inherit.
     """
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     seen = set()
     for item in ports or []:
         protocol = "tcp"
-        port: Optional[str] = None
+        port: str | None = None
         description = ""
-        mode: Optional[str] = None
-        allowed_ips: Optional[List[str]] = None
+        mode: str | None = None
+        allowed_ips: list[str] | None = None
         if isinstance(item, dict):
             raw_port = item.get("port")
             if raw_port is None:
@@ -905,8 +907,8 @@ def normalize_firewall_ports(
 
 
 def firewall_config_needs_client_ip(
-    firewall_cfg: Optional[Dict[str, Any]] = None,
-    ports: Optional[List[Any]] = None,
+    firewall_cfg: dict[str, Any] | None = None,
+    ports: list[Any] | None = None,
 ) -> bool:
     """True when SSH or any declared port uses a dynamic mode."""
     cfg = firewall_cfg or {}
@@ -923,13 +925,13 @@ def firewall_config_needs_client_ip(
 
 
 def sources_for_port(
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     *,
-    firewall_cfg: Optional[Dict[str, Any]],
-    client_ip: Optional[str],
-    existing_ips: Optional[List[str]],
-    inherited_sources: List[str],
-) -> List[str]:
+    firewall_cfg: dict[str, Any] | None,
+    client_ip: str | None,
+    existing_ips: list[str] | None,
+    inherited_sources: list[str],
+) -> list[str]:
     """
     Source IPs for one app port.
 
@@ -963,19 +965,19 @@ def sources_for_port(
 
 
 def default_firewall_rules(
-    source_ips: List[str],
-    extra_rules: Optional[List[Dict[str, Any]]] = None,
-    ports: Optional[List[Any]] = None,
-    firewall_cfg: Optional[Dict[str, Any]] = None,
-    client_ip: Optional[str] = None,
-    existing_port_ips: Optional[Dict[Tuple[str, str], List[str]]] = None,
-) -> List[Dict[str, Any]]:
+    source_ips: list[str],
+    extra_rules: list[dict[str, Any]] | None = None,
+    ports: list[Any] | None = None,
+    firewall_cfg: dict[str, Any] | None = None,
+    client_ip: str | None = None,
+    existing_port_ips: dict[tuple[str, str], list[str]] | None = None,
+) -> list[dict[str, Any]]:
     """SSH + ICMP + optional app ports used for create and set_rules refresh.
 
     SSH and ICMP always use ``source_ips`` (the firewall-level policy). Each
     port uses that list unless it sets ``mode`` or ``allowed_ips``.
     """
-    rules: List[Dict[str, Any]] = [
+    rules: list[dict[str, Any]] = [
         {
             "direction": "in",
             "protocol": "tcp",
@@ -1024,11 +1026,11 @@ class RemoteDevManager:
 
     def __init__(
         self,
-        hetzner_token: Optional[str] = None,
-        storage_manager: Optional[Any] = None,
+        hetzner_token: str | None = None,
+        storage_manager: Any | None = None,
         is_test: bool = False,
-        workspace_dir: Optional[str] = None,
-        profile: Optional[str] = None,
+        workspace_dir: str | None = None,
+        profile: str | None = None,
     ):
         self.hetzner_token = hetzner_token or os.getenv("HETZNER_CLOUD_API_TOKEN")
         self.base_url = "https://api.hetzner.cloud/v1"
@@ -1041,7 +1043,7 @@ class RemoteDevManager:
         self.is_test = is_test
         self._workspace_dir = workspace_dir
         self._profile = profile
-        self._state_bucket: Optional[str] = None
+        self._state_bucket: str | None = None
         if is_test:
             test_prefix = os.getenv("TEST_BUCKET_PREFIX", "test-")
             self._state_bucket = f"{test_prefix}rig-{uuid.uuid4().hex[:8]}"
@@ -1052,7 +1054,7 @@ class RemoteDevManager:
         if not self.hetzner_token:
             raise ValueError("Hetzner Cloud token missing. Please set HETZNER_CLOUD_API_TOKEN")
 
-    def _request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _request(self, method: str, endpoint: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         """Make API request to Hetzner Cloud"""
         headers = {
             "Authorization": f"Bearer {self.hetzner_token}",
@@ -1086,14 +1088,14 @@ class RemoteDevManager:
             return {}
         return response.json()
 
-    def create_ssh_key(self, name: str, public_key: str) -> Dict:
+    def create_ssh_key(self, name: str, public_key: str) -> dict:
         """Create SSH key in Hetzner Cloud"""
         data = {"name": name, "public_key": public_key}
 
         result = self._request("POST", "/ssh_keys", data)
         return result
 
-    def get_ssh_key_by_name(self, name: str) -> Optional[Dict]:
+    def get_ssh_key_by_name(self, name: str) -> dict | None:
         """Find SSH key by name"""
         result = self._request("GET", "/ssh_keys")
 
@@ -1114,13 +1116,13 @@ class RemoteDevManager:
     def create_firewall(
         self,
         name: str,
-        allowed_ips: Optional[list] = None,
-        extra_rules: Optional[list] = None,
-        ports: Optional[List[Any]] = None,
-        firewall_cfg: Optional[Dict[str, Any]] = None,
-        client_ip: Optional[str] = None,
-        existing_port_ips: Optional[Dict[Tuple[str, str], List[str]]] = None,
-    ) -> Dict[str, Any]:
+        allowed_ips: list | None = None,
+        extra_rules: list | None = None,
+        ports: list[Any] | None = None,
+        firewall_cfg: dict[str, Any] | None = None,
+        client_ip: str | None = None,
+        existing_port_ips: dict[tuple[str, str], list[str]] | None = None,
+    ) -> dict[str, Any]:
         """Create firewall with SSH + ICMP (+ optional app ports) for ``allowed_ips``."""
         if allowed_ips is None:
             allowed_ips = ["0.0.0.0/0", "::/0"]
@@ -1138,20 +1140,20 @@ class RemoteDevManager:
         result = self._request("POST", "/firewalls", data)
         return result
 
-    def get_firewall(self, firewall_id: Any) -> Dict[str, Any]:
+    def get_firewall(self, firewall_id: Any) -> dict[str, Any]:
         """Fetch a firewall by id."""
         return self._request("GET", f"/firewalls/{firewall_id}")
 
     def set_firewall_rules(
         self,
         firewall_id: Any,
-        allowed_ips: List[str],
-        extra_rules: Optional[List[Dict[str, Any]]] = None,
-        ports: Optional[List[Any]] = None,
-        firewall_cfg: Optional[Dict[str, Any]] = None,
-        client_ip: Optional[str] = None,
-        existing_port_ips: Optional[Dict[Tuple[str, str], List[str]]] = None,
-    ) -> Dict[str, Any]:
+        allowed_ips: list[str],
+        extra_rules: list[dict[str, Any]] | None = None,
+        ports: list[Any] | None = None,
+        firewall_cfg: dict[str, Any] | None = None,
+        client_ip: str | None = None,
+        existing_port_ips: dict[tuple[str, str], list[str]] | None = None,
+    ) -> dict[str, Any]:
         """Replace firewall rules (Hetzner ``set_rules`` action)."""
         data = {
             "rules": default_firewall_rules(
@@ -1175,10 +1177,10 @@ class RemoteDevManager:
         vm_type: str,
         region: str,
         image: str,
-        ssh_key_id: Optional[str] = None,
-        firewall_id: Optional[str] = None,
+        ssh_key_id: str | None = None,
+        firewall_id: str | None = None,
         start_after_create: bool = True,
-    ) -> Dict:
+    ) -> dict:
         """Create a VM for remote development"""
         data = {
             "name": name,
@@ -1197,12 +1199,12 @@ class RemoteDevManager:
         result = self._request("POST", "/servers", data)
         return result
 
-    def get_vm(self, vm_id: str) -> Dict:
+    def get_vm(self, vm_id: str) -> dict:
         """Get VM details"""
         result = self._request("GET", f"/servers/{vm_id}")
         return result
 
-    def get_vm_by_name(self, name: str) -> Optional[Dict]:
+    def get_vm_by_name(self, name: str) -> dict | None:
         """Find VM by name"""
         result = self._request("GET", "/servers")
 
@@ -1230,7 +1232,7 @@ class RemoteDevManager:
                 time.sleep(5)
         return False
 
-    def list_snapshots(self) -> List[Dict[str, Any]]:
+    def list_snapshots(self) -> list[dict[str, Any]]:
         """List snapshot images in the Hetzner project."""
         result = self._request("GET", "/images?type=snapshot&status=available")
         images = list(result.get("images") or [])
@@ -1245,7 +1247,7 @@ class RemoteDevManager:
             pass
         return images
 
-    def get_server_type_architecture(self, server_type: str) -> Optional[str]:
+    def get_server_type_architecture(self, server_type: str) -> str | None:
         """Return 'x86' or 'arm' for a Hetzner server type, or None if unknown."""
         try:
             result = self._request("GET", f"/server_types?name={server_type}")
@@ -1257,7 +1259,7 @@ class RemoteDevManager:
         # Fallback: cax* types are arm64, everything else is amd64 (Hetzner 'x86').
         return "arm" if server_type.lower().startswith("cax") else "x86"
 
-    def find_snapshot_by_description(self, description: str) -> Optional[Dict[str, Any]]:
+    def find_snapshot_by_description(self, description: str) -> dict[str, Any] | None:
         """Return the first snapshot whose description matches exactly."""
         for image in self.list_snapshots():
             if image.get("description") == description:
@@ -1292,9 +1294,9 @@ class RemoteDevManager:
         self,
         server_id: str,
         description: str,
-        labels: Optional[Dict[str, str]] = None,
+        labels: dict[str, str] | None = None,
         wait: bool = True,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Create a snapshot image from a server.
 
@@ -1309,7 +1311,7 @@ class RemoteDevManager:
             )
             return existing
 
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "description": description,
             "type": "snapshot",
         }
@@ -1367,7 +1369,7 @@ class RemoteDevManager:
         ip: str,
         timeout: int = 180,
         interval: int = 5,
-        identity_file: Optional[str] = None,
+        identity_file: str | None = None,
         username: str = "root",
     ) -> bool:
         """Wait until SSH accepts connections, authenticating when a key is available."""
@@ -1414,13 +1416,13 @@ class RemoteDevManager:
 
         return False
 
-    def get_vm_ip(self, vm_id: str) -> Optional[str]:
+    def get_vm_ip(self, vm_id: str) -> str | None:
         """Get VM's public IP address"""
         vm = self.get_vm(vm_id)
         public_net = vm.get("server", {}).get("public_net", {})
         return _ipv4_from_public_net(public_net)
 
-    def _bucket_context(self) -> Tuple[str, str]:
+    def _bucket_context(self) -> tuple[str, str]:
         from cli.config import DEFAULT_PROFILE, RigConfig
         from cli.state_bucket import find_workspace_dir
 
@@ -1513,7 +1515,7 @@ class RemoteDevManager:
             log.debug("Could not list buckets for state check: %s", e)
         return self.storage_manager.bucket_exists(self.state_bucket)
 
-    def _records_prefix(self, owner: Optional[str] = None) -> str:
+    def _records_prefix(self, owner: str | None = None) -> str:
         """Key prefix holding per-environment records (optionally one owner's)."""
         base = f"{self.state_prefix}/by-owner/"
         return f"{base}{owner}/" if owner else base
@@ -1521,7 +1523,7 @@ class RemoteDevManager:
     def _record_key(self, owner: str, name: str) -> str:
         return f"{self._records_prefix(owner)}{name}.yml"
 
-    def state_object_path(self, name: Optional[str] = None, owner: Optional[str] = None) -> str:
+    def state_object_path(self, name: str | None = None, owner: str | None = None) -> str:
         """Bucket path of one environment record (or the records prefix)."""
         if name:
             key = self._record_key(owner or "unknown", name)
@@ -1529,7 +1531,7 @@ class RemoteDevManager:
             key = self._records_prefix(owner)
         return f"{self.state_bucket}/{key}"
 
-    def _read_yaml_object(self, key: str) -> Optional[Dict]:
+    def _read_yaml_object(self, key: str) -> dict | None:
         """Download one object and parse it as YAML; None if unavailable."""
         import tempfile
 
@@ -1539,7 +1541,7 @@ class RemoteDevManager:
         try:
             if not self.storage_manager.download_file(self.state_bucket, key, tmp):
                 return None
-            with open(tmp, "r") as f:
+            with open(tmp) as f:
                 data = yaml.safe_load(f)
             return data if isinstance(data, dict) else None
         finally:
@@ -1548,7 +1550,7 @@ class RemoteDevManager:
             except OSError:
                 pass
 
-    def _save_state(self, environment: Dict) -> bool:
+    def _save_state(self, environment: dict) -> bool:
         """Write this environment's own record to the shared bucket.
 
         Each environment is a separate object (``by-owner/<owner>/<name>.yml``),
@@ -1571,7 +1573,7 @@ class RemoteDevManager:
             # updated by someone else), merge into it instead of clobbering it.
             # The existing record keeps its owner and created_at.
             key = None
-            existing: Dict[str, Any] = {}
+            existing: dict[str, Any] = {}
             suffix = f"/{env_name}.yml"
             for candidate in self.storage_manager.list_objects(self.state_bucket, self._records_prefix()):
                 if candidate.endswith(suffix):
@@ -1620,13 +1622,13 @@ class RemoteDevManager:
         """One Outputs object per Environment name (no owner segment)."""
         return f"{self.outputs_prefix}/{name}.yml"
 
-    def load_outputs(self, name: str) -> Optional[Dict]:
+    def load_outputs(self, name: str) -> dict | None:
         """Stored Outputs for an Environment, or None if none were recorded."""
         if not self.storage_manager or not self._state_bucket_present():
             return None
         return self._read_outputs_object(name)
 
-    def _read_outputs_object(self, name: str) -> Optional[Dict]:
+    def _read_outputs_object(self, name: str) -> dict | None:
         """Read the Outputs object if it exists.
 
         Existence is checked with a listing first: ``download_file`` retries
@@ -1639,7 +1641,7 @@ class RemoteDevManager:
             return None
         return self._read_yaml_object(key)
 
-    def save_outputs(self, name: str, new: Dict) -> bool:
+    def save_outputs(self, name: str, new: dict) -> bool:
         """Shallow-merge *new* into the Environment's stored Outputs."""
         if not self.storage_manager:
             return False
@@ -1671,14 +1673,14 @@ class RemoteDevManager:
             log.warning("Could not save outputs: %s", e)
             return False
 
-    def find_record(self, name: str) -> Optional[Dict]:
+    def find_record(self, name: str) -> dict | None:
         """The stored record of the Environment called *name*, whoever owns it."""
         for record in self._load_state().get("environments", []):
             if record.get("name") == name:
                 return record
         return None
 
-    def conflicting_owner(self, name: str, owner: str) -> Optional[str]:
+    def conflicting_owner(self, name: str, owner: str) -> str | None:
         """Owner of an existing *name* when it isn't *owner*, else None."""
         record = self.find_record(name)
         if not record:
@@ -1735,7 +1737,7 @@ class RemoteDevManager:
         except Exception as e:
             log.debug("Could not clean legacy state record: %s", e)
 
-    def _load_state(self, owner: Optional[str] = None) -> Dict:
+    def _load_state(self, owner: str | None = None) -> dict:
         """Load environment records from the shared bucket.
 
         With ``owner`` only that Identity's records are read. Otherwise every
@@ -1749,7 +1751,7 @@ class RemoteDevManager:
             if not self._state_bucket_present():
                 return {"environments": []}
 
-            environments: List[Dict] = []
+            environments: list[dict] = []
             seen = set()
             for key in self.storage_manager.list_objects(self.state_bucket, self._records_prefix(owner)):
                 if not key.endswith(".yml"):
@@ -1773,7 +1775,7 @@ class RemoteDevManager:
             log.warning("Could not load state: %s", e)
             return {"environments": []}
 
-    def list_dev_environments(self, prefix: str = "dev-", owner: Optional[str] = None) -> list:
+    def list_dev_environments(self, prefix: str = "dev-", owner: str | None = None) -> list:
         """List development environments with given prefix.
 
         The state bucket is shared by the whole Workspace, so records carry an
@@ -1827,7 +1829,7 @@ class RemoteDevEnvironment:
     """Manages a complete remote development environment"""
 
     def __init__(
-        self, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None, storage_manager: Optional[Any] = None
+        self, name: str | None = None, config: dict[str, Any] | None = None, storage_manager: Any | None = None
     ):
         self.name = name or f"dev-{uuid.uuid4().hex[:8]}"
         self.config = config or {}
@@ -1849,32 +1851,32 @@ class RemoteDevEnvironment:
 
         # SSH key
         self.ssh_key_name = f"{self.name}-key"
-        self.ssh_key_id: Optional[Any] = None
-        self.ssh_private_key: Optional[str] = None
-        self.ssh_public_key: Optional[str] = None
+        self.ssh_key_id: Any | None = None
+        self.ssh_private_key: str | None = None
+        self.ssh_public_key: str | None = None
 
         # Firewall
         self.firewall_name = f"{self.name}-fw"
-        self.firewall_id: Optional[Any] = None
+        self.firewall_id: Any | None = None
 
         # VPN (optional)
-        self.vpn_manager: Optional[VPNManager] = VPNManager() if VPN_AVAILABLE else None
-        self.vpn_interface: Optional[str] = f"{self.name}-wg" if VPN_AVAILABLE else None
-        self.vpn_config: Dict[str, Any] = {} if VPN_AVAILABLE else {}  # type: ignore
+        self.vpn_manager: VPNManager | None = VPNManager() if VPN_AVAILABLE else None
+        self.vpn_interface: str | None = f"{self.name}-wg" if VPN_AVAILABLE else None
+        self.vpn_config: dict[str, Any] = {} if VPN_AVAILABLE else {}  # type: ignore
 
         # VM
-        self.vm_id: Optional[Any] = None
-        self.vm_ip: Optional[str] = None
+        self.vm_id: Any | None = None
+        self.vm_ip: str | None = None
 
         # Boot / playbook skip state (set during setup from matching snapshots)
         self.boot_source: str = "base"  # base | system | workspace
-        self.boot_snapshot_description: Optional[str] = None
+        self.boot_snapshot_description: str | None = None
         self.skip_playbooks: tuple = ()
 
     def resolve_boot_image(
         self,
-        project_dir: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        project_dir: str | None = None,
+    ) -> dict[str, Any]:
         """
         Choose VM image: matching workspace snapshot, else system snapshot, else base.
 
@@ -1981,9 +1983,9 @@ class RemoteDevEnvironment:
                 log.error("SSH key generation failed: %s", result.stderr)
                 return False
 
-            with open(key_path, "r") as private_key_file:
+            with open(key_path) as private_key_file:
                 self.ssh_private_key = private_key_file.read()
-            with open(f"{key_path}.pub", "r") as public_key_file:
+            with open(f"{key_path}.pub") as public_key_file:
                 self.ssh_public_key = public_key_file.read().strip()
             return True
         except Exception as e:
@@ -1994,11 +1996,11 @@ class RemoteDevEnvironment:
         """True when a record for this Environment is in the State bucket."""
         return self.manager.find_record(self.name) is not None
 
-    def stored_outputs(self) -> Optional[Dict]:
+    def stored_outputs(self) -> dict | None:
         """The Outputs stored for this Environment (None if none recorded)."""
         return self.manager.load_outputs(self.name)
 
-    def inspect_details(self) -> Optional[Dict[str, Any]]:
+    def inspect_details(self) -> dict[str, Any] | None:
         """Technical details of this Environment, or None if it is unknown.
 
         Combines the stored record with live Hetzner server data. If the live
@@ -2009,7 +2011,7 @@ class RemoteDevEnvironment:
         if record is None and not self.vm_id:
             return None
         record = record or {}
-        details: Dict[str, Any] = {
+        details: dict[str, Any] = {
             "name": self.name,
             "owner": record.get("owner"),
             "id": record.get("id") or self.vm_id,
@@ -2066,7 +2068,7 @@ class RemoteDevEnvironment:
             return False
         return True
 
-    def setup(self, project_dir: Optional[str] = None):
+    def setup(self, project_dir: str | None = None):
         """Set up the complete remote development environment"""
         if not self.name_available():
             return False
@@ -2202,7 +2204,7 @@ class RemoteDevEnvironment:
 
     def provision(
         self,
-        project_dir: Optional[str] = None,
+        project_dir: str | None = None,
         stream: bool = True,
         force_system: bool = False,
         force_workspace: bool = False,
@@ -2225,15 +2227,15 @@ class RemoteDevEnvironment:
 
     def apply_playbooks(
         self,
-        project_dir: Optional[str] = None,
+        project_dir: str | None = None,
         stream: bool = True,
         playbooks: tuple = ("authorize", "materialize"),
         soft_fail_materialize: bool = False,
         soft_fail_workspace: bool = False,  # back-compat alias
         force_system: bool = False,
         force_workspace: bool = False,
-        action: Optional[str] = None,
-        ansible_tags: Optional[Sequence[str]] = None,
+        action: str | None = None,
+        ansible_tags: Sequence[str] | None = None,
     ) -> bool:
         """
         Re-run selected lifecycle playbooks against an existing remote VM.
@@ -2393,7 +2395,7 @@ class RemoteDevEnvironment:
             if not path or not os.path.exists(path):
                 log.error("%s playbook not found: %s", kind.capitalize(), path)
                 return False
-            run_kwargs: Dict[str, Any] = {"stream": stream}
+            run_kwargs: dict[str, Any] = {"stream": stream}
             if playbook_tags:
                 run_kwargs["ansible_args"] = ["--tags", playbook_tags]
                 log.info(
@@ -2476,10 +2478,10 @@ class RemoteDevEnvironment:
             log.warning("Snapshot %s failed: %s", description, exc)
             return False
 
-    def _firewall_config(self, project_dir: Optional[str] = None) -> Dict[str, Any]:
+    def _firewall_config(self, project_dir: str | None = None) -> dict[str, Any]:
         """Load ``firewall`` settings from ``rig.yml`` (with env.config fallback)."""
         project_dir = os.path.abspath(project_dir or os.getcwd())
-        merged: Dict[str, Any] = {}
+        merged: dict[str, Any] = {}
         try:
             project = ProjectConfig(project_dir)
             if project.load() and project.config:
@@ -2497,7 +2499,7 @@ class RemoteDevEnvironment:
         merged.setdefault("ports", [])
         return merged
 
-    def ensure_firewall_access(self, project_dir: Optional[str] = None) -> bool:
+    def ensure_firewall_access(self, project_dir: str | None = None) -> bool:
         """
         Refresh firewall source IPs (and exposed ports) for ``firewall.mode``.
 
@@ -2519,7 +2521,7 @@ class RemoteDevEnvironment:
         extra_rules = firewall_config.get("extra_rules")
 
         # open/static still refresh when declared app ports change.
-        client_ip: Optional[str] = None
+        client_ip: str | None = None
         if firewall_config_needs_client_ip(firewall_config, ports):
             client_ip = detect_client_public_ip()
             if not client_ip:
@@ -2529,8 +2531,8 @@ class RemoteDevEnvironment:
         try:
             current = self.manager.get_firewall(self.firewall_id)
             rules = (current.get("firewall") or {}).get("rules") or []
-            ssh_sources: List[str] = []
-            current_port_ips: Dict[Tuple[str, str], List[str]] = {}
+            ssh_sources: list[str] = []
+            current_port_ips: dict[tuple[str, str], list[str]] = {}
             for rule in rules:
                 if rule.get("direction") != "in":
                     continue
@@ -2644,9 +2646,9 @@ class RemoteDevEnvironment:
 
     def run_destroy_playbooks(
         self,
-        project_dir: Optional[str] = None,
+        project_dir: str | None = None,
         stream: bool = True,
-        ansible_tags: Optional[Sequence[str]] = None,
+        ansible_tags: Sequence[str] | None = None,
     ) -> bool:
         """
         Run ``finalize`` then ``destroy`` playbooks before deleting the VM.
@@ -2694,7 +2696,7 @@ class RemoteDevEnvironment:
             if not path or not os.path.exists(path):
                 log.debug("Skipping %s playbook (not found)", kind)
                 continue
-            run_kwargs: Dict[str, Any] = {"stream": stream}
+            run_kwargs: dict[str, Any] = {"stream": stream}
             if playbook_tags:
                 run_kwargs["ansible_args"] = ["--tags", playbook_tags]
                 log.info("Running %s playbook %s --tags %s", kind, path, playbook_tags)
@@ -2707,8 +2709,8 @@ class RemoteDevEnvironment:
 
     def cleanup(
         self,
-        project_dir: Optional[str] = None,
-        ansible_tags: Optional[Sequence[str]] = None,
+        project_dir: str | None = None,
+        ansible_tags: Sequence[str] | None = None,
     ):
         """Clean up the remote environment (finalize → destroy playbooks, then delete VM)."""
         log.info("Deleting remote environment '%s'", self.name)
@@ -2760,7 +2762,7 @@ class RemoteDevEnvironment:
         except OSError:
             pass
 
-    def get_connection_info(self) -> Dict:
+    def get_connection_info(self) -> dict:
         """Get information needed to connect to the VM"""
         return {
             "vm_ip": self.vm_ip,
@@ -2770,7 +2772,7 @@ class RemoteDevEnvironment:
             "region": self.region,
         }
 
-    def setup_vpn(self, endpoint: str, peer_public_key: str, allowed_ips: Optional[List[str]] = None) -> bool:
+    def setup_vpn(self, endpoint: str, peer_public_key: str, allowed_ips: list[str] | None = None) -> bool:
         """
         Setup WireGuard VPN tunnel to remote gateway
 
@@ -2848,7 +2850,7 @@ class RemoteDevEnvironment:
 
         return success
 
-    def check_vpn_status(self) -> Dict[str, Any]:
+    def check_vpn_status(self) -> dict[str, Any]:
         """
         Check status of WireGuard VPN tunnel
 
@@ -2995,7 +2997,7 @@ echo "Agent installation complete!"
     @staticmethod
     def agent_remote_command(
         agent_type: str = "opencode",
-        extra_args: Optional[List[str]] = None,
+        extra_args: list[str] | None = None,
     ) -> str:
         """Shell command run on the VM inside an interactive SSH TTY."""
         try:
@@ -3042,9 +3044,9 @@ echo "Agent installation complete!"
 
     def attach_to_agent(
         self,
-        agent_type: Optional[str] = None,
-        project_dir: Optional[str] = None,
-        agent_args: Optional[List[str]] = None,
+        agent_type: str | None = None,
+        project_dir: str | None = None,
+        agent_args: list[str] | None = None,
     ) -> int:
         """
         Open an interactive SSH TTY to the coding agent on the remote VM.
@@ -3100,7 +3102,7 @@ echo "Agent installation complete!"
         session_id = extract_session_from_agent_args(agent_args)
         if not session_id:
             try:
-                with open(attach_log, "r", encoding="utf-8", errors="replace") as handle:
+                with open(attach_log, encoding="utf-8", errors="replace") as handle:
                     session_id = parse_session_id(handle.read())
             except OSError:
                 session_id = None
@@ -3110,7 +3112,7 @@ echo "Agent installation complete!"
             log.debug("Resume later with: rig attach  (or --resume/--session %s)", session_id)
         return int(exit_code)
 
-    def _interactive_ssh_command(self, remote_cmd: str) -> List[str]:
+    def _interactive_ssh_command(self, remote_cmd: str) -> list[str]:
         """SSH argv for an interactive session as root."""
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
         return [
@@ -3130,7 +3132,7 @@ echo "Agent installation complete!"
             remote_cmd,
         ]
 
-    def open_ssh(self, remote_command: Optional[str] = None) -> int:
+    def open_ssh(self, remote_command: str | None = None) -> int:
         """Open an SSH shell on the VM, or run one remote command."""
         if not self.vm_ip or not self.ssh_key_name:
             log.error("VM not ready for SSH")
@@ -3160,7 +3162,7 @@ echo "Agent installation complete!"
             return 130
 
     @staticmethod
-    def _run_attach_ssh(ssh_cmd: List[str], attach_log: str) -> int:
+    def _run_attach_ssh(ssh_cmd: list[str], attach_log: str) -> int:
         """
         Run interactive SSH, preferably under ``script`` so exit banners are
         captured while the TTY stays usable.
@@ -3196,7 +3198,7 @@ echo "Agent installation complete!"
 
     def ensure_ssh_config_host(
         self,
-        ssh_config_path: Optional[str] = None,
+        ssh_config_path: str | None = None,
     ) -> str:
         """
         Upsert a managed Host block in ``~/.ssh/config`` for this environment.
@@ -3250,7 +3252,7 @@ echo "Agent installation complete!"
 
     def remove_ssh_config_host(
         self,
-        ssh_config_path: Optional[str] = None,
+        ssh_config_path: str | None = None,
     ) -> None:
         """Remove the managed Host block for this environment, if present."""
         config_path = os.path.expanduser(ssh_config_path or "~/.ssh/config")
@@ -3271,16 +3273,16 @@ echo "Agent installation complete!"
 
     @staticmethod
     def resolve_editor_command(
-        prefer: Optional[str] = None,
-        fallbacks: Optional[Sequence[str]] = None,
-    ) -> Optional[str]:
+        prefer: str | None = None,
+        fallbacks: Sequence[str] | None = None,
+    ) -> str | None:
         """
         Pick a local editor CLI.
 
         ``fallbacks`` defaults to every supported editor. Pass ``[]`` to require
         ``prefer`` and skip other binaries.
         """
-        candidates: List[str] = []
+        candidates: list[str] = []
         if prefer:
             candidates.append(prefer)
         extra = list(SUPPORTED_EDITORS) if fallbacks is None else list(fallbacks)
@@ -3299,9 +3301,9 @@ echo "Agent installation complete!"
 
     def code_server_url(
         self,
-        project_dir: Optional[str] = None,
-        port: Optional[int] = None,
-        folder: Optional[str] = None,
+        project_dir: str | None = None,
+        port: int | None = None,
+        folder: str | None = None,
     ) -> str:
         """HTTP URL for the remote code-server UI (opens workspace folder)."""
         if port is None:
@@ -3316,12 +3318,12 @@ echo "Agent installation complete!"
 
     def open_vscode(
         self,
-        remote_path: Optional[str] = None,
-        project_dir: Optional[str] = None,
+        remote_path: str | None = None,
+        project_dir: str | None = None,
         browser: bool = False,
-        editor: Optional[str] = None,
-        editor_fallbacks: Optional[Sequence[str]] = None,
-        ssh_config_path: Optional[str] = None,
+        editor: str | None = None,
+        editor_fallbacks: Sequence[str] | None = None,
+        ssh_config_path: str | None = None,
     ) -> int:
         """
         Open VS Code (or Cursor) against the remote VM via Remote-SSH.
@@ -3408,7 +3410,7 @@ echo "Agent installation complete!"
             log.error("Editor '%s' not found", editor_bin)
             return 1
 
-    def get_agent_connection_info(self) -> Dict[str, Any]:
+    def get_agent_connection_info(self) -> dict[str, Any]:
         """Get information needed to connect to the remote agent"""
         project = ProjectConfig(os.getcwd())
         project.load()
@@ -3498,23 +3500,23 @@ _VarsDumper.add_representer(VaultEncrypted, _represent_vault)
 # Lifecycle stages (flat playbooks under .rig/).
 # Create: provision → configure → [snapshot] → authorize → materialize
 # Destroy: finalize → destroy
-STAGES_CREATE: Tuple[str, ...] = (
+STAGES_CREATE: tuple[str, ...] = (
     "provision",
     "configure",
     "authorize",
     "materialize",
 )
-STAGES_DESTROY: Tuple[str, ...] = ("finalize", "destroy")
+STAGES_DESTROY: tuple[str, ...] = ("finalize", "destroy")
 SNAPSHOT_AFTER = "configure"
-SNAPSHOT_COVERED: Tuple[str, ...] = ("provision", "configure")
+SNAPSHOT_COVERED: tuple[str, ...] = ("provision", "configure")
 ALWAYS_RUN = frozenset({"authorize"})
 
 
-def ansible_tag_arg(tags: Optional[Sequence[str]]) -> Optional[str]:
+def ansible_tag_arg(tags: Sequence[str] | None) -> str | None:
     """Join ``rig apply --tags`` values into one ansible ``--tags`` argument."""
     if not tags:
         return None
-    parts: List[str] = []
+    parts: list[str] = []
     for value in tags:
         for piece in str(value).split(","):
             piece = piece.strip()
@@ -4331,20 +4333,20 @@ class ProjectConfig:
     ROLES_DIR = ROLES_DIRNAME
     LOCAL_ROLES_DIR = LOCAL_ROLES_DIRNAME
 
-    def __init__(self, project_dir: Optional[str] = None):
+    def __init__(self, project_dir: str | None = None):
         self.project_dir = project_dir or os.getcwd()
         self.rig_dir = os.path.join(self.project_dir, self.RIG_DIR)
-        self.config: Dict[str, Any] = {}
-        self.vars_config: Dict[str, Any] = {}
-        self.requirements: List[str] = []
-        self.vault_password: Optional[str] = None
+        self.config: dict[str, Any] = {}
+        self.vars_config: dict[str, Any] = {}
+        self.requirements: list[str] = []
+        self.vault_password: str | None = None
 
     @property
     def manifest_path(self) -> str:
         return os.path.join(self.project_dir, self.RIG_YAML)
 
     @property
-    def setup_config(self) -> Dict[str, Any]:
+    def setup_config(self) -> dict[str, Any]:
         """Backward-compatible view of bootstrap/agent settings living in rig.yml."""
         return {
             "bootstrap": self.config.get("bootstrap")
@@ -4365,7 +4367,7 @@ class ProjectConfig:
             return True
         return True
 
-    def _default_config(self, name: Optional[str] = None, ansible_enabled: bool = True) -> Dict[str, Any]:
+    def _default_config(self, name: str | None = None, ansible_enabled: bool = True) -> dict[str, Any]:
         return {
             "kind": "workspace",
             "name": name or os.path.basename(self.project_dir.rstrip(os.sep)) or "workspace",
@@ -4415,7 +4417,7 @@ class ProjectConfig:
             "repos": [],
         }
 
-    def _default_vars(self) -> Dict[str, Any]:
+    def _default_vars(self) -> dict[str, Any]:
         return {
             # Connection vars (ansible_user/connection/python_interpreter) live in the
             # inventory; as extra vars they'd override localhost delegation.
@@ -4427,7 +4429,7 @@ class ProjectConfig:
             "git_providers": [],
         }
 
-    def _merge_missing(self, target: Dict[str, Any], defaults: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_missing(self, target: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
         merged = dict(target)
         for key, value in defaults.items():
             if key not in merged:
@@ -4444,17 +4446,17 @@ class ProjectConfig:
         """Load root rig.yml and .rig support files"""
         try:
             if os.path.exists(self.manifest_path):
-                with open(self.manifest_path, "r", encoding="utf-8") as handle:
+                with open(self.manifest_path, encoding="utf-8") as handle:
                     self.config = yaml.safe_load(handle) or {}
             else:
                 # Migrate legacy .rig/rig.yml + setup.yml if present
                 legacy_rig = os.path.join(self.rig_dir, self.RIG_YAML)
                 legacy_setup = os.path.join(self.rig_dir, "setup.yml")
                 if os.path.exists(legacy_rig):
-                    with open(legacy_rig, "r", encoding="utf-8") as handle:
+                    with open(legacy_rig, encoding="utf-8") as handle:
                         self.config = yaml.safe_load(handle) or {}
                 if os.path.exists(legacy_setup):
-                    with open(legacy_setup, "r", encoding="utf-8") as handle:
+                    with open(legacy_setup, encoding="utf-8") as handle:
                         legacy = yaml.safe_load(handle) or {}
                         self.config = self._merge_missing(
                             self.config,
@@ -4478,7 +4480,7 @@ class ProjectConfig:
                 self.vars_config = self._load_vars_with_vault(vars_path)
             # Merge identity personal vars (PATs, agent key) over shared.
             try:
-                from cli.vault_keys import personal_vars_path, filter_wrap_fields_from_yaml_text
+                from cli.vault_keys import filter_wrap_fields_from_yaml_text, personal_vars_path
 
                 id_path = personal_vars_path(self.project_dir)
                 if os.path.exists(id_path):
@@ -4492,9 +4494,9 @@ class ProjectConfig:
             requirements_path = os.path.join(self.rig_dir, self.REQUIREMENTS_YML)
             legacy_requirements = os.path.join(self.rig_dir, "requirements.txt")
             if os.path.exists(requirements_path):
-                with open(requirements_path, "r", encoding="utf-8") as handle:
+                with open(requirements_path, encoding="utf-8") as handle:
                     loaded = yaml.safe_load(handle) or {}
-                reqs: List[str] = []
+                reqs: list[str] = []
                 if isinstance(loaded, dict):
                     for item in loaded.get("collections") or []:
                         if isinstance(item, dict) and item.get("name"):
@@ -4510,7 +4512,7 @@ class ProjectConfig:
                     reqs = [str(item) for item in loaded if item]
                 self.requirements = reqs
             elif os.path.exists(legacy_requirements):
-                with open(legacy_requirements, "r", encoding="utf-8") as handle:
+                with open(legacy_requirements, encoding="utf-8") as handle:
                     self.requirements = [
                         line.strip().lstrip("- ").strip()
                         for line in handle
@@ -4519,7 +4521,7 @@ class ProjectConfig:
 
             vault_password_path = os.path.join(self.rig_dir, ".vault_password")
             if os.path.exists(vault_password_path):
-                with open(vault_password_path, "r", encoding="utf-8") as handle:
+                with open(vault_password_path, encoding="utf-8") as handle:
                     self.vault_password = handle.read().strip()
 
             return True
@@ -4527,15 +4529,16 @@ class ProjectConfig:
             print(f"Warning: Could not load project config: {e}")
             return False
 
-    def _load_vars_with_vault(self, vars_path: str) -> Dict:
+    def _load_vars_with_vault(self, vars_path: str) -> dict:
         """Load vars.yml with optional Ansible Vault encryption support"""
         try:
-            with open(vars_path, "r") as f:
+            with open(vars_path) as f:
                 content = f.read()
 
             # Check if content is vault encrypted (whole-file vault)
             if content.startswith("$ANSIBLE_VAULT"):
                 import tempfile
+
                 from cli.vault_keys import (
                     DEFAULT_DATA_KEY_PATH,
                     PERSONAL_DATA_KEY_PATH,
@@ -4616,7 +4619,7 @@ class ProjectConfig:
                     roles.append({"name": name})
                 else:
                     collections.append({"name": name})
-            payload: Dict[str, Any] = {}
+            payload: dict[str, Any] = {}
             if collections:
                 payload["collections"] = collections
             if roles:
@@ -4633,7 +4636,7 @@ class ProjectConfig:
         self,
         agent_types: Any,
         default: Any = None,
-    ) -> List[str]:
+    ) -> list[str]:
         """Persist the install set, attach default, and credential var names."""
         from cli.agents import apply_agent_selection
 
@@ -4683,7 +4686,7 @@ class ProjectConfig:
         self.config["host"] = host_block(self.config)
         self.config.pop("vm", None)
 
-    def _selected_default_agent(self, selected: List[str]) -> str:
+    def _selected_default_agent(self, selected: list[str]) -> str:
         from cli.agents import agent_default_field
 
         primary = agent_default_field(self.config.get("agent") or {})
@@ -4693,16 +4696,16 @@ class ProjectConfig:
 
     def init(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         ansible_enabled: bool = True,
-        agent_type: Optional[str] = None,
-        agent_types: Optional[List[str]] = None,
+        agent_type: str | None = None,
+        agent_types: list[str] | None = None,
     ) -> bool:
         """Idempotently initialize project config, adding any missing files."""
         try:
             self.load()
             self._ensure_rig_dir()
-            created: List[str] = []
+            created: list[str] = []
 
             defaults = self._default_config(name=name, ansible_enabled=ansible_enabled)
             if not self.config:
@@ -4944,7 +4947,7 @@ class ProjectConfig:
         config[keys[-1]] = value
         return self.save(write_vars=False)
 
-    def get_vars(self, key: Optional[str] = None, default: Any = None) -> Any:
+    def get_vars(self, key: str | None = None, default: Any = None) -> Any:
         """Get variables value"""
         if key:
             keys = key.split(".")
@@ -4984,7 +4987,7 @@ class ProjectConfig:
             print(f"Warning: Could not save vars: {e}")
             return False
 
-    def encrypt_vars(self, vars_path: Optional[str] = None) -> bool:
+    def encrypt_vars(self, vars_path: str | None = None) -> bool:
         """Encrypt vars.yml file with Ansible Vault"""
         try:
             vars_path = vars_path or os.path.join(self.rig_dir, self.VARS_YAML)
@@ -5025,20 +5028,20 @@ def _valid_component_name(name: str) -> bool:
     return True
 
 
-def _read_yaml(path: str) -> Dict[str, Any]:
+def _read_yaml(path: str) -> dict[str, Any]:
     if not os.path.exists(path):
         return {}
-    with open(path, "r") as handle:
+    with open(path) as handle:
         loaded = yaml.safe_load(handle)
         return loaded if isinstance(loaded, dict) else {}
 
 
-def _write_yaml(path: str, data: Dict[str, Any]) -> None:
+def _write_yaml(path: str, data: dict[str, Any]) -> None:
     with open(path, "w") as handle:
         yaml.dump(data, handle, default_flow_style=False, sort_keys=False)
 
 
-def _run_git(cwd: str, *args: str) -> Optional[str]:
+def _run_git(cwd: str, *args: str) -> str | None:
     try:
         result = subprocess.run(
             ["git", *args],
@@ -5054,12 +5057,12 @@ def _run_git(cwd: str, *args: str) -> Optional[str]:
     return result.stdout.strip() or None
 
 
-def _git_root(path: str) -> Optional[str]:
+def _git_root(path: str) -> str | None:
     root = _run_git(path, "rev-parse", "--show-toplevel")
     return os.path.abspath(root) if root else None
 
 
-def _git_remote_url(path: str) -> Optional[str]:
+def _git_remote_url(path: str) -> str | None:
     return _run_git(path, "remote", "get-url", "origin")
 
 
@@ -5067,10 +5070,10 @@ def _is_git_repo(path: str) -> bool:
     return os.path.isdir(os.path.join(path, ".git")) or _git_root(path) == os.path.abspath(path)
 
 
-def discover_git_projects(directory: str) -> List[Dict[str, str]]:
+def discover_git_projects(directory: str) -> list[dict[str, str]]:
     """Find git repositories in directory itself and its immediate children."""
     directory = os.path.abspath(directory)
-    found: Dict[str, Dict[str, str]] = {}
+    found: dict[str, dict[str, str]] = {}
 
     def add(path: str) -> None:
         if not _is_git_repo(path):
@@ -5099,7 +5102,7 @@ def discover_git_projects(directory: str) -> List[Dict[str, str]]:
     return sorted(found.values(), key=lambda item: item["name"])
 
 
-def resolve_init_context(start: Optional[str] = None) -> Dict[str, Any]:
+def resolve_init_context(start: str | None = None) -> dict[str, Any]:
     """Choose the folder that should become the environment and its projects.
 
     The environment root is always ``start`` (cwd), including when that path is
@@ -5127,7 +5130,7 @@ def resolve_init_context(start: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def _prompt(message: str, default: Optional[str] = None, input_fn=None) -> str:
+def _prompt(message: str, default: str | None = None, input_fn=None) -> str:
     ask = input_fn or input
     suffix = f" [{default}]" if default is not None else ""
     answer = ask(f"{message}{suffix}: ").strip()
@@ -5136,13 +5139,13 @@ def _prompt(message: str, default: Optional[str] = None, input_fn=None) -> str:
     return default or ""
 
 
-def _parse_selection(answer: str, projects: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def _parse_selection(answer: str, projects: list[dict[str, str]]) -> list[dict[str, str]]:
     """Parse 'all', indexes, or names into selected projects."""
     answer = answer.strip().lower()
     if not answer or answer in ("all", "*"):
         return list(projects)
 
-    selected: List[Dict[str, str]] = []
+    selected: list[dict[str, str]] = []
     seen = set()
     tokens = [token.strip() for token in answer.replace(" ", ",").split(",") if token.strip()]
     by_name = {project["name"].lower(): project for project in projects}
@@ -5165,7 +5168,7 @@ class Workspace:
 
     MANIFEST = "rig.yml"
 
-    def __init__(self, path: Optional[str] = None):
+    def __init__(self, path: str | None = None):
         self.path = os.path.abspath(path or os.getcwd())
 
     @property
@@ -5177,13 +5180,13 @@ class Workspace:
 
     def init(
         self,
-        name: Optional[str] = None,
-        repos: Optional[List[Dict[str, str]]] = None,
-        password_vars: Optional[Dict[str, str]] = None,
-        agent_type: Optional[str] = None,
-        agent_types: Optional[List[str]] = None,
-        editor: Optional[str] = None,
-        editors: Optional[List[str]] = None,
+        name: str | None = None,
+        repos: list[dict[str, str]] | None = None,
+        password_vars: dict[str, str] | None = None,
+        agent_type: str | None = None,
+        agent_types: list[str] | None = None,
+        editor: str | None = None,
+        editors: list[str] | None = None,
     ) -> bool:
         """Idempotently initialize workspace config and register selected repos."""
         workspace_name = name or os.path.basename(self.path.rstrip(os.sep)) or "workspace"
@@ -5241,7 +5244,7 @@ class Workspace:
             repo for repo in (project.config.get("repos") or []) if isinstance(repo, dict) and repo.get("name")
         ]
         existing_by_name = {repo["name"]: dict(repo) for repo in existing_repos}
-        by_name: Dict[str, Dict[str, Any]] = {}
+        by_name: dict[str, dict[str, Any]] = {}
 
         from cli.git import GitManager
 
@@ -5264,7 +5267,7 @@ class Workspace:
             relative = None
             if local_path:
                 relative = os.path.relpath(local_path, self.path)
-            entry: Dict[str, Any] = dict(existing_by_name.get(repo_name) or {"name": repo_name})
+            entry: dict[str, Any] = dict(existing_by_name.get(repo_name) or {"name": repo_name})
             if relative and relative not in (".", ""):
                 entry["path"] = relative.replace(os.sep, "/")
             if url:
@@ -5310,7 +5313,7 @@ class Workspace:
 
         git_config = project.get_vars("git") or {}
         for key in ("clone_repos", "ssh_repos"):
-            filtered: List[Dict[str, Any]] = []
+            filtered: list[dict[str, Any]] = []
             for item in git_config.get(key, []) or []:
                 if not isinstance(item, dict):
                     continue
@@ -5368,19 +5371,19 @@ class Workspace:
 
 
 def interactive_env_init(
-    start: Optional[str] = None,
+    start: str | None = None,
     input_fn=None,
     secret_fn=None,
-    config_path: Optional[str] = None,
-    data_key_path: Optional[str] = None,
+    config_path: str | None = None,
+    data_key_path: str | None = None,
 ) -> bool:
     """Interactively initialize (or reinitialize) an environment."""
-    from cli.config import RigConfig, ensure_credentials
     from cli.agents import (
         prompt_coding_agents,
         prompt_default_agent,
         resolve_configured_agents,
     )
+    from cli.config import RigConfig, ensure_credentials
     from cli.encrypt import (
         collect_repo_pats,
         prompt_and_store_coding_agent_credentials,
@@ -5401,7 +5404,7 @@ def interactive_env_init(
 
     context = resolve_init_context(start)
     root = context["root"]
-    projects: List[Dict[str, str]] = context["projects"]
+    projects: list[dict[str, str]] = context["projects"]
     current = context.get("current")
     workspace = Workspace(root)
     already = os.path.exists(workspace.manifest_path)
@@ -5418,6 +5421,7 @@ def interactive_env_init(
     # Identity + master-key wraps before any vaulted secret prompts.
     # If wraps already exist, unlock into /tmp/.rig (no re-bootstrap).
     try:
+        from cli.config import RigConfig as _RigConfig
         from cli.vault_keys import (
             bootstrap_identity_keys,
             personal_vars_path,
@@ -5426,7 +5430,6 @@ def interactive_env_init(
             tmp_data_keys_present,
             unlock_data_keys,
         )
-        from cli.config import RigConfig as _RigConfig
 
         cfg = _RigConfig(path=config_path)
         ident = resolve_identity(config=cfg)
@@ -5463,7 +5466,7 @@ def interactive_env_init(
         if not name:
             print("Error: environment name is required")
             return False
-        selected: List[Dict[str, str]] = []
+        selected: list[dict[str, str]] = []
     else:
         print("Projects found:")
         for index, project in enumerate(projects, start=1):
@@ -5563,7 +5566,7 @@ def interactive_env_init(
         )
     except (ValueError, RuntimeError) as exc:
         print(f"Warning: could not store git PATs: {exc}")
-    stored_by_agent: Dict[str, bool] = {}
+    stored_by_agent: dict[str, bool] = {}
     try:
         if len(agent_types) == 1:
             stored_by_agent[agent_types[0]] = bool(
@@ -5636,7 +5639,7 @@ _PLAYBOOK_SECTION_RE = re.compile(r"^(?:PLAY RECAP|PLAY|TASK)\b")
 _PLAYBOOK_FAILURE_RE = re.compile(r"^(?:fatal:|failed:|unreachable:)|FAILED!|UNREACHABLE!")
 
 
-def ansible_verbosity_args() -> List[str]:
+def ansible_verbosity_args() -> list[str]:
     """Ansible ``-v`` flags for the current rig verbosity.
 
     ``-v`` streams the normal ansible task log. Each further ``v`` is passed
@@ -5657,8 +5660,8 @@ def playbook_failure_excerpt(output: str) -> str:
     if not output or not output.strip():
         return ""
     lines = output.splitlines(keepends=True)
-    sections: List[List[str]] = []
-    current: List[str] = []
+    sections: list[list[str]] = []
+    current: list[str] = []
     for line in lines:
         if _PLAYBOOK_SECTION_RE.match(line) and current:
             sections.append(current)
@@ -5668,7 +5671,7 @@ def playbook_failure_excerpt(output: str) -> str:
     if current:
         sections.append(current)
 
-    chosen: List[List[str]] = []
+    chosen: list[list[str]] = []
     saw_header = False
     for section in sections:
         head = section[0].lstrip()
@@ -5698,24 +5701,24 @@ class AnsibleManager:
     """Manages Ansible playbook execution for project bootstrap"""
 
     def __init__(self, project_config: Optional["ProjectConfig"] = None):
-        self.project_config: Optional["ProjectConfig"] = project_config
-        self.playbook_path: Optional[str] = None
-        self.configure_playbook_path: Optional[str] = None
-        self.authorize_playbook_path: Optional[str] = None
-        self.materialize_playbook_path: Optional[str] = None
-        self.finalize_playbook_path: Optional[str] = None
-        self.destroy_playbook_path: Optional[str] = None
-        self.inventory_path: Optional[str] = None
-        self.vault_password: Optional[str] = None
-        self.extra_vars: Dict[str, Any] = {}
-        self.rig_vars: Dict[str, Any] = {}
+        self.project_config: ProjectConfig | None = project_config
+        self.playbook_path: str | None = None
+        self.configure_playbook_path: str | None = None
+        self.authorize_playbook_path: str | None = None
+        self.materialize_playbook_path: str | None = None
+        self.finalize_playbook_path: str | None = None
+        self.destroy_playbook_path: str | None = None
+        self.inventory_path: str | None = None
+        self.vault_password: str | None = None
+        self.extra_vars: dict[str, Any] = {}
+        self.rig_vars: dict[str, Any] = {}
         self.ansible_env = os.environ.copy()
 
     def set_project_config(self, config: ProjectConfig):
         """Set project configuration"""
         self.project_config = config
 
-    def configure(self, project_dir: Optional[str] = None) -> bool:
+    def configure(self, project_dir: str | None = None) -> bool:
         """Configure Ansible manager with project settings"""
         try:
             if not self.project_config:
@@ -5855,7 +5858,7 @@ class AnsibleManager:
                 else:
                     collections.append({"name": name})
 
-            payload: Dict[str, Any] = {}
+            payload: dict[str, Any] = {}
             if collections:
                 payload["collections"] = collections
             if roles:
@@ -5895,7 +5898,7 @@ class AnsibleManager:
             log.error("Error setting up roles: %s", e)
             return False
 
-    def setup_playbook(self, custom_tasks: Optional[list] = None) -> bool:
+    def setup_playbook(self, custom_tasks: list | None = None) -> bool:
         """Ensure lifecycle playbooks exist; optional custom tasks become materialize.yml."""
         try:
             if self.project_config is None:
@@ -5943,7 +5946,7 @@ class AnsibleManager:
             print(f"Error creating playbook: {e}")
             return False
 
-    def install_roles(self, requirements_path: Optional[str] = None) -> bool:
+    def install_roles(self, requirements_path: str | None = None) -> bool:
         """Install Ansible Galaxy collections/roles from requirements.yml."""
         try:
             if self.project_config is None:
@@ -6037,8 +6040,8 @@ class AnsibleManager:
 
     def run_playbook(
         self,
-        extra_vars: Optional[Dict[str, Any]] = None,
-        vault_password: Optional[str] = None,
+        extra_vars: dict[str, Any] | None = None,
+        vault_password: str | None = None,
         stream: bool = False,
     ) -> bool:
         """Run the configured playbook path (system by default, or workspace for custom tasks)."""
@@ -6058,8 +6061,8 @@ class AnsibleManager:
 
     def run_all_playbooks(
         self,
-        extra_vars: Optional[Dict[str, Any]] = None,
-        vault_password: Optional[str] = None,
+        extra_vars: dict[str, Any] | None = None,
+        vault_password: str | None = None,
         stream: bool = True,
     ) -> bool:
         """Run system.yml then workspace.yml when both are configured."""
@@ -6081,15 +6084,15 @@ class AnsibleManager:
                 return False
         return True
 
-    last_outputs: Optional[Dict[str, Any]] = None
+    last_outputs: dict[str, Any] | None = None
 
     def _run_one_playbook(
         self,
         playbook_path: str,
-        extra_vars: Optional[Dict[str, Any]] = None,
-        vault_password: Optional[str] = None,
+        extra_vars: dict[str, Any] | None = None,
+        vault_password: str | None = None,
         stream: bool = False,
-        ansible_args: Optional[Sequence[str]] = None,
+        ansible_args: Sequence[str] | None = None,
     ) -> bool:
         """Run one playbook and capture the Outputs it publishes (ADR 0002).
 
@@ -6098,6 +6101,7 @@ class AnsibleManager:
         is left in ``self.last_outputs`` (None when nothing valid was written).
         """
         import tempfile
+
         from cli.outputs import read_outputs_file
 
         self.last_outputs = None
@@ -6127,11 +6131,11 @@ class AnsibleManager:
     def _exec_playbook(
         self,
         playbook_path: str,
-        extra_vars: Optional[Dict[str, Any]] = None,
-        vault_password: Optional[str] = None,
+        extra_vars: dict[str, Any] | None = None,
+        vault_password: str | None = None,
         stream: bool = False,
-        ansible_args: Optional[Sequence[str]] = None,
-        outputs_file: Optional[str] = None,
+        ansible_args: Sequence[str] | None = None,
+        outputs_file: str | None = None,
     ) -> bool:
         import shlex
 
@@ -6203,7 +6207,7 @@ class AnsibleManager:
         # Runtime rig_* context (and caller extras) after vars.yml so they win.
         if extra_vars:
             self.extra_vars.update(extra_vars)
-        runtime_vars: Dict[str, Any] = {}
+        runtime_vars: dict[str, Any] = {}
         if self.rig_vars:
             runtime_vars.update(self.rig_vars)
         if self.extra_vars:
@@ -6273,7 +6277,7 @@ class AnsibleManager:
                 text=True,
                 bufsize=1,
             )
-            collected: List[str] = []
+            collected: list[str] = []
             assert process.stdout is not None
             for line in process.stdout:
                 if show_tasks:

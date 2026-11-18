@@ -3,10 +3,11 @@ Hetzner S3-compatible storage CLI tests
 Converted from test_hetzner_storage.sh
 """
 
-import pytest
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -198,8 +199,9 @@ class TestHetznerStorageOperations:
 
     def test_hetzner_with_mocked_api(self, hetzner_token, test_bucket_name, tmp_path):
         """Test Hetzner storage with mocked API calls"""
-        from cli.storage import StorageManager
         import os
+
+        from cli.storage import StorageManager
 
         # Create test file first
         test_file = str(tmp_path / "test.txt")

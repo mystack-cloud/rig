@@ -15,12 +15,13 @@ Test flow:
 8. Clean up VM
 """
 
-import pytest
 import os
+import subprocess
 import sys
 import time
-import subprocess
 import uuid
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))

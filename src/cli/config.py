@@ -18,8 +18,8 @@ from __future__ import annotations
 import configparser
 import getpass
 import os
-from typing import Callable, Dict, Optional
-
+from collections.abc import Callable
+from typing import Optional
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.rig/config")
 DEFAULT_PROFILE = "default"
@@ -55,7 +55,7 @@ def _profile_from_section(section: str) -> str:
 class RigConfig:
     """AWS-style profile config stored at ~/.rig/config."""
 
-    def __init__(self, path: Optional[str] = None, profile: Optional[str] = None):
+    def __init__(self, path: str | None = None, profile: str | None = None):
         self.path = os.path.expanduser(path or os.getenv("RIG_CONFIG") or DEFAULT_CONFIG_PATH)
         self.profile = profile or os.getenv("RIG_PROFILE") or DEFAULT_PROFILE
         self._parser = configparser.ConfigParser()
@@ -85,7 +85,7 @@ class RigConfig:
             profiles.insert(0, DEFAULT_PROFILE)
         return profiles
 
-    def get_profile(self, profile: Optional[str] = None) -> Dict[str, str]:
+    def get_profile(self, profile: str | None = None) -> dict[str, str]:
         name = profile or self.profile or DEFAULT_PROFILE
         section = _section_name(name)
         if not self._parser.has_section(section):
@@ -96,7 +96,7 @@ class RigConfig:
                 return {}
         return {key: value for key, value in self._parser.items(section) if key in PROFILE_KEYS and value}
 
-    def set_profile(self, values: Dict[str, str], profile: Optional[str] = None) -> None:
+    def set_profile(self, values: dict[str, str], profile: str | None = None) -> None:
         name = profile or self.profile or DEFAULT_PROFILE
         section = _section_name(name)
         if not self._parser.has_section(section):
@@ -110,7 +110,7 @@ class RigConfig:
                 self._parser.remove_option(section, key)
         self.save()
 
-    def resolve(self, profile: Optional[str] = None) -> Dict[str, str]:
+    def resolve(self, profile: str | None = None) -> dict[str, str]:
         """Merge environment variables over the selected profile."""
         stored = self.get_profile(profile)
         return {
@@ -132,7 +132,7 @@ class RigConfig:
             "s3_endpoint_url": (os.getenv("S3_ENDPOINT_URL") or stored.get("s3_endpoint_url") or DEFAULT_S3_ENDPOINT),
         }
 
-    def apply_to_environ(self, profile: Optional[str] = None) -> Dict[str, str]:
+    def apply_to_environ(self, profile: str | None = None) -> dict[str, str]:
         """Export resolved credentials into the process environment."""
         resolved = self.resolve(profile)
         mapping = {
@@ -147,7 +147,7 @@ class RigConfig:
                 os.environ[env_name] = value
         return resolved
 
-    def get_identity(self) -> Optional[str]:
+    def get_identity(self) -> str | None:
         """Return persisted developer identity from the active profile section."""
         section = _section_name(self.profile or DEFAULT_PROFILE)
         if not self._parser.has_section(section):
@@ -191,11 +191,11 @@ def _prompt_secret(message: str, default: str = "", input_fn=None, secret_fn=Non
 
 
 def ensure_credentials(
-    config: Optional[RigConfig] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    config: RigConfig | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
     force_prompt: bool = False,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Return credentials, prompting and saving to ~/.rig/config when needed."""
     config = config or RigConfig()
     resolved = config.resolve()

@@ -2,13 +2,13 @@
 WireGuard VPN Management Module for Remote Development Environments
 """
 
+import json
 import os
 import subprocess
-import json
 import tempfile
 import time
-from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
+from typing import Any, Optional
 
 
 @dataclass
@@ -18,7 +18,7 @@ class WireGuardConfig:
     interface_name: str = "wg0"
     private_key: str = ""
     public_key: str = ""
-    allowed_ips: List[str] = field(default_factory=lambda: ["0.0.0.0/0", "::0/0"])
+    allowed_ips: list[str] = field(default_factory=lambda: ["0.0.0.0/0", "::0/0"])
     endpoint: str = ""
     persistent_keepalive: int = 25
     ip_address: str = ""
@@ -28,13 +28,13 @@ class WireGuardConfig:
 class VPNManager:
     """Manages WireGuard VPN connections for remote development environments"""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
         self.interface_name = self.config.get("interface_name", "wg0")
-        self.vpn_configs: Dict[str, WireGuardConfig] = {}
-        self._config_paths: Dict[str, str] = {}
+        self.vpn_configs: dict[str, WireGuardConfig] = {}
+        self._config_paths: dict[str, str] = {}
 
-    def generate_wireguard_keys(self) -> Dict[str, str]:
+    def generate_wireguard_keys(self) -> dict[str, str]:
         """Generate WireGuard key pair"""
         try:
             # Generate private key
@@ -53,7 +53,7 @@ class VPNManager:
         except FileNotFoundError:
             raise RuntimeError("WireGuard tools not found. Please install wireguard-tools")
 
-    def create_wireguard_config(self, name: str, config: Dict[str, Any]) -> WireGuardConfig:
+    def create_wireguard_config(self, name: str, config: dict[str, Any]) -> WireGuardConfig:
         """Create a WireGuard configuration from dict"""
         wg_config = WireGuardConfig(
             interface_name=config.get("interface_name", self.interface_name),
@@ -110,7 +110,7 @@ class VPNManager:
             os.chmod(directory, 0o700)
         return os.path.join(directory, f"wg-{name}.conf")
 
-    def save_wireguard_config(self, name: str, wg_config: WireGuardConfig, path: Optional[str] = None) -> str:
+    def save_wireguard_config(self, name: str, wg_config: WireGuardConfig, path: str | None = None) -> str:
         """Save WireGuard configuration to a mode-0600 file"""
         if path is None:
             path = self._config_path(name)
@@ -168,7 +168,7 @@ class VPNManager:
             print(f"Error tearing down VPN tunnel '{name}': {e}")
             return False
 
-    def check_vpn_status(self, name: str) -> Dict[str, Any]:
+    def check_vpn_status(self, name: str) -> dict[str, Any]:
         """Check status of a WireGuard VPN tunnel"""
         try:
             # Get interface status using wg command
@@ -193,7 +193,7 @@ class VPNManager:
         except Exception as e:
             return {"name": name, "up": False, "status": "error", "error": str(e)}
 
-    def list_active_tunnels(self) -> List[str]:
+    def list_active_tunnels(self) -> list[str]:
         """List all active WireGuard tunnels"""
         try:
             result = subprocess.run(["wg", "show", "interfaces"], capture_output=True, text=True, timeout=10)
@@ -205,7 +205,7 @@ class VPNManager:
             return []
 
     def setup_vpn_with_credentials(
-        self, name: str, endpoint: str, private_key: str, peer_public_key: str, allowed_ips: Optional[List[str]] = None
+        self, name: str, endpoint: str, private_key: str, peer_public_key: str, allowed_ips: list[str] | None = None
     ) -> bool:
         """Setup VPN tunnel using provided credentials"""
         # Generate key pair for local interface
@@ -224,7 +224,7 @@ class VPNManager:
         return self.setup_vpn_tunnel(name, wg_config)
 
 
-def setup_remote_vpn_connection(vpn_config: Dict[str, Any]) -> bool:
+def setup_remote_vpn_connection(vpn_config: dict[str, Any]) -> bool:
     """
     Setup VPN connection to remote gateway for accessing dependent services
 
@@ -260,7 +260,7 @@ def setup_remote_vpn_connection(vpn_config: Dict[str, Any]) -> bool:
         return False
 
 
-def get_vpn_status(interface_name: str = "wg0") -> Dict[str, Any]:
+def get_vpn_status(interface_name: str = "wg0") -> dict[str, Any]:
     """Get status of VPN connection"""
     manager = VPNManager()
     return manager.check_vpn_status(interface_name)

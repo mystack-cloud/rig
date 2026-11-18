@@ -18,12 +18,13 @@ The test flow:
 8. Clean up the remote VM
 """
 
-import pytest
-import os
-import sys
 import json
-import time
+import os
 import subprocess
+import sys
+import time
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -83,7 +84,7 @@ class TestRealE2EVPN:
         5. Tear down
         6. Clean up
         """
-        from cli.remote_dev import RemoteDevManager, RemoteDevEnvironment
+        from cli.remote_dev import RemoteDevEnvironment, RemoteDevManager
 
         # Skip if wireguard-tools not available
         try:
@@ -182,8 +183,9 @@ class TestRealE2EVPN:
 
     def test_vpn_config_with_realistic_values(self, hetzner_token):
         """Test VPN config with realistic values"""
-        from cli.vpn import VPNManager, WireGuardConfig
         import tempfile
+
+        from cli.vpn import VPNManager, WireGuardConfig
 
         manager = VPNManager()
 

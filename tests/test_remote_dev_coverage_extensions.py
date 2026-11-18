@@ -18,28 +18,27 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ.setdefault("HETZNER_CLOUD_API_TOKEN", "test-token")
 
 import cli.remote_dev as remote_dev_mod  # noqa: E402
-
 from cli.remote_dev import (  # noqa: E402
     AnsibleManager,
     ProjectConfig,
     RemoteDevEnvironment,
     RemoteDevManager,
     Workspace,
+    _ipv4_from_public_net,
+    _parse_selection,
+    _prompt,
     build_rig_ansible_vars,
     configured_agents,
     detect_client_public_ip,
+    discover_git_projects,
     ensure_project_gitignore,
+    interactive_env_init,
     normalize_editor_type,
     normalize_firewall_ports,
     project_editor_preference,
     prompt_editor,
     remote_workspace_path,
     resolve_firewall_mode,
-    _ipv4_from_public_net,
-    _parse_selection,
-    _prompt,
-    discover_git_projects,
-    interactive_env_init,
     resolve_init_context,
 )
 

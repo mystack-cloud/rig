@@ -16,7 +16,8 @@ import hashlib
 import os
 import re
 import secrets
-from typing import Callable, Optional, Tuple
+from collections.abc import Callable
+from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -58,7 +59,7 @@ def default_os_identity() -> str:
 
 
 def resolve_identity(
-    explicit: Optional[str] = None,
+    explicit: str | None = None,
     config=None,
 ) -> str:
     """Resolve identity: explicit → RIG_IDENTITY → config → OS user."""
@@ -85,7 +86,7 @@ def personal_vars_filename(identity: str) -> str:
     return f"vars.{sanitize_identity(identity)}.yml"
 
 
-def personal_vars_path(project_dir: str, identity: Optional[str] = None) -> str:
+def personal_vars_path(project_dir: str, identity: str | None = None) -> str:
     ident = resolve_identity(identity)
     return os.path.join(os.path.abspath(project_dir), ".rig", personal_vars_filename(ident))
 
@@ -145,10 +146,10 @@ def unwrap_with_master_key(blob: str, master_key: str) -> str:
     return plaintext.decode("utf-8")
 
 
-def read_data_key_file(path: str) -> Optional[str]:
+def read_data_key_file(path: str) -> str | None:
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         key = handle.read()
     if key.endswith("\n"):
         key = key[:-1]
@@ -170,7 +171,7 @@ def write_data_key_file(data_key: str, path: str) -> None:
         pass
 
 
-def materialize_data_keys(identity_key: str, shared_key: str) -> Tuple[str, str]:
+def materialize_data_keys(identity_key: str, shared_key: str) -> tuple[str, str]:
     """Write both data keys under /tmp/.rig and return their paths."""
     write_data_key_file(identity_key, PERSONAL_DATA_KEY_PATH)
     write_data_key_file(shared_key, SHARED_DATA_KEY_PATH)
@@ -187,7 +188,7 @@ def read_wrap_fields(identity_vars_path: str) -> dict:
     """Parse wrap fields from an identity vars file without decrypting vaults."""
     if not os.path.exists(identity_vars_path):
         return {}
-    with open(identity_vars_path, "r", encoding="utf-8") as handle:
+    with open(identity_vars_path, encoding="utf-8") as handle:
         content = handle.read()
     found = {}
     for name in WRAP_FIELD_NAMES:
@@ -208,7 +209,7 @@ def upsert_plain_yaml_string(path: str, name: str, value: str) -> None:
         os.makedirs(directory, mode=0o700, exist_ok=True)
     existing = ""
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             existing = handle.read()
     pattern = re.compile(
         rf"^{re.escape(name)}:.*?(?=^\S|\Z)",
@@ -248,8 +249,8 @@ def write_key_wraps(
 def prompt_master_key(
     *,
     confirm: bool = False,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
     label: str = "Personal master key",
 ) -> str:
     ask_secret = secret_fn or getpass.getpass
@@ -273,12 +274,12 @@ def prompt_master_key(
 def unlock_data_keys(
     project_dir: str,
     *,
-    identity: Optional[str] = None,
-    master_key: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    identity: str | None = None,
+    master_key: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
     require_wraps: bool = True,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Ensure personal + shared data keys exist under /tmp/.rig.
 
@@ -315,7 +316,7 @@ def shared_vault_exists(project_dir: str) -> bool:
     path = shared_vars_path(project_dir)
     if not os.path.exists(path):
         return False
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         content = handle.read()
     return "!vault" in content or "$ANSIBLE_VAULT" in content
 
@@ -323,13 +324,13 @@ def shared_vault_exists(project_dir: str) -> bool:
 def bootstrap_identity_keys(
     project_dir: str,
     *,
-    identity: Optional[str] = None,
-    master_key: Optional[str] = None,
-    shared_data_key: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    identity: str | None = None,
+    master_key: str | None = None,
+    shared_data_key: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
     config=None,
-) -> Tuple[str, str, str]:
+) -> tuple[str, str, str]:
     """
     Create wraps for a new identity and materialize keys.
 
@@ -396,7 +397,7 @@ def filter_wrap_fields_from_yaml_text(content: str) -> str:
     return cleaned.lstrip("\n")
 
 
-def write_filtered_vars_copy(src_path: str, dest_path: str) -> Optional[str]:
+def write_filtered_vars_copy(src_path: str, dest_path: str) -> str | None:
     """
     Copy vars file without wrap fields for ansible ``-e @file``.
 
@@ -406,7 +407,7 @@ def write_filtered_vars_copy(src_path: str, dest_path: str) -> Optional[str]:
     """
     if not os.path.exists(src_path):
         return None
-    with open(src_path, "r", encoding="utf-8") as handle:
+    with open(src_path, encoding="utf-8") as handle:
         content = handle.read()
     filtered = filter_wrap_fields_from_yaml_text(content)
     # Host connection vars belong in the inventory. As extra vars (highest

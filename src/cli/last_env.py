@@ -23,7 +23,7 @@ def remember_last_env(name: str, path: str = DEFAULT_LAST_ENV_PATH) -> None:
         pass
 
 
-def read_last_env(path: str = DEFAULT_LAST_ENV_PATH) -> Optional[str]:
+def read_last_env(path: str = DEFAULT_LAST_ENV_PATH) -> str | None:
     """Return the last remembered environment name, or None."""
     try:
         with open(path, encoding="utf-8") as handle:
@@ -34,7 +34,7 @@ def read_last_env(path: str = DEFAULT_LAST_ENV_PATH) -> Optional[str]:
 
 
 def clear_last_env(
-    name: Optional[str] = None,
+    name: str | None = None,
     path: str = DEFAULT_LAST_ENV_PATH,
 ) -> None:
     """
@@ -54,9 +54,9 @@ def clear_last_env(
 
 
 def resolve_env_name(
-    *candidates: Optional[str],
+    *candidates: str | None,
     path: str = DEFAULT_LAST_ENV_PATH,
-) -> Optional[str]:
+) -> str | None:
     """First non-empty candidate, else the remembered last env."""
     for value in candidates:
         if value and str(value).strip():

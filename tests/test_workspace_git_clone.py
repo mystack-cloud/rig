@@ -7,18 +7,18 @@ Tests that the rig CLI can:
 3. Verify the cloned repository exists on the remote VM
 """
 
-import pytest
 import os
-import sys
-import uuid
-import time
 import subprocess
+import sys
+import time
+import uuid
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from cli.remote_dev import RemoteDevEnvironment, ProjectConfig, AnsibleManager
-
+from cli.remote_dev import AnsibleManager, ProjectConfig, RemoteDevEnvironment
 
 # Test repository to clone: the rig repository itself
 RIG_REPO = "https://github.com/mystack-cloud/rig.git"

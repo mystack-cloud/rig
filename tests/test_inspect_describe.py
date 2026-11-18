@@ -15,7 +15,6 @@ from cli import outputs as out  # noqa: E402
 from cli.main import main  # noqa: E402
 from cli.remote_dev import RemoteDevEnvironment  # noqa: E402
 
-
 LAST = {"name": None}
 
 

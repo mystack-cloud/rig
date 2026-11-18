@@ -4,7 +4,8 @@ Storage management for the CLI using Hetzner S3-compatible object storage
 
 import os
 import time
-from typing import Optional, Dict
+from typing import Optional
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -15,7 +16,7 @@ from cli import log
 class StorageManager:
     """Manages storage operations with Hetzner S3-compatible storage"""
 
-    def __init__(self, hetzner_token: Optional[str] = None, endpoint_url: Optional[str] = None):
+    def __init__(self, hetzner_token: str | None = None, endpoint_url: str | None = None):
         self.hetzner_token = hetzner_token or os.getenv("HZ_TOKEN") or os.getenv("HETZNER_CLOUD_API_TOKEN")
         self.endpoint_url = endpoint_url or os.getenv("S3_ENDPOINT_URL") or "https://fsn1.your-objectstorage.com"
 
@@ -145,7 +146,7 @@ class StorageManager:
             log.debug("HeadBucket for %r failed: %s", bucket_name, exc)
             return False
 
-    def create_bucket(self, bucket_name: str, location: Optional[str] = None) -> bool:
+    def create_bucket(self, bucket_name: str, location: str | None = None) -> bool:
         """Create a new bucket using Hetzner Object Storage"""
         try:
             s3_client = self._get_s3_client()
@@ -196,7 +197,7 @@ class StorageManager:
             log.warning("Could not list storage buckets: %s", e)
             return []
 
-    def upload_file(self, bucket_name: str, file_path: str, object_name: Optional[str] = None) -> bool:
+    def upload_file(self, bucket_name: str, file_path: str, object_name: str | None = None) -> bool:
         """Upload a file to storage"""
         if not os.path.exists(file_path):
             log.warning("Local file not found for upload: %s", file_path)
@@ -208,7 +209,7 @@ class StorageManager:
         s3_client = self._get_s3_client()
         deadline = time.time() + 30.0
         delay = 0.2
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
 
         while time.time() < deadline:
             try:
@@ -239,7 +240,7 @@ class StorageManager:
         s3_client = self._get_s3_client()
         deadline = time.time() + 30.0
         delay = 0.2
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
         while time.time() < deadline:
             try:
                 s3_client.download_file(bucket_name, object_name, file_path)
@@ -268,7 +269,7 @@ class StorageManager:
         s3_client = self._get_s3_client()
         deadline = time.time() + 30.0
         delay = 0.2
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
         while time.time() < deadline:
             try:
                 response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
@@ -302,7 +303,7 @@ class StorageManager:
         s3_client = self._get_s3_client()
         deadline = time.time() + 30.0
         delay = 0.2
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
         while time.time() < deadline:
             try:
                 s3_client.delete_object(Bucket=bucket_name, Key=object_name)
@@ -327,7 +328,7 @@ class StorageManager:
         s3_client = self._get_s3_client()
         deadline = time.time() + 30.0
         delay = 0.2
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
         while time.time() < deadline:
             try:
                 s3_client.delete_bucket(Bucket=bucket_name)
@@ -351,7 +352,7 @@ class StorageManager:
         log.warning("Could not delete storage bucket: %s", last_error)
         return False
 
-    def get_credentials_info(self) -> Dict[str, str]:
+    def get_credentials_info(self) -> dict[str, str]:
         """Return information about the configured credentials (token masked)."""
         token_part = self.hetzner_token or ""
         if len(token_part) > 4:

@@ -5,18 +5,17 @@ Main entry point for the remote development environment CLI
 
 import argparse
 import json
-import sys
 import os
-from typing import List, Optional
+import sys
+from typing import Optional
 
 # Add the src directory to the path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 
-from cli.storage import StorageManager
-from cli.config import RigConfig
-from cli.encrypt import interactive_decrypt, interactive_encrypt
 from cli import DISTRIBUTION_NAME
 from cli import log as log
+from cli.config import RigConfig
+from cli.encrypt import interactive_decrypt, interactive_encrypt
 from cli.last_env import clear_last_env, remember_last_env, resolve_env_name
 from cli.last_session import (
     agent_args_request_session,
@@ -33,6 +32,7 @@ from cli.remote_dev import (
     interactive_env_init,
     normalize_cloud_provider,
 )
+from cli.storage import StorageManager
 
 
 def _load_credentials() -> bool:
@@ -217,8 +217,8 @@ def _cmd_attach(args: argparse.Namespace) -> int:
 
         project = ProjectConfig(os.getcwd())
         project.load()
-        from cli.remote_dev import configured_agents
         from cli.agents import normalize_agent_type
+        from cli.remote_dev import configured_agents
 
         configured, default_agent = configured_agents(project)
         requested = getattr(args, "agent", None)
@@ -559,8 +559,8 @@ def _cmd_dev(args: argparse.Namespace) -> int:
         project.load()
         enabled, default_editor = configured_editors(project)
         requested = getattr(args, "editor", None)
-        editor: Optional[str] = None
-        editor_fallbacks: Optional[List[str]] = None
+        editor: str | None = None
+        editor_fallbacks: list[str] | None = None
         if requested:
             try:
                 editor = normalize_editor_type(requested)
@@ -1384,7 +1384,7 @@ def main(argv=None):
     mcp_subparsers.add_parser("check", help="Validate .rig/mcp.json; exit 1 on problems")
 
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    server_command: List[str] = []
+    server_command: list[str] = []
     # `rig mcp add NAME [options] -- COMMAND ARGS...`: argparse would let a
     # trailing positional swallow the options, so split at `--` ourselves.
     if "--" in raw_argv and "mcp" in raw_argv and "add" in raw_argv:

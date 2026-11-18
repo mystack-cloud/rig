@@ -3,13 +3,14 @@ Real E2E storage tests (require real Hetzner credentials)
 Converted from test_real_e2e_storage.sh and real_e2e_test.sh
 """
 
-import pytest
-import os
-import sys
 import json
-import tempfile
+import os
 import shutil
-from unittest.mock import patch, MagicMock, call
+import sys
+import tempfile
+from unittest.mock import MagicMock, call, patch
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -134,6 +135,7 @@ class TestRealE2EStorage:
     def test_shared_state_workflow(self, hetzner_token, tmp_path):
         """Test shared state management workflow"""
         import uuid
+
         from cli.storage import StorageManager
 
         storage = StorageManager()
@@ -156,7 +158,7 @@ class TestRealE2EStorage:
         download_path = str(tmp_path / "shared_e2e_downloaded.txt")
         assert storage.download_file(bucket_name, "shared_state.json", download_path) is True
 
-        with open(download_path, "r") as f:
+        with open(download_path) as f:
             shared_data = json.load(f)
 
         assert shared_data["shared"] is True
@@ -215,8 +217,9 @@ class TestRealE2EIntegration:
 
     def test_e2e_with_timestamp_naming(self, hetzner_token):
         """Test bucket naming with timestamps"""
-        from cli.storage import StorageManager
         import time
+
+        from cli.storage import StorageManager
 
         storage = StorageManager()
 

@@ -6,9 +6,9 @@ This test suite validates Hetzner Cloud integration with the actual API.
 It tests both the S3-compatible storage API and the Hetzner Cloud API directly.
 """
 
+import json
 import os
 import sys
-import json
 import tempfile
 import uuid
 from datetime import datetime
@@ -251,9 +251,10 @@ def test_storage_operations():
             sys.path.insert(0, script_dir)
         sys.path.insert(0, os.path.join(script_dir, "src"))
 
-        from cli.storage import StorageManager
         import boto3
         from botocore.exceptions import ClientError, EndpointConnectionError
+
+        from cli.storage import StorageManager
     except ImportError as e:
         print(f"✗ Failed to import: {e}")
         return False

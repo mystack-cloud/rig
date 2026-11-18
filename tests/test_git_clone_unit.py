@@ -4,17 +4,18 @@ Unit tests for git clone functionality in workspace
 Tests the git clone logic without requiring actual remote VM or credentials
 """
 
-import pytest
 import os
-import sys
-import uuid
-import tempfile
 import shutil
+import sys
+import tempfile
+import uuid
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from cli.remote_dev import ProjectConfig, AnsibleManager
+from cli.remote_dev import AnsibleManager, ProjectConfig
 
 
 class TestProjectConfigGitSetup:
@@ -113,7 +114,7 @@ class TestAnsibleGitPlaybook:
         assert os.path.exists(ansible_manager.playbook_path)
 
         # Read and verify playbook content
-        with open(ansible_manager.playbook_path, "r") as f:
+        with open(ansible_manager.playbook_path) as f:
             playbook_content = f.read()
 
         assert "git:" in playbook_content
@@ -149,7 +150,7 @@ class TestAnsibleGitPlaybook:
 
         ansible_manager.setup_playbook(custom_tasks=tasks)
 
-        with open(ansible_manager.playbook_path, "r") as f:
+        with open(ansible_manager.playbook_path) as f:
             playbook_content = f.read()
 
         assert "ssh-keyscan" in playbook_content
@@ -184,7 +185,7 @@ class TestAnsibleGitPlaybook:
 
         assert os.path.exists(ansible_manager.inventory_path)
 
-        with open(ansible_manager.inventory_path, "r") as f:
+        with open(ansible_manager.inventory_path) as f:
             inventory_content = f.read()
 
         assert vm_ip in inventory_content

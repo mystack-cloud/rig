@@ -5,9 +5,10 @@ These tests verify the VPN functionality works when wireguard-tools is available
 They are marked as optional and will be skipped if wireguard-tools is not installed.
 """
 
-import pytest
 import os
 import sys
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -90,9 +91,10 @@ class TestVPNOPTIONAL:
 
     def test_vpn_config_save(self):
         """Test saving VPN configuration to file"""
-        from cli.vpn import VPNManager, WireGuardConfig
-        import tempfile
         import os
+        import tempfile
+
+        from cli.vpn import VPNManager, WireGuardConfig
 
         config = WireGuardConfig(
             interface_name="save-test",

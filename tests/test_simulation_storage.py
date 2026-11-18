@@ -3,13 +3,14 @@ Simulation storage tests (end-to-end workflow simulation)
 Converted from test_simulation_storage.sh
 """
 
-import pytest
-import os
-import sys
 import json
-import tempfile
+import os
 import shutil
-from unittest.mock import patch, MagicMock, call
+import sys
+import tempfile
+from unittest.mock import MagicMock, call, patch
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -106,7 +107,7 @@ class TestSimulationStorageOperations:
             assert storage.download_file(bucket_name, "shared_state.json", download_path) is True
 
             # Verify downloaded content
-            with open(download_path, "r") as f:
+            with open(download_path) as f:
                 downloaded = json.load(f)
             assert downloaded["shared_data"] == "for all environments"
 
@@ -150,9 +151,9 @@ class TestSimulationStorageOperations:
             assert storage.download_file(bucket_name, "cycle_file.txt", download_path) is True
 
             # Verify content matches
-            with open(test_file, "r") as f:
+            with open(test_file) as f:
                 original = f.read()
-            with open(download_path, "r") as f:
+            with open(download_path) as f:
                 downloaded = f.read()
 
             assert original == downloaded
@@ -237,8 +238,9 @@ class TestSimulationStorageOperations:
 
     def test_error_handling_in_workflow(self, hetzner_token, temp_dir):
         """Test error handling during storage operations"""
-        from cli.storage import StorageManager
         from botocore.exceptions import ClientError
+
+        from cli.storage import StorageManager
 
         with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()

@@ -32,7 +32,7 @@ class _LevelFormatter(logging.Formatter):
         return f"{record.levelname.upper():<5} {message}"
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """Return the rig logger (or a child under ``rig.``)."""
     if name and name != LOGGER_NAME:
         if not name.startswith(f"{LOGGER_NAME}."):
@@ -50,8 +50,8 @@ def configure_logging(
     *,
     verbose: bool = False,
     quiet: bool = False,
-    level: Optional[int] = None,
-    verbosity: Optional[int] = None,
+    level: int | None = None,
+    verbosity: int | None = None,
 ) -> logging.Logger:
     """
     Configure the root ``rig`` logger once (or reconfigure on subsequent calls).

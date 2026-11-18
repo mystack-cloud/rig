@@ -2,12 +2,13 @@
 Unit tests for remote development environment functionality
 """
 
-import unittest
 import os
 import sys
 import tempfile
-import yaml
+import unittest
 from pathlib import Path
+
+import yaml
 
 
 class TestRemoteDevConfig(unittest.TestCase):
@@ -191,8 +192,8 @@ class TestProjectConfig(unittest.TestCase):
 
     def test_project_config_init(self):
         """Test project configuration initialization"""
-        import tempfile
         import shutil
+        import tempfile
 
         # Create temp directory
         temp_dir = tempfile.mkdtemp()
@@ -248,8 +249,8 @@ class TestProjectConfig(unittest.TestCase):
 
     def test_project_config_save_load(self):
         """Test project configuration save and load"""
-        import tempfile
         import shutil
+        import tempfile
 
         temp_dir = tempfile.mkdtemp()
         try:
@@ -282,13 +283,13 @@ class TestAnsibleManager(unittest.TestCase):
 
     def test_ansible_manager_init(self):
         """Test Ansible manager initialization"""
-        import tempfile
         import shutil
+        import tempfile
 
         temp_dir = tempfile.mkdtemp()
         try:
             sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-            from cli.remote_dev import ProjectConfig, AnsibleManager
+            from cli.remote_dev import AnsibleManager, ProjectConfig
 
             config = ProjectConfig(temp_dir)
             ansible = AnsibleManager(config)
@@ -299,12 +300,12 @@ class TestAnsibleManager(unittest.TestCase):
 
     def test_inventory_setup(self):
         """Test Ansible inventory setup"""
-        import tempfile
         import shutil
+        import tempfile
 
         temp_dir = tempfile.mkdtemp()
         try:
-            from cli.remote_dev import ProjectConfig, AnsibleManager
+            from cli.remote_dev import AnsibleManager, ProjectConfig
 
             config = ProjectConfig(temp_dir)
             config.init()

@@ -21,7 +21,6 @@ from cli.remote_dev import (
     resolve_init_context,
 )
 
-
 _MASTER = "test-master-key"
 
 

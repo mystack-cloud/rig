@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from cli.main import main
-from cli.remote_dev import RemoteDevEnvironment
-from cli.remote_dev import ProjectConfig
+from cli.remote_dev import ProjectConfig, RemoteDevEnvironment
 from cli.snapshots import (
     filter_snapshots,
     find_unused_snapshots,

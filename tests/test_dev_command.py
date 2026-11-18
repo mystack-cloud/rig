@@ -273,11 +273,11 @@ def test_editor_selection_edges():
     from cli.remote_dev import (
         apply_editor_selection,
         coerce_editor_types,
+        configured_editors,
         parse_editor_selection,
         prompt_default_editor,
         prompt_editors,
         resolve_configured_editors,
-        configured_editors,
     )
 
     class _Label:

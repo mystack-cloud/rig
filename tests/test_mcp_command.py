@@ -5,8 +5,8 @@ import json
 import pytest
 
 from cli import mcp
-from cli.main import main
 from cli.ansible_filters.rig_mcp import McpConfigError
+from cli.main import main
 
 
 @pytest.fixture
@@ -245,6 +245,7 @@ def test_main_dispatches_list_check_remove(project, capsys):
 
 def _manager(tmp_path):
     from unittest.mock import MagicMock  # noqa: F401
+
     from cli.remote_dev import AnsibleManager, ProjectConfig
 
     cfg = ProjectConfig(str(tmp_path))

@@ -12,7 +12,8 @@ import json
 import os
 import re
 import sys
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Sequence
+from typing import Any, Optional
 
 from cli.ansible_filters import rig_mcp as core
 from cli.ansible_filters.rig_mcp import McpConfigError
@@ -29,26 +30,26 @@ _ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.-]*)=(.*)$", re.DOTALL)
 _BARE_ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def _resolve_root(project_dir: Optional[str]) -> str:
+def _resolve_root(project_dir: str | None) -> str:
     from cli.encrypt import resolve_project_dir
 
     return resolve_project_dir(project_dir)
 
 
-def mcp_path(project_dir: Optional[str] = None) -> str:
+def mcp_path(project_dir: str | None = None) -> str:
     return os.path.join(_resolve_root(project_dir), ".rig", MCP_FILENAME)
 
 
-def load_config(project_dir: Optional[str] = None) -> Dict[str, Any]:
+def load_config(project_dir: str | None = None) -> dict[str, Any]:
     """Validated config; an absent file is an empty config."""
     path = mcp_path(project_dir)
     if not os.path.exists(path):
         return {"mcpServers": {}}
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         return core.parse_config(handle.read())
 
 
-def save_config(config: Dict[str, Any], project_dir: Optional[str] = None) -> str:
+def save_config(config: dict[str, Any], project_dir: str | None = None) -> str:
     core.parse_config(config)
     path = mcp_path(project_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -58,32 +59,32 @@ def save_config(config: Dict[str, Any], project_dir: Optional[str] = None) -> st
     return path
 
 
-def known_variable_names(project_dir: Optional[str] = None) -> List[str]:
+def known_variable_names(project_dir: str | None = None) -> list[str]:
     """Names defined in the shared and identity vars files (vaulted or plain)."""
     from cli.encrypt import vars_path_for_project
     from cli.vault_keys import WRAP_FIELD_NAMES
 
     root = _resolve_root(project_dir)
-    names: List[str] = []
+    names: list[str] = []
     for personal in (False, True):
         path = vars_path_for_project(root, personal=personal)
         if not os.path.exists(path):
             continue
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             for name in _TOP_LEVEL_KEY_RE.findall(handle.read()):
                 if name not in WRAP_FIELD_NAMES:
                     names.append(name)
     return names
 
 
-def legacy_files_with_servers(project_dir: Optional[str] = None) -> List[str]:
+def legacy_files_with_servers(project_dir: str | None = None) -> list[str]:
     """Old per-agent MCP files that still declare servers (now ignored)."""
     rig_dir = os.path.join(_resolve_root(project_dir), ".rig")
     found = []
     for folder, filename in LEGACY_AGENT_MCP_FILES:
         path = os.path.join(rig_dir, folder, filename)
         try:
-            with open(path, "r", encoding="utf-8") as handle:
+            with open(path, encoding="utf-8") as handle:
                 data = json.load(handle)
         except (OSError, ValueError):
             continue
@@ -100,15 +101,15 @@ def legacy_warning(files: Sequence[str]) -> str:
 # ------------------------------------------------------------ building
 
 
-def parse_assignments(items: Optional[Sequence[str]], *, allow_bare: bool) -> Dict[str, str]:
+def parse_assignments(items: Sequence[str] | None, *, allow_bare: bool) -> dict[str, str]:
     """``K=V`` -> {K: V}; bare ``K`` (env only) -> {K: '${K}'}."""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for item in items or []:
         match = _ASSIGN_RE.match(item)
         if match:
             out[match.group(1)] = match.group(2)
         elif allow_bare and _BARE_ENV_RE.match(item):
-            out[item] = "${%s}" % item
+            out[item] = f"${{{item}}}"
         else:
             hint = "KEY or KEY=VALUE" if allow_bare else "KEY=VALUE"
             raise McpConfigError(f"expected {hint}, got {item!r}")
@@ -116,8 +117,8 @@ def parse_assignments(items: Optional[Sequence[str]], *, allow_bare: bool) -> Di
 
 
 def build_server(
-    *, url: Optional[str], command: Sequence[str], env: Sequence[str], headers: Sequence[str], kind: Optional[str]
-) -> Dict[str, Any]:
+    *, url: str | None, command: Sequence[str], env: Sequence[str], headers: Sequence[str], kind: str | None
+) -> dict[str, Any]:
     command = list(command)
     if command and command[0] == "--":
         command = command[1:]
@@ -126,7 +127,7 @@ def build_server(
     if url:
         if env:
             raise McpConfigError("--env applies to command servers; use --header for --url")
-        server: Dict[str, Any] = {"url": url}
+        server: dict[str, Any] = {"url": url}
         if kind and kind != "http":
             server["type"] = kind
         hdrs = parse_assignments(headers, allow_bare=False)
@@ -144,7 +145,7 @@ def build_server(
     return server
 
 
-def unresolved_variables(server: Any, names: Sequence[str]) -> List[str]:
+def unresolved_variables(server: Any, names: Sequence[str]) -> list[str]:
     """Required variables of ``server`` with no matching variable name."""
     lookup = core.VariableLookup(names=names)
     return core.missing_variables(server, lookup)
@@ -162,15 +163,15 @@ def _secret_prompt(label: str, env_name: str) -> str:
 def cmd_add(
     name: str,
     *,
-    url: Optional[str] = None,
+    url: str | None = None,
     command: Sequence[str] = (),
     env: Sequence[str] = (),
     headers: Sequence[str] = (),
-    kind: Optional[str] = None,
+    kind: str | None = None,
     personal: bool = False,
     force: bool = False,
-    project_dir: Optional[str] = None,
-    interactive: Optional[bool] = None,
+    project_dir: str | None = None,
+    interactive: bool | None = None,
     prompt: Callable[[str, str], str] = _secret_prompt,
 ) -> int:
     from cli.encrypt import store_encrypted_var
@@ -208,7 +209,7 @@ def cmd_add(
     return 0
 
 
-def cmd_remove(name: str, *, project_dir: Optional[str] = None) -> int:
+def cmd_remove(name: str, *, project_dir: str | None = None) -> int:
     try:
         config = load_config(project_dir)
     except McpConfigError as exc:
@@ -224,15 +225,15 @@ def cmd_remove(name: str, *, project_dir: Optional[str] = None) -> int:
     return 0
 
 
-def _describe(server: Dict[str, Any]) -> str:
+def _describe(server: dict[str, Any]) -> str:
     if "command" in server:
         return " ".join([server["command"], *server.get("args", [])])
     return server["url"]
 
 
-def report(project_dir: Optional[str] = None) -> Tuple[int, List[str]]:
+def report(project_dir: str | None = None) -> tuple[int, list[str]]:
     """Per-server status lines and an exit code (1 on invalid config/missing vars)."""
-    lines: List[str] = []
+    lines: list[str] = []
     try:
         config = load_config(project_dir)
     except McpConfigError as exc:
@@ -262,13 +263,13 @@ def report(project_dir: Optional[str] = None) -> Tuple[int, List[str]]:
     return code, lines
 
 
-def cmd_list(*, project_dir: Optional[str] = None) -> int:
+def cmd_list(*, project_dir: str | None = None) -> int:
     _code, lines = report(project_dir)
     print("\n".join(lines))
     return 1 if lines and lines[0].startswith("Error:") else 0
 
 
-def cmd_check(*, project_dir: Optional[str] = None) -> int:
+def cmd_check(*, project_dir: str | None = None) -> int:
     code, lines = report(project_dir)
     print("\n".join(lines))
     return code
