@@ -9,6 +9,7 @@ in the identity file.
 
 from __future__ import annotations
 
+import contextlib
 import getpass
 import os
 import re
@@ -266,21 +267,54 @@ def encrypt_named_value(
     return result.stdout.rstrip("\n")
 
 
+@contextlib.contextmanager
+def _echo_disabled(stream: TextIO):
+    """Turn terminal echo off on ``stream`` while typing a secret.
+
+    Yields True when echo was disabled, False when it could not be (not a
+    terminal, or no ``termios``); the original settings are always restored.
+    """
+    try:
+        import termios
+
+        fd = stream.fileno()
+        saved = termios.tcgetattr(fd)
+    except Exception:
+        yield False
+        return
+    hidden = list(saved)
+    hidden[3] &= ~termios.ECHO
+    try:
+        termios.tcsetattr(fd, termios.TCSAFLUSH, hidden)
+        yield True
+    finally:
+        termios.tcsetattr(fd, termios.TCSAFLUSH, saved)
+
+
 def encrypt_stdin(
     vault_password_file: str = DEFAULT_DATA_KEY_PATH,
     stdin_name: str = "",
     stdin: Optional[TextIO] = None,
     vault_id: Optional[str] = None,
 ) -> str:
-    """Encrypt stdin until EOF (Ctrl+D) using ansible-vault --stdin-name."""
+    """Encrypt stdin until EOF (Ctrl+D) using ansible-vault --stdin-name.
+
+    On a terminal the typed value is not echoed.
+    """
     name = validate_var_name(stdin_name)
     source = stdin if stdin is not None else sys.stdin
     if source.isatty():
-        print(
-            f"Reading multiline value for '{name}'. Finish with Ctrl+D (EOF).",
-            file=sys.stderr,
-        )
-    plaintext = source.read()
+        with _echo_disabled(source) as hidden:
+            note = "input hidden; " if hidden else ""
+            print(
+                f"Reading multiline value for '{name}' ({note}finish with Ctrl+D).",
+                file=sys.stderr,
+            )
+            plaintext = source.read()
+        if hidden:
+            print(file=sys.stderr)  # the Enter/Ctrl+D newline was not echoed
+    else:
+        plaintext = source.read()
     if plaintext == "":
         raise ValueError("Value to encrypt is required")
     return encrypt_named_value(
@@ -302,10 +336,17 @@ def read_variable_name(
     return validate_var_name(answer)
 
 
-def read_single_line_value(input_fn: Optional[Callable[..., str]] = None) -> str:
-    """Read one line to encrypt (default encrypt mode)."""
-    ask = input_fn or input
-    value = ask("Enter value to encrypt: ")
+def read_single_line_value(
+    input_fn: Optional[Callable[..., str]] = None,
+    secret_fn: Optional[Callable[..., str]] = None,
+) -> str:
+    """Read one line to encrypt (default encrypt mode), hidden while typing.
+
+    ``input_fn`` / ``secret_fn`` are injection points for tests; without them
+    the value is read with ``getpass`` so it is never echoed.
+    """
+    ask = secret_fn or input_fn or getpass.getpass
+    value = ask("Enter value to encrypt (input hidden): ")
     if value is None or value == "":
         raise ValueError("Value to encrypt is required")
     return value
