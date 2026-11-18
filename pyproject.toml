@@ -10,7 +10,7 @@ authors = [
 ]
 description = "Ephemeral remotes with full local parity for coding agents"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 keywords = ["remote-development", "coding-agents", "hetzner"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -24,7 +24,6 @@ dependencies = [
   "boto3>=1.26.0",
   "PyYAML>=6.0",
   "cryptography>=41.0.0",
-  "importlib-metadata>=4.0; python_version < '3.8'",
 ]
 
 [project.urls]
