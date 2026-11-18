@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from cli.main import main
-from cli.remote_dev import RemoteDevEnvironment
-from cli.remote_dev import ProjectConfig
+from cli.remote_dev import ProjectConfig, RemoteDevEnvironment
 from cli.snapshots import (
     filter_snapshots,
     find_unused_snapshots,
@@ -27,9 +26,7 @@ def test_system_snapshot_name_uses_version_and_hash():
         playbook_body="playbook-a",
     )
     assert system_snapshot_name("1.2.3", content_hash=digest) == f"rig-1.2.3-{digest}"
-    assert system_snapshot_name("1.2.3+dirty", content_hash="abcd1234ef00") == (
-        "rig-1.2.3-dirty-abcd1234ef00"
-    )
+    assert system_snapshot_name("1.2.3+dirty", content_hash="abcd1234ef00") == ("rig-1.2.3-dirty-abcd1234ef00")
 
 
 def test_system_content_hash_changes_when_agent_set_changes():
@@ -70,29 +67,38 @@ def test_system_content_hash_uses_var_map_not_editor():
         playbook_body="playbook-a",
     )
     assert len(base) == 12
-    assert system_content_hash(
-        var_map={
-            "coding_agent_type": "claude",
-            "git_providers": ["github"],
-        },
-        playbook_body="playbook-a",
-    ) != base
+    assert (
+        system_content_hash(
+            var_map={
+                "coding_agent_type": "claude",
+                "git_providers": ["github"],
+            },
+            playbook_body="playbook-a",
+        )
+        != base
+    )
     # Editor is not part of the system map — ignored even if passed legacy-style.
-    assert system_content_hash(
-        var_map={
-            "coding_agent_type": "opencode",
-            "git_providers": ["github"],
-        },
-        playbook_body="playbook-a",
-        editor="cursor",
-    ) == base
-    assert system_content_hash(
-        var_map={
-            "coding_agent_type": "opencode",
-            "git_providers": ["github", "gitlab"],
-        },
-        playbook_body="playbook-a",
-    ) != base
+    assert (
+        system_content_hash(
+            var_map={
+                "coding_agent_type": "opencode",
+                "git_providers": ["github"],
+            },
+            playbook_body="playbook-a",
+            editor="cursor",
+        )
+        == base
+    )
+    assert (
+        system_content_hash(
+            var_map={
+                "coding_agent_type": "opencode",
+                "git_providers": ["github", "gitlab"],
+            },
+            playbook_body="playbook-a",
+        )
+        != base
+    )
     # Sanity: playbook body changes the hash.
     assert system_content_hash(
         var_map={"coding_agent_type": "opencode"},
@@ -258,9 +264,7 @@ def test_filter_snapshots_system_and_workspace():
 def test_create_snapshot_skips_when_description_exists():
     mgr = RemoteDevEnvironment(name="dev-snap").manager
     mgr._request = MagicMock()
-    mgr.list_snapshots = MagicMock(
-        return_value=[{"id": 9, "description": "rig-1.0.0", "type": "snapshot"}]
-    )
+    mgr.list_snapshots = MagicMock(return_value=[{"id": 9, "description": "rig-1.0.0", "type": "snapshot"}])
     image = mgr.create_snapshot("42", "rig-1.0.0", labels={"rig": "system"})
     assert image["id"] == 9
     mgr._request.assert_not_called()
@@ -403,9 +407,7 @@ def test_find_unused_snapshots_keeps_current_deletes_stale():
 
 
 def test_cache_clear_lists_and_confirms(tmp_path):
-    (tmp_path / "rig.yml").write_text(
-        "name: app\nagent:\n  type: opencode\neditor: code\n"
-    )
+    (tmp_path / "rig.yml").write_text("name: app\nagent:\n  type: opencode\neditor: code\n")
     (tmp_path / ".rig").mkdir()
     (tmp_path / ".rig" / "vars.yml").write_text("x: 1\n")
 
@@ -447,13 +449,14 @@ def test_cache_clear_lists_and_confirms(tmp_path):
         },
     ]
 
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.os.getcwd", return_value=str(tmp_path)
-    ), patch(
-        "cli.snapshots.package_version", return_value="9.9.9"
-    ), patch("builtins.input", return_value="n"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+        patch("cli.snapshots.package_version", return_value="9.9.9"),
+        patch("builtins.input", return_value="n"),
+    ):
         instance = MagicMock()
         instance.manager.list_snapshots.return_value = images
         instance.manager.delete_image.return_value = True
@@ -462,20 +465,20 @@ def test_cache_clear_lists_and_confirms(tmp_path):
         assert main(["cache", "clear"]) == 0
         instance.manager.delete_image.assert_not_called()
 
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.os.getcwd", return_value=str(tmp_path)
-    ), patch("cli.snapshots.package_version", return_value="9.9.9"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+        patch("cli.snapshots.package_version", return_value="9.9.9"),
+    ):
         instance = MagicMock()
         instance.manager.list_snapshots.return_value = images
         instance.manager.delete_image.return_value = True
         env_cls.return_value = instance
 
         assert main(["cache", "clear", "-y"]) == 0
-        deleted = sorted(
-            call.args[0] for call in instance.manager.delete_image.call_args_list
-        )
+        deleted = sorted(call.args[0] for call in instance.manager.delete_image.call_args_list)
         assert deleted == ["11", "12"]
 
 
@@ -522,10 +525,11 @@ def test_cache_clear_all_and_scoped(tmp_path):
         },
     ]
 
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "builtins.input", return_value="n"
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("builtins.input", return_value="n"),
     ):
         instance = MagicMock()
         instance.manager.list_snapshots.return_value = images
@@ -535,24 +539,25 @@ def test_cache_clear_all_and_scoped(tmp_path):
         assert main(["cache", "clear", "--all"]) == 0
         instance.manager.delete_image.assert_not_called()
 
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         instance = MagicMock()
         instance.manager.list_snapshots.return_value = images
         instance.manager.delete_image.return_value = True
         env_cls.return_value = instance
 
         assert main(["cache", "clear", "--all", "-y"]) == 0
-        deleted = sorted(
-            call.args[0] for call in instance.manager.delete_image.call_args_list
-        )
+        deleted = sorted(call.args[0] for call in instance.manager.delete_image.call_args_list)
         assert deleted == ["1", "2", "4"]
 
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.os.getcwd", return_value=str(tmp_path)
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
     ):
         instance = MagicMock()
         instance.manager.list_snapshots.return_value = images
@@ -560,14 +565,14 @@ def test_cache_clear_all_and_scoped(tmp_path):
         env_cls.return_value = instance
 
         assert main(["cache", "clear", "--all", "--workspace", "-y"]) == 0
-        deleted = sorted(
-            call.args[0] for call in instance.manager.delete_image.call_args_list
-        )
+        deleted = sorted(call.args[0] for call in instance.manager.delete_image.call_args_list)
         assert deleted == ["1"]
 
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         instance = MagicMock()
         instance.manager.list_snapshots.return_value = images
         instance.manager.delete_image.return_value = True
@@ -603,8 +608,9 @@ def test_provision_skips_playbooks_from_boot_snapshot(tmp_path):
         return True
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run),
         ):
             assert env.provision(project_dir=str(project_dir), stream=False) is True
             # authorize + materialize always run when provision/configure skipped.
@@ -693,9 +699,11 @@ def test_apply_playbooks_snapshots_after_configure(tmp_path):
         return True
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", return_value=True
-        ), patch.object(RemoteDevEnvironment, "_snapshot_after_playbook", side_effect=fake_snap):
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", return_value=True),
+            patch.object(RemoteDevEnvironment, "_snapshot_after_playbook", side_effect=fake_snap),
+        ):
             assert env.apply_playbooks(
                 project_dir=str(project_dir),
                 stream=False,

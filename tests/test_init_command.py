@@ -21,7 +21,6 @@ from cli.remote_dev import (
     resolve_init_context,
 )
 
-
 _MASTER = "test-master-key"
 
 
@@ -220,9 +219,7 @@ def test_workspace_init_reduces_repos_on_reinit(tmp_path):
     project = ProjectConfig(str(rig))
     project.load()
     clone_repos = project.get_vars("git.clone_repos") or []
-    assert {item["repo"] for item in clone_repos} == {
-        "https://github.com/org/api.git"
-    }
+    assert {item["repo"] for item in clone_repos} == {"https://github.com/org/api.git"}
 
 
 def test_workspace_init_prunes_git_list_for_path_only_selection(tmp_path):
@@ -258,12 +255,8 @@ def test_workspace_init_prunes_git_list_for_path_only_selection(tmp_path):
     project.load()
     clone_repos = project.get_vars("git.clone_repos") or []
     assert all(isinstance(item, dict) for item in clone_repos)
-    assert not any(
-        item.get("repo") == "https://github.com/org/api.git" for item in clone_repos
-    )
-    assert not any(
-        item.get("repo") == "https://github.com/org/ghost.git" for item in clone_repos
-    )
+    assert not any(item.get("repo") == "https://github.com/org/api.git" for item in clone_repos)
+    assert not any(item.get("repo") == "https://github.com/org/ghost.git" for item in clone_repos)
 
 
 def test_interactive_init_defaults_to_current_repo(tmp_path):
@@ -331,11 +324,7 @@ def test_interactive_init_stores_encrypted_git_pat(tmp_path):
     from unittest.mock import patch
 
     def _fake_encrypt(plaintext, name, vault_password_file, vault_id=None):
-        return (
-            f"{name}: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            f"          {plaintext}\n"
-        )
+        return f"{name}: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          {plaintext}\n"
 
     with patch("cli.encrypt.encrypt_named_value", side_effect=_fake_encrypt) as enc:
         assert interactive_env_init(
@@ -539,11 +528,7 @@ def test_interactive_init_stores_distinct_agent_api_keys(tmp_path):
     from unittest.mock import patch
 
     def _fake_encrypt(plaintext, name, vault_password_file, vault_id=None):
-        return (
-            f"{name}: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            f"          {plaintext}\n"
-        )
+        return f"{name}: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          {plaintext}\n"
 
     with patch("cli.encrypt.encrypt_named_value", side_effect=_fake_encrypt):
         assert interactive_env_init(
@@ -575,11 +560,7 @@ def test_interactive_init_converts_ssh_remote_to_https_and_stores_pat(tmp_path):
     from unittest.mock import patch
 
     def _fake_encrypt(plaintext, name, vault_password_file, vault_id=None):
-        return (
-            f"{name}: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            f"          {plaintext}\n"
-        )
+        return f"{name}: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          {plaintext}\n"
 
     with patch("cli.encrypt.encrypt_named_value", side_effect=_fake_encrypt):
         assert interactive_env_init(
@@ -614,11 +595,7 @@ def test_interactive_init_stores_default_provider_pat_when_requested(tmp_path):
     from unittest.mock import patch
 
     def _fake_encrypt(plaintext, name, vault_password_file, vault_id=None):
-        return (
-            f"{name}: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            f"          {plaintext}\n"
-        )
+        return f"{name}: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          {plaintext}\n"
 
     with patch("cli.encrypt.encrypt_named_value", side_effect=_fake_encrypt) as enc:
         assert interactive_env_init(
@@ -684,11 +661,7 @@ def test_interactive_init_reuses_provider_pat_across_repos(tmp_path):
     from unittest.mock import patch
 
     def _fake_encrypt(plaintext, name, vault_password_file, vault_id=None):
-        return (
-            f"{name}: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            f"          {plaintext}\n"
-        )
+        return f"{name}: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          {plaintext}\n"
 
     with patch("cli.encrypt.encrypt_named_value", side_effect=_fake_encrypt) as enc:
         assert interactive_env_init(
@@ -727,11 +700,7 @@ def test_interactive_init_stores_repo_specific_pats_when_different(tmp_path):
     from unittest.mock import patch
 
     def _fake_encrypt(plaintext, name, vault_password_file, vault_id=None):
-        return (
-            f"{name}: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            f"          {plaintext}\n"
-        )
+        return f"{name}: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          {plaintext}\n"
 
     with patch("cli.encrypt.encrypt_named_value", side_effect=_fake_encrypt) as enc:
         assert interactive_env_init(
@@ -751,8 +720,7 @@ def test_interactive_init_stores_repo_specific_pats_when_different(tmp_path):
     assert "github_pat:" not in personal_text
     assert "gitlab_pat:" not in personal_text
     by_dest = {
-        item["dest"]: item["password_var"]
-        for item in yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
+        item["dest"]: item["password_var"] for item in yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
     }
     assert by_dest["/workspace/api"] == "api_git_pat"
     assert by_dest["/workspace/web"] == "web_git_pat"
@@ -775,21 +743,23 @@ def test_interactive_init_prompts_for_missing_credentials(tmp_path, monkeypatch)
     config_path = tmp_path / "home-rig-config"
     data_key = tmp_path / "data-key"
     data_key.write_text("vault-pass\n")
-    answers = iter([
-        "cloud-token",
-        "s3-access",
-        "s3-secret",
-        "",  # endpoint
-        "",  # identity
-        _MASTER,
-        _MASTER,
-        "all",
-        "rig",
-        "",  # coding agent default (opencode)
-        "",  # editor default (code)
-        "",  # skip PAT
-        "",  # skip coding agent API key
-    ])
+    answers = iter(
+        [
+            "cloud-token",
+            "s3-access",
+            "s3-secret",
+            "",  # endpoint
+            "",  # identity
+            _MASTER,
+            _MASTER,
+            "all",
+            "rig",
+            "",  # coding agent default (opencode)
+            "",  # editor default (code)
+            "",  # skip PAT
+            "",  # skip coding agent API key
+        ]
+    )
     assert interactive_env_init(
         str(repo),
         input_fn=lambda _prompt: next(answers),
@@ -811,10 +781,19 @@ def test_reinit_adds_missing_files_only(tmp_path):
     data_key = tmp_path / "data-key"
     data_key.write_text("vault-pass\n")
 
-    answers = iter([
-        "", "all", "rig", "", "",  # identity + first init
-        "all", "rig", "", "",      # reinit (keys already materialized)
-    ])
+    answers = iter(
+        [
+            "",
+            "all",
+            "rig",
+            "",
+            "",  # identity + first init
+            "all",
+            "rig",
+            "",
+            "",  # reinit (keys already materialized)
+        ]
+    )
     secrets = _secrets()
     assert interactive_env_init(
         str(rig),

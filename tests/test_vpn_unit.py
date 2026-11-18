@@ -160,16 +160,9 @@ class TestVPNManagerUnit:
         from cli.vpn import VPNManager
 
         mgr = VPNManager()
-        with patch.object(
-            mgr, "generate_wireguard_keys", return_value={"private_key": "L", "public_key": "P"}
-        ):
+        with patch.object(mgr, "generate_wireguard_keys", return_value={"private_key": "L", "public_key": "P"}):
             with patch.object(mgr, "setup_vpn_tunnel", return_value=True) as setup:
-                assert (
-                    mgr.setup_vpn_with_credentials(
-                        "wg0", "host:51820", "ignored", "peerpub", ["10.0.0.0/8"]
-                    )
-                    is True
-                )
+                assert mgr.setup_vpn_with_credentials("wg0", "host:51820", "ignored", "peerpub", ["10.0.0.0/8"]) is True
                 cfg = setup.call_args.args[1]
                 assert cfg.private_key == "L"
                 assert cfg.public_key == "peerpub"
@@ -177,7 +170,9 @@ class TestVPNManagerUnit:
     def test_module_helpers(self):
         from cli import vpn
 
-        with patch.object(vpn.VPNManager, "generate_wireguard_keys", return_value={"private_key": "a", "public_key": "b"}):
+        with patch.object(
+            vpn.VPNManager, "generate_wireguard_keys", return_value={"private_key": "a", "public_key": "b"}
+        ):
             with patch.object(vpn.VPNManager, "setup_vpn_tunnel", return_value=True):
                 assert vpn.setup_remote_vpn_connection({"endpoint": "e", "peer_public_key": "p"}) is True
         with patch.object(vpn.VPNManager, "generate_wireguard_keys", side_effect=RuntimeError("x")):

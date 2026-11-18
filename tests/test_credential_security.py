@@ -3,23 +3,24 @@ Credential security tests
 Converted from test_credential_security.sh
 """
 
-import pytest
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 @pytest.fixture
 def s3_credentials():
     """Setup S3 credentials for StorageManager"""
-    os.environ['HETZNER_S3_ACCESS_KEY'] = 'test-access-key'
-    os.environ['HETZNER_S3_SECRET_KEY'] = 'test-secret-key'
+    os.environ["HETZNER_S3_ACCESS_KEY"] = "test-access-key"
+    os.environ["HETZNER_S3_SECRET_KEY"] = "test-secret-key"
     yield
-    os.environ.pop('HETZNER_S3_ACCESS_KEY', None)
-    os.environ.pop('HETZNER_S3_SECRET_KEY', None)
+    os.environ.pop("HETZNER_S3_ACCESS_KEY", None)
+    os.environ.pop("HETZNER_S3_SECRET_KEY", None)
 
 
 class TestCredentialSecurity:
@@ -35,12 +36,12 @@ class TestCredentialSecurity:
         creds_info = storage.get_credentials_info()
 
         # Token should be masked (showing only first 4 and last 4 characters)
-        token_used = creds_info['token_used']
+        token_used = creds_info["token_used"]
 
         # Verify masking format: contains asterisks
         assert len(token_used) == len(hetzner_token)
         assert token_used.endswith(hetzner_token[-4:])  # Last 4 chars visible
-        assert '*' in token_used
+        assert "*" in token_used
 
     def test_hetzner_auth_flow(self, hetzner_token, s3_credentials):
         """Test Hetzner authentication flow"""
@@ -72,11 +73,11 @@ class TestCredentialSecurity:
         creds_info = storage.get_credentials_info()
 
         # Endpoint should be present
-        assert 'endpoint' in creds_info
+        assert "endpoint" in creds_info
         # Token should be masked
-        assert 'token_used' in creds_info
+        assert "token_used" in creds_info
         # Secret key should not be in creds_info for security
-        assert 'secret_key' not in creds_info
+        assert "secret_key" not in creds_info
 
     def test_token_not_in_error_messages(self, hetzner_token, s3_credentials):
         """Test that token is not exposed in error messages"""
@@ -116,7 +117,7 @@ class TestCredentialSecurity:
 
         # Endpoint should be configured
         assert storage.endpoint_url is not None
-        assert 'objectstorage' in storage.endpoint_url.lower() or 'fsn1' in storage.endpoint_url.lower()
+        assert "objectstorage" in storage.endpoint_url.lower() or "fsn1" in storage.endpoint_url.lower()
 
 
 class TestSecurityFeatures:

@@ -15,7 +15,6 @@ from cli import outputs as out  # noqa: E402
 from cli.main import main  # noqa: E402
 from cli.remote_dev import RemoteDevEnvironment  # noqa: E402
 
-
 LAST = {"name": None}
 
 
@@ -37,12 +36,14 @@ def tok_env(monkeypatch):
 
 # ---- formatter ------------------------------------------------------------
 
+
 def test_format_kv_nested_and_none():
     text = out.format_kv({"a": 1, "b": {"c": "x", "d": None}, "e": ["p", "q"]})
     assert text.splitlines() == ["a: 1", "b:", "  c: x", "  d: -", "e: p, q"]
 
 
 # ---- RemoteDevEnvironment.inspect_details ----------------------------------
+
 
 def _env_with(record, server=None, server_error=None):
     env = RemoteDevEnvironment(name="dev-1")
@@ -58,15 +59,27 @@ def _env_with(record, server=None, server_error=None):
 
 
 RECORD = {
-    "name": "dev-1", "id": 42, "ip": "1.1.1.1", "type": "cax21", "region": "hel1",
-    "owner": "alice", "ssh_key_id": 7, "firewall_id": 9, "status": "active",
-    "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z",
+    "name": "dev-1",
+    "id": 42,
+    "ip": "1.1.1.1",
+    "type": "cax21",
+    "region": "hel1",
+    "owner": "alice",
+    "ssh_key_id": 7,
+    "firewall_id": 9,
+    "status": "active",
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z",
 }
-SERVER = {"server": {
-    "status": "running", "created": "2026-01-01T00:00:01+00:00",
-    "public_net": {"ipv4": {"ip": "2.2.2.2"}},
-    "server_type": {"name": "cax21"}, "datacenter": {"name": "hel1-dc2"},
-}}
+SERVER = {
+    "server": {
+        "status": "running",
+        "created": "2026-01-01T00:00:01+00:00",
+        "public_net": {"ipv4": {"ip": "2.2.2.2"}},
+        "server_type": {"name": "cax21"},
+        "datacenter": {"name": "hel1-dc2"},
+    }
+}
 
 
 def test_inspect_merges_record_and_live():
@@ -96,6 +109,7 @@ def test_inspect_unknown_environment():
 
 
 # ---- rig inspect ------------------------------------------------------------
+
 
 def _patched(inst):
     return (
@@ -216,14 +230,17 @@ def test_describe_unknown_environment_fails(tok_env, capsys):
 
 
 def test_describe_without_storage_fails(tok_env, capsys):
-    with patch("cli.main._load_credentials"), \
-            patch("cli.main.StorageManager", side_effect=ValueError("no creds")), \
-            patch("cli.main.RemoteDevEnvironment"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no creds")),
+        patch("cli.main.RemoteDevEnvironment"),
+    ):
         assert main(["describe", "dev-1"]) == 1
     assert "storage" in capsys.readouterr().err.lower()
 
 
 # ---- RemoteDevEnvironment.exists / stored_outputs ---------------------------
+
 
 def test_env_exists_and_stored_outputs():
     env = RemoteDevEnvironment(name="dev-1")
@@ -237,6 +254,7 @@ def test_env_exists_and_stored_outputs():
 
 
 # ---- error paths -------------------------------------------------------------
+
 
 def test_inspect_unexpected_error_is_reported(tok_env, capsys):
     inst = MagicMock()

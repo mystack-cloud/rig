@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List, Optional, Tuple
+from typing import Optional
 
 DEFAULT_SESSION_DIR = "/tmp/.rig/sessions"
 
@@ -39,7 +39,7 @@ def session_path(env_name: str, directory: str = DEFAULT_SESSION_DIR) -> str:
 def remember_last_session(
     env_name: str,
     session_id: str,
-    agent_type: Optional[str] = None,
+    agent_type: str | None = None,
     directory: str = DEFAULT_SESSION_DIR,
 ) -> None:
     """Persist the last session id for *env_name*."""
@@ -62,7 +62,7 @@ def remember_last_session(
 def read_last_session(
     env_name: str,
     directory: str = DEFAULT_SESSION_DIR,
-) -> Optional[Tuple[str, Optional[str]]]:
+) -> tuple[str, str | None] | None:
     """
     Return ``(session_id, agent_type_or_None)`` for *env_name*, if known.
     """
@@ -73,8 +73,8 @@ def read_last_session(
     except OSError:
         return None
 
-    session_id: Optional[str] = None
-    agent_type: Optional[str] = None
+    session_id: str | None = None
+    agent_type: str | None = None
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -95,7 +95,7 @@ def read_last_session(
 
 
 def clear_last_session(
-    env_name: Optional[str] = None,
+    env_name: str | None = None,
     directory: str = DEFAULT_SESSION_DIR,
 ) -> None:
     """Remove stored session for one env, or all sessions when *env_name* is None."""
@@ -119,12 +119,12 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text or "")
 
 
-def parse_session_id(text: str) -> Optional[str]:
+def parse_session_id(text: str) -> str | None:
     """Extract the most likely session / thread id from agent exit output."""
     cleaned = strip_ansi(text)
     if not cleaned.strip():
         return None
-    last: Optional[str] = None
+    last: str | None = None
     for pattern in _SESSION_PATTERNS:
         for match in pattern.finditer(cleaned):
             value = match.group(1) if match.lastindex else match.group(0)
@@ -133,7 +133,7 @@ def parse_session_id(text: str) -> Optional[str]:
     return last
 
 
-def extract_session_from_agent_args(agent_args: Optional[List[str]]) -> Optional[str]:
+def extract_session_from_agent_args(agent_args: list[str] | None) -> str | None:
     """Return a session id explicitly present in forwarded agent argv."""
     args = list(agent_args or [])
     for index, token in enumerate(args):
@@ -143,11 +143,11 @@ def extract_session_from_agent_args(agent_args: Optional[List[str]]) -> Optional
                 return str(value)
         for prefix in ("--session=", "--resume=", "-s="):
             if token.startswith(prefix) and len(token) > len(prefix):
-                return token[len(prefix):]
+                return token[len(prefix) :]
     return None
 
 
-def agent_args_request_session(agent_args: Optional[List[str]]) -> bool:
+def agent_args_request_session(agent_args: list[str] | None) -> bool:
     """True when argv already asks to continue/resume/select a session."""
     args = list(agent_args or [])
     for index, token in enumerate(args):
@@ -162,7 +162,7 @@ def agent_args_request_session(agent_args: Optional[List[str]]) -> bool:
     return False
 
 
-def resume_args_for_agent(agent_type: Optional[str], session_id: str) -> List[str]:
+def resume_args_for_agent(agent_type: str | None, session_id: str) -> list[str]:
     """Build CLI flags to reopen *session_id* for the given agent."""
     agent = (agent_type or "opencode").strip().lower()
     if agent in {"opencode", "open-code"}:

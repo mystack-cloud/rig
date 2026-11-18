@@ -8,6 +8,7 @@ Layout in ``vars.yml``::
 
 See docs/adr/0001-per-profile-generated-state-bucket.md.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,7 +38,7 @@ def new_state_bucket() -> str:
     return f"{STATE_BUCKET_PREFIX}{uuid.uuid4().hex[:8]}"
 
 
-def find_workspace_dir(start: Optional[str] = None) -> str:
+def find_workspace_dir(start: str | None = None) -> str:
     """Nearest ancestor of ``start`` (default cwd) containing ``.rig/``, else ``start``."""
     current = os.path.abspath(start or os.getcwd())
     probe = current
@@ -58,17 +59,15 @@ class _VaultTolerantLoader(yaml.SafeLoader):
     """Safe loader that reads ``!vault`` scalars as plain strings."""
 
 
-_VaultTolerantLoader.add_constructor(
-    "!vault", lambda loader, node: loader.construct_scalar(node)
-)
+_VaultTolerantLoader.add_constructor("!vault", lambda loader, node: loader.construct_scalar(node))
 
 
-def read_state_bucket(workspace_dir: str, profile: str) -> Optional[str]:
+def read_state_bucket(workspace_dir: str, profile: str) -> str | None:
     """Return the recorded bucket for ``profile``, or None. Never writes."""
     path = shared_vars_file(workspace_dir)
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         data = yaml.load(handle, Loader=_VaultTolerantLoader) or {}
     buckets = data.get(STATE_BUCKETS_VAR) if isinstance(data, dict) else None
     if not isinstance(buckets, dict):
@@ -88,7 +87,7 @@ def write_state_bucket(workspace_dir: str, profile: str, bucket: str) -> str:
     try:
         existing = ""
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as handle:
+            with open(path, encoding="utf-8") as handle:
                 existing = handle.read()
         entry = f"  {profile}: {bucket}\n"
         block = re.search(
@@ -103,7 +102,7 @@ def write_state_bucket(workspace_dir: str, profile: str, bucket: str) -> str:
                 body = line_re.sub(entry, body, count=1)
             else:
                 body = (body if body.endswith("\n") or not body else body + "\n") + entry
-            updated = existing[: block.start(1)] + body + existing[block.end(1):]
+            updated = existing[: block.start(1)] + body + existing[block.end(1) :]
         else:
             prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
             updated = f"{prefix}{STATE_BUCKETS_VAR}:\n{entry}"
@@ -112,7 +111,6 @@ def write_state_bucket(workspace_dir: str, profile: str, bucket: str) -> str:
             handle.write(updated)
     except OSError as exc:
         raise StateBucketError(
-            f"Could not record the state bucket in {path}: {exc}. "
-            "Fix the permissions or set STATE_BUCKET."
+            f"Could not record the state bucket in {path}: {exc}. Fix the permissions or set STATE_BUCKET."
         ) from exc
     return path

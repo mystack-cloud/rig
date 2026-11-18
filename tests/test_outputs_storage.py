@@ -147,6 +147,7 @@ def test_name_available_without_storage_or_bucket(monkeypatch, tmp_path):
 
 # ---- degraded paths ------------------------------------------------------------
 
+
 def test_outputs_without_storage_manager():
     m = RemoteDevManager("tok", None)
     assert m.load_outputs("dev-1") is None
@@ -185,13 +186,12 @@ def test_save_outputs_reraises_state_bucket_errors(mgr, monkeypatch):
 def test_setup_stops_when_name_taken(monkeypatch):
     env = RemoteDevEnvironment(name="dev-1")
     monkeypatch.setattr(env, "name_available", lambda: False)
-    monkeypatch.setattr(
-        env, "resolve_boot_image", lambda **k: pytest.fail("setup must stop before provisioning")
-    )
+    monkeypatch.setattr(env, "resolve_boot_image", lambda **k: pytest.fail("setup must stop before provisioning"))
     assert env.setup() is False
 
 
 # ---- missing outputs must not trigger download retries ---------------------------
+
 
 class NoDownloadOfMissing(MemStorage):
     """download_file on a missing key mimics StorageManager's 30s retry loop."""

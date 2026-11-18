@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Sequence
+from typing import Any, Optional
 
 SUPPORTED_AGENTS = ("opencode", "claude", "cursor")
 
@@ -94,19 +95,18 @@ OPENCODE_CONFIG_WITH_API_KEY = {
 OPENCODE_CONFIG = OPENCODE_CONFIG_FREE
 
 
-def opencode_config(has_api_key: bool = False) -> Dict[str, Any]:
+def opencode_config(has_api_key: bool = False) -> dict[str, Any]:
     """Return OpenCode config for free models or a keyed Anthropic provider."""
     import copy
-    return copy.deepcopy(
-        OPENCODE_CONFIG_WITH_API_KEY if has_api_key else OPENCODE_CONFIG_FREE
-    )
+
+    return copy.deepcopy(OPENCODE_CONFIG_WITH_API_KEY if has_api_key else OPENCODE_CONFIG_FREE)
 
 
 def sync_opencode_config(
     rig_dir: str,
     has_api_key: bool = False,
     force: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Write ``.rig/.opencode/opencode.json`` for free or keyed usage.
 
@@ -119,6 +119,7 @@ def sync_opencode_config(
         return None
     _write_json(config_path, opencode_config(has_api_key=has_api_key))
     return ".rig/.opencode/opencode.json"
+
 
 CLAUDE_SETTINGS = {
     # Bare tool names allow every path; "Tool(*)" warns on recent Claude Code.
@@ -139,7 +140,7 @@ CLAUDE_SETTINGS = {
 }
 
 # Cursor CLI (~/.cursor/cli-config.json). API key via CURSOR_API_KEY on the VM.
-CURSOR_CLI_CONFIG: Dict[str, Any] = {
+CURSOR_CLI_CONFIG: dict[str, Any] = {
     "permissions": {
         "allow": [
             "Shell(*)",
@@ -149,7 +150,8 @@ CURSOR_CLI_CONFIG: Dict[str, Any] = {
     },
 }
 
-def normalize_agent_type(value: Optional[str]) -> str:
+
+def normalize_agent_type(value: str | None) -> str:
     raw = (value or "").strip().lower().replace(" ", "-").replace("_", "-")
     aliases = {
         "opencode": "opencode",
@@ -163,10 +165,7 @@ def normalize_agent_type(value: Optional[str]) -> str:
     }
     agent = aliases.get(raw, raw)
     if agent not in SUPPORTED_AGENTS:
-        raise ValueError(
-            f"Unsupported coding agent {value!r}. "
-            f"Choose one of: {', '.join(SUPPORTED_AGENTS)}"
-        )
+        raise ValueError(f"Unsupported coding agent {value!r}. Choose one of: {', '.join(SUPPORTED_AGENTS)}")
     return agent
 
 
@@ -179,7 +178,7 @@ def agent_config_dir_name(agent_type: str) -> str:
     return ".claude"
 
 
-def agent_remote_paths(agent_type: str) -> Dict[str, str]:
+def agent_remote_paths(agent_type: str) -> dict[str, str]:
     """Where scaffolded files land on the remote VM (as root)."""
     agent = normalize_agent_type(agent_type)
     if agent == "opencode":
@@ -207,7 +206,7 @@ def agent_remote_paths(agent_type: str) -> Dict[str, str]:
     }
 
 
-def _write_json(path: str, data: Dict[str, Any]) -> None:
+def _write_json(path: str, data: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(data, handle, indent=2)
@@ -225,7 +224,7 @@ def ensure_agent_scaffold(
     agent_type: str = "opencode",
     force: bool = False,
     has_api_key: bool = False,
-) -> List[str]:
+) -> list[str]:
     """
     Create missing agent config / MCP / AGENTS.md under ``rig_dir``.
 
@@ -234,7 +233,7 @@ def ensure_agent_scaffold(
     Returns the list of paths that were created (relative to rig_dir parent).
     """
     agent = normalize_agent_type(agent_type)
-    created: List[str] = []
+    created: list[str] = []
     rig_dir = os.path.abspath(rig_dir)
 
     agents_md = os.path.join(rig_dir, "AGENTS.md")
@@ -243,9 +242,7 @@ def ensure_agent_scaffold(
         created.append(os.path.join(".rig", "AGENTS.md"))
 
     if agent == "opencode":
-        written = sync_opencode_config(
-            rig_dir, has_api_key=has_api_key, force=force
-        )
+        written = sync_opencode_config(rig_dir, has_api_key=has_api_key, force=force)
         if written:
             created.append(written)
     elif agent == "cursor":
@@ -266,7 +263,7 @@ def ensure_agent_scaffold(
 
 def prompt_coding_agent(
     default: str = "opencode",
-    input_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
 ) -> str:
     """Ask which coding agent to use (single choice)."""
     ask = input_fn or input
@@ -281,7 +278,7 @@ def prompt_coding_agent(
     return normalize_agent_type(answer)
 
 
-def coerce_agent_types(value: Any) -> List[str]:
+def coerce_agent_types(value: Any) -> list[str]:
     """
     Normalize a string, comma-separated string, or list into agent ids.
 
@@ -306,7 +303,7 @@ def coerce_agent_types(value: Any) -> List[str]:
         text = str(value).strip()
         parts = [text] if text else []
 
-    selected: List[str] = []
+    selected: list[str] = []
     seen = set()
     for part in parts:
         agent = normalize_agent_type(part)
@@ -316,7 +313,7 @@ def coerce_agent_types(value: Any) -> List[str]:
     return selected
 
 
-def agent_default_field(agent_cfg: Optional[Dict[str, Any]] = None) -> Any:
+def agent_default_field(agent_cfg: dict[str, Any] | None = None) -> Any:
     """``agent.default``, or the legacy ``agent.type`` string."""
     agent_cfg = agent_cfg or {}
     raw = agent_cfg.get("default")
@@ -325,7 +322,7 @@ def agent_default_field(agent_cfg: Optional[Dict[str, Any]] = None) -> Any:
     return agent_cfg.get("type")
 
 
-def agent_enabled_field(agent_cfg: Optional[Dict[str, Any]] = None) -> Any:
+def agent_enabled_field(agent_cfg: dict[str, Any] | None = None) -> Any:
     """``agent.enabled``, or the legacy ``agent.types`` list."""
     agent_cfg = agent_cfg or {}
     if agent_cfg.get("enabled"):
@@ -334,11 +331,11 @@ def agent_enabled_field(agent_cfg: Optional[Dict[str, Any]] = None) -> Any:
 
 
 def resolve_configured_agents(
-    agent_cfg: Optional[Dict[str, Any]] = None,
+    agent_cfg: dict[str, Any] | None = None,
     *,
     coding_agent_type: Any = None,
     coding_agent_types: Any = None,
-) -> Tuple[List[str], str]:
+) -> tuple[list[str], str]:
     """
     Return ``(installed_agents, default_attach_agent)``.
 
@@ -347,7 +344,7 @@ def resolve_configured_agents(
     Legacy ``agent.types`` and ``agent.type`` are still accepted.
     """
     agent_cfg = agent_cfg or {}
-    types: List[str] = []
+    types: list[str] = []
     for candidate in (agent_enabled_field(agent_cfg), coding_agent_types):
         if not candidate:
             continue
@@ -372,7 +369,7 @@ def resolve_configured_agents(
     if not types:
         types = ["opencode"]
 
-    primary: Optional[str] = None
+    primary: str | None = None
     raw_primary = agent_default_field(agent_cfg)
     if isinstance(raw_primary, str) and raw_primary.strip():
         try:
@@ -385,10 +382,10 @@ def resolve_configured_agents(
 
 
 def apply_agent_selection(
-    agent_cfg: Dict[str, Any],
+    agent_cfg: dict[str, Any],
     agent_types: Sequence[str],
     default: Any = None,
-) -> List[str]:
+) -> list[str]:
     """
     Write ``default``, ``enabled``, and credential var names onto an agent config dict.
 
@@ -398,7 +395,7 @@ def apply_agent_selection(
     Several agents each get their own vault var under ``credentials``.
     """
     selected = coerce_agent_types(agent_types) or ["opencode"]
-    primary: Optional[str] = None
+    primary: str | None = None
     if isinstance(default, str) and default.strip():
         try:
             primary = normalize_agent_type(default)
@@ -414,9 +411,7 @@ def apply_agent_selection(
         agent_cfg["credentials_var"] = LEGACY_CODING_AGENT_API_KEY
         agent_cfg.pop("credentials", None)
     else:
-        agent_cfg["credentials"] = {
-            agent: AGENT_API_KEY_VARS[agent] for agent in selected
-        }
+        agent_cfg["credentials"] = {agent: AGENT_API_KEY_VARS[agent] for agent in selected}
         agent_cfg["credentials_var"] = AGENT_API_KEY_VARS[primary]
     return selected
 
@@ -425,7 +420,7 @@ def parse_agent_selection(
     answer: str,
     *,
     default: Sequence[str],
-) -> List[str]:
+) -> list[str]:
     """Parse 'all', indexes, or names the same way git project selection works."""
     try:
         defaults = coerce_agent_types(list(default)) or ["opencode"]
@@ -437,7 +432,7 @@ def parse_agent_selection(
     if raw.lower() in ("all", "*"):
         return list(SUPPORTED_AGENTS)
 
-    selected: List[str] = []
+    selected: list[str] = []
     seen = set()
     tokens = [token.strip() for token in raw.replace(" ", ",").split(",") if token.strip()]
     if not tokens:
@@ -447,8 +442,7 @@ def parse_agent_selection(
             index = int(token) - 1
             if not 0 <= index < len(SUPPORTED_AGENTS):
                 raise ValueError(
-                    f"Coding agent number {token} is out of range. "
-                    f"Choose 1-{len(SUPPORTED_AGENTS)}, names, or all."
+                    f"Coding agent number {token} is out of range. Choose 1-{len(SUPPORTED_AGENTS)}, names, or all."
                 )
             agent = SUPPORTED_AGENTS[index]
         else:
@@ -461,8 +455,8 @@ def parse_agent_selection(
 
 def prompt_coding_agents(
     default: Any = "opencode",
-    input_fn: Optional[Callable[..., str]] = None,
-) -> List[str]:
+    input_fn: Callable[..., str] | None = None,
+) -> list[str]:
     """
     Ask which coding agents to install.
 
@@ -478,17 +472,14 @@ def prompt_coding_agents(
     for index, agent in enumerate(SUPPORTED_AGENTS, start=1):
         print(f"  {index}. {agent} ({AGENT_LABELS[agent]})")
     default_label = ",".join(defaults)
-    answer = ask(
-        "Coding agents to include (numbers, names, or all) "
-        f"[{default_label}]: "
-    )
+    answer = ask(f"Coding agents to include (numbers, names, or all) [{default_label}]: ")
     return parse_agent_selection(answer, default=defaults)
 
 
 def prompt_default_agent(
     selected: Sequence[str],
     default: Any = None,
-    input_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
 ) -> str:
     """
     Ask which selected agent ``rig attach`` should open.
@@ -507,11 +498,7 @@ def prompt_default_agent(
             candidate = None
         if candidate in agents:
             preferred = candidate
-    by_number = {
-        str(index): agent
-        for index, agent in enumerate(SUPPORTED_AGENTS, start=1)
-        if agent in agents
-    }
+    by_number = {str(index): agent for index, agent in enumerate(SUPPORTED_AGENTS, start=1) if agent in agents}
     print("Default agent for rig attach:")
     for number, agent in by_number.items():
         print(f"  {number}. {agent} ({AGENT_LABELS[agent]})")
@@ -522,15 +509,9 @@ def prompt_default_agent(
     if answer.isdigit():
         numbered = by_number.get(answer)
         if not numbered:
-            raise ValueError(
-                f"Default agent number {answer} is not one of the selected agents "
-                f"({', '.join(agents)})"
-            )
+            raise ValueError(f"Default agent number {answer} is not one of the selected agents ({', '.join(agents)})")
         return numbered
     chosen = normalize_agent_type(answer)
     if chosen not in agents:
-        raise ValueError(
-            f"Default agent {chosen!r} was not selected. "
-            f"Choose one of: {', '.join(agents)}"
-        )
+        raise ValueError(f"Default agent {chosen!r} was not selected. Choose one of: {', '.join(agents)}")
     return chosen

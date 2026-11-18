@@ -3,21 +3,22 @@ Real E2E storage tests (require real Hetzner credentials)
 Converted from test_real_e2e_storage.sh and real_e2e_test.sh
 """
 
-import pytest
-import os
-import sys
 import json
-import tempfile
+import os
 import shutil
-from unittest.mock import patch, MagicMock, call
+import sys
+import tempfile
+from unittest.mock import MagicMock, call, patch
+
+import pytest
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def test_requires_credentials():
     """Check if credentials are available for E2E tests"""
-    return os.getenv('HETZNER_CLOUD_API_TOKEN') is not None
+    return os.getenv("HETZNER_CLOUD_API_TOKEN") is not None
 
 
 @pytest.mark.requires_credentials
@@ -29,7 +30,7 @@ class TestRealE2EStorage:
     @pytest.fixture(autouse=True)
     def check_credentials(self, hetzner_token):
         """Check if credentials are available"""
-        if not hetzner_token or hetzner_token == 'test-hetzner-token-12345':
+        if not hetzner_token or hetzner_token == "test-hetzner-token-12345":
             pytest.skip("Requires real Hetzner Cloud API token")
 
     def test_real_list_buckets(self, hetzner_token):
@@ -61,18 +62,18 @@ class TestRealE2EStorage:
         storage = StorageManager()
         content = "Real E2E test content"
         test_file = str(tmp_path / "real_test.txt")
-        with open(test_file, 'w') as f:
+        with open(test_file, "w") as f:
             f.write(content)
 
         assert storage.create_bucket(test_bucket_name) is True
         try:
-            assert storage.upload_file(test_bucket_name, test_file, 'real_test.txt') is True
+            assert storage.upload_file(test_bucket_name, test_file, "real_test.txt") is True
             download_path = str(tmp_path / "real_downloaded.txt")
-            assert storage.download_file(test_bucket_name, 'real_test.txt', download_path) is True
+            assert storage.download_file(test_bucket_name, "real_test.txt", download_path) is True
             with open(download_path) as downloaded:
                 assert downloaded.read() == content
         finally:
-            storage.delete_object(test_bucket_name, 'real_test.txt')
+            storage.delete_object(test_bucket_name, "real_test.txt")
             storage.delete_bucket(test_bucket_name)
 
     def test_real_delete_operations(self, hetzner_token, test_bucket_name):
@@ -81,7 +82,7 @@ class TestRealE2EStorage:
 
         storage = StorageManager()
         assert storage.create_bucket(test_bucket_name) is True
-        assert storage.delete_object(test_bucket_name, 'nonexistent.txt') is True
+        assert storage.delete_object(test_bucket_name, "nonexistent.txt") is True
         assert storage.delete_bucket(test_bucket_name) is True
 
     def test_complete_e2e_workflow(self, hetzner_token, test_bucket_name, tmp_path):
@@ -95,21 +96,21 @@ class TestRealE2EStorage:
 
         # 2. Upload file
         test_file = str(tmp_path / "e2e_test.txt")
-        with open(test_file, 'w') as f:
+        with open(test_file, "w") as f:
             f.write("E2E workflow test content")
 
-        assert storage.upload_file(test_bucket_name, test_file, 'e2e_state.json') is True
+        assert storage.upload_file(test_bucket_name, test_file, "e2e_state.json") is True
 
         # 3. List objects
-        objects = storage.list_objects(test_bucket_name, '')
+        objects = storage.list_objects(test_bucket_name, "")
         assert isinstance(objects, list)
 
         # 4. Download file
         download_path = str(tmp_path / "e2e_downloaded.txt")
-        assert storage.download_file(test_bucket_name, 'e2e_state.json', download_path) is True
+        assert storage.download_file(test_bucket_name, "e2e_state.json", download_path) is True
 
         # 5. Delete object
-        assert storage.delete_object(test_bucket_name, 'e2e_state.json') is True
+        assert storage.delete_object(test_bucket_name, "e2e_state.json") is True
 
         # 6. Delete bucket
         assert storage.delete_bucket(test_bucket_name) is True
@@ -134,6 +135,7 @@ class TestRealE2EStorage:
     def test_shared_state_workflow(self, hetzner_token, tmp_path):
         """Test shared state management workflow"""
         import uuid
+
         from cli.storage import StorageManager
 
         storage = StorageManager()
@@ -147,26 +149,22 @@ class TestRealE2EStorage:
 
         # Upload shared state
         shared_file = str(tmp_path / "shared_e2e.txt")
-        with open(shared_file, 'w') as f:
-            f.write(json.dumps({
-                'shared': True,
-                'version': '1.0',
-                'timestamp': 'test'
-            }))
+        with open(shared_file, "w") as f:
+            f.write(json.dumps({"shared": True, "version": "1.0", "timestamp": "test"}))
 
-        assert storage.upload_file(bucket_name, shared_file, 'shared_state.json') is True
+        assert storage.upload_file(bucket_name, shared_file, "shared_state.json") is True
 
         # Download and verify
         download_path = str(tmp_path / "shared_e2e_downloaded.txt")
-        assert storage.download_file(bucket_name, 'shared_state.json', download_path) is True
+        assert storage.download_file(bucket_name, "shared_state.json", download_path) is True
 
-        with open(download_path, 'r') as f:
+        with open(download_path) as f:
             shared_data = json.load(f)
 
-        assert shared_data['shared'] is True
+        assert shared_data["shared"] is True
 
         # Clean up
-        storage.delete_object(bucket_name, 'shared_state.json')
+        storage.delete_object(bucket_name, "shared_state.json")
         storage.delete_bucket(bucket_name)
 
 
@@ -179,7 +177,7 @@ class TestRealE2EIntegration:
     @pytest.fixture(autouse=True)
     def check_credentials(self, hetzner_token):
         """Check if credentials are available"""
-        if not hetzner_token or hetzner_token == 'test-hetzner-token-12345':
+        if not hetzner_token or hetzner_token == "test-hetzner-token-12345":
             pytest.skip("Requires real Hetzner Cloud API token")
 
     def test_e2e_bucket_lifecycle(self, hetzner_token, test_bucket_name, tmp_path):
@@ -200,27 +198,28 @@ class TestRealE2EIntegration:
             test_file = tmp_path / "lifecycle_test.txt"
             test_file.write_text("Lifecycle test")
 
-            assert storage.upload_file(test_bucket_name, str(test_file), 'lifecycle.txt') is True
+            assert storage.upload_file(test_bucket_name, str(test_file), "lifecycle.txt") is True
 
             # List
-            objects = storage.list_objects(test_bucket_name, '')
-            assert 'lifecycle.txt' in objects
+            objects = storage.list_objects(test_bucket_name, "")
+            assert "lifecycle.txt" in objects
 
             # Download
             download_path = tmp_path / "lifecycle_downloaded.txt"
-            assert storage.download_file(test_bucket_name, 'lifecycle.txt', str(download_path)) is True
+            assert storage.download_file(test_bucket_name, "lifecycle.txt", str(download_path)) is True
             assert download_path.read_text() == "Lifecycle test"
 
             # Delete object
-            assert storage.delete_object(test_bucket_name, 'lifecycle.txt') is True
+            assert storage.delete_object(test_bucket_name, "lifecycle.txt") is True
         finally:
-            storage.delete_object(test_bucket_name, 'lifecycle.txt')
+            storage.delete_object(test_bucket_name, "lifecycle.txt")
             assert storage.delete_bucket(test_bucket_name) is True
 
     def test_e2e_with_timestamp_naming(self, hetzner_token):
         """Test bucket naming with timestamps"""
-        from cli.storage import StorageManager
         import time
+
+        from cli.storage import StorageManager
 
         storage = StorageManager()
 
@@ -250,13 +249,13 @@ class TestRealE2EIntegration:
 
         # Create and upload test file
         test_file = str(tmp_path / "cleanup_test.txt")
-        with open(test_file, 'w') as f:
+        with open(test_file, "w") as f:
             f.write("Cleanup test content")
 
-        assert storage.upload_file(bucket_name, test_file, 'cleanup.txt') is True
+        assert storage.upload_file(bucket_name, test_file, "cleanup.txt") is True
 
         # Clean up
-        storage.delete_object(bucket_name, 'cleanup.txt')
+        storage.delete_object(bucket_name, "cleanup.txt")
         storage.delete_bucket(bucket_name)
 
         # Verify cleanup (bucket should not exist)

@@ -40,3 +40,25 @@ where = ["src"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+# Mirrors the old .flake8 ignores where enabling the rule would flood the diff.
+# Tighten these gradually rather than all at once.
+ignore = [
+  "E501",  # line length: the formatter wraps code; long strings (playbooks) are left alone
+  "E402",  # module-level import not at top
+  "F401",  # unused import
+  "F841",  # unused variable
+  "F541",  # f-string without placeholders
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E731", "E741"]
+
+[tool.ruff.format]
+quote-style = "double"

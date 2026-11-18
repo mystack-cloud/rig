@@ -11,11 +11,12 @@ from cli.remote_dev import RemoteDevEnvironment
 
 
 def test_destroy_cli_does_not_pass_hetzner_token():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         instance = MagicMock()
         env_cls.return_value = instance
         assert main(["delete", "--name", "dev-37ffecd3"]) == 0
@@ -31,11 +32,12 @@ def test_destroy_cli_does_not_pass_hetzner_token():
 
 
 def test_destroy_accepts_positional_name():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         instance = MagicMock()
         env_cls.return_value = instance
         assert main(["delete", "dev-pos1"]) == 0
@@ -44,11 +46,12 @@ def test_destroy_accepts_positional_name():
 
 
 def test_destroy_accepts_multiple_names():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         instance = MagicMock()
         env_cls.return_value = instance
         assert main(["delete", "dev-a", "dev-b", "--name", "dev-c"]) == 0
@@ -58,21 +61,24 @@ def test_destroy_accepts_multiple_names():
 
 
 def test_destroy_requires_at_least_one_name(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.resolve_env_name", return_value=None):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.resolve_env_name", return_value=None),
+    ):
         assert main(["delete"]) == 1
     assert "at least one environment name" in capsys.readouterr().err.lower()
 
 
 def test_destroy_falls_back_to_last_env():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.clear_last_env"
-    ) as clear:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.clear_last_env") as clear,
+    ):
         instance = MagicMock()
         env_cls.return_value = instance
         assert main(["delete"]) == 0
@@ -106,9 +112,7 @@ def test_cleanup_resolves_then_deletes():
     env = RemoteDevEnvironment(name="dev-xyz")
     env.manager = MagicMock()
     env.manager._load_state.return_value = {
-        "environments": [
-            {"name": "dev-xyz", "id": 11, "ssh_key_id": 22, "firewall_id": 33}
-        ]
+        "environments": [{"name": "dev-xyz", "id": 11, "ssh_key_id": 22, "firewall_id": 33}]
     }
     env.manager.storage_manager = None
     env.manager.delete_vm.return_value = True
@@ -148,8 +152,9 @@ def test_cleanup_runs_finalizers_playbook_before_vm_delete(tmp_path):
         return True
 
     env.manager.delete_vm.side_effect = fake_delete_vm
-    with patch.object(env, "run_destroy_playbooks", side_effect=fake_finalizers_pb), patch.object(
-        env, "resolve_resources", return_value=True
+    with (
+        patch.object(env, "run_destroy_playbooks", side_effect=fake_finalizers_pb),
+        patch.object(env, "resolve_resources", return_value=True),
     ):
         env.cleanup(project_dir=str(tmp_path))
 
@@ -183,10 +188,13 @@ def test_run_destroy_playbooks_invokes_ansible(tmp_path):
             paths = [c.args[0] for c in instance._run_one_playbook.call_args_list]
             assert paths[0].endswith("finalize.yml")
             assert paths[1].endswith("destroy.yml")
-            assert env.run_destroy_playbooks(
-                project_dir=str(tmp_path),
-                ansible_tags=["cleanup"],
-            ) is True
+            assert (
+                env.run_destroy_playbooks(
+                    project_dir=str(tmp_path),
+                    ansible_tags=["cleanup"],
+                )
+                is True
+            )
             tagged = instance._run_one_playbook.call_args_list[-2:]
             assert tagged[0].kwargs["ansible_args"] == ["--tags", "cleanup"]
             assert tagged[1].kwargs["ansible_args"] == ["--tags", "cleanup"]

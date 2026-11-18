@@ -18,20 +18,21 @@ The test flow:
 8. Clean up the remote VM
 """
 
-import pytest
-import os
-import sys
 import json
-import time
+import os
 import subprocess
+import sys
+import time
+
+import pytest
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def test_requires_credentials():
     """Check if credentials are available for E2E tests"""
-    assert os.getenv('HETZNER_CLOUD_API_TOKEN') is not None, "Requires HETZNER_CLOUD_API_TOKEN environment variable"
+    assert os.getenv("HETZNER_CLOUD_API_TOKEN") is not None, "Requires HETZNER_CLOUD_API_TOKEN environment variable"
 
 
 @pytest.mark.requires_credentials
@@ -44,14 +45,14 @@ class TestRealE2EVPN:
     @pytest.fixture(autouse=True)
     def check_credentials(self, hetzner_token):
         """Check if credentials are available"""
-        if not hetzner_token or hetzner_token == 'test-hetzner-token-12345':
+        if not hetzner_token or hetzner_token == "test-hetzner-token-12345":
             pytest.skip("Requires real Hetzner Cloud API token")
 
     @pytest.fixture(autouse=True)
     def check_wireguard_tools(self):
         """Key generation and tunnel setup both require the wg binary."""
         try:
-            result = subprocess.run(['wg', '--version'], capture_output=True, timeout=5)
+            result = subprocess.run(["wg", "--version"], capture_output=True, timeout=5)
             if result.returncode != 0:
                 pytest.skip("wireguard-tools not available")
         except FileNotFoundError:
@@ -61,6 +62,7 @@ class TestRealE2EVPN:
     def vpn_vm_name(self, hetzner_token):
         """Generate unique VM name for VPN gateway"""
         import uuid
+
         timestamp = int(uuid.uuid4().time_low)
         return f"vpn-gw-{hetzner_token[:8]}-{timestamp}"
 
@@ -68,6 +70,7 @@ class TestRealE2EVPN:
     def test_vpn_interface(self, hetzner_token):
         """Generate unique VPN interface name"""
         import uuid
+
         timestamp = int(uuid.uuid4().time_low)
         return f"e2e-vpn-{hetzner_token[:8]}-{timestamp}"
 
@@ -81,11 +84,11 @@ class TestRealE2EVPN:
         5. Tear down
         6. Clean up
         """
-        from cli.remote_dev import RemoteDevManager, RemoteDevEnvironment
+        from cli.remote_dev import RemoteDevEnvironment, RemoteDevManager
 
         # Skip if wireguard-tools not available
         try:
-            result = subprocess.run(['wg', '--version'], capture_output=True, timeout=5)
+            result = subprocess.run(["wg", "--version"], capture_output=True, timeout=5)
             if result.returncode != 0:
                 pytest.skip("wireguard-tools not available")
         except FileNotFoundError:
@@ -121,11 +124,11 @@ class TestRealE2EVPN:
 
         config = WireGuardConfig(
             interface_name=test_vpn_interface,
-            private_key=local_keys['private_key'],
-            public_key=gateway_keys['public_key'],
+            private_key=local_keys["private_key"],
+            public_key=gateway_keys["public_key"],
             endpoint=vpn_endpoint,
             ip_address="10.0.0.2/24",
-            allowed_ips=["10.0.0.0/8"]
+            allowed_ips=["10.0.0.0/8"],
         )
 
         # Step 4: Save VPN config
@@ -138,8 +141,8 @@ class TestRealE2EVPN:
 
         assert "[Interface]" in config_content
         assert "[Peer]" in config_content
-        assert local_keys['private_key'] in config_content
-        assert gateway_keys['public_key'] in config_content
+        assert local_keys["private_key"] in config_content
+        assert gateway_keys["public_key"] in config_content
 
         print(f"VPN config saved to: {config_path}")
 
@@ -167,21 +170,22 @@ class TestRealE2EVPN:
         manager = VPNManager()
         keys = manager.generate_wireguard_keys()
 
-        assert 'private_key' in keys
-        assert 'public_key' in keys
-        assert len(keys['private_key']) > 0
-        assert len(keys['public_key']) > 0
+        assert "private_key" in keys
+        assert "public_key" in keys
+        assert len(keys["private_key"]) > 0
+        assert len(keys["public_key"]) > 0
 
         # Verify public key was derived from private key
         # (This is a basic check - full verification requires actual wg commands)
-        assert keys['private_key'] != keys['public_key']
+        assert keys["private_key"] != keys["public_key"]
 
         print("✓ Key generation test passed")
 
     def test_vpn_config_with_realistic_values(self, hetzner_token):
         """Test VPN config with realistic values"""
-        from cli.vpn import VPNManager, WireGuardConfig
         import tempfile
+
+        from cli.vpn import VPNManager, WireGuardConfig
 
         manager = VPNManager()
 
@@ -190,12 +194,12 @@ class TestRealE2EVPN:
 
         config = WireGuardConfig(
             interface_name="wg0",
-            private_key=keys['private_key'],
-            public_key=keys['public_key'],
+            private_key=keys["private_key"],
+            public_key=keys["public_key"],
             endpoint="vpn.remote-server.com:51820",
             ip_address="10.0.0.2/24",
             allowed_ips=["0.0.0.0/0", "::0/0"],
-            persistent_keepalive=25
+            persistent_keepalive=25,
         )
 
         conf = manager.generate_wireguard_conf(config)

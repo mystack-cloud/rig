@@ -150,12 +150,11 @@ def _apply(tmp_path, kinds, captured_by_kind, run_ok=True):
         return run_ok
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run),
         ):
-            result = env.apply_playbooks(
-                project_dir=str(tmp_path), playbooks=kinds, action="apply", stream=False
-            )
+            result = env.apply_playbooks(project_dir=str(tmp_path), playbooks=kinds, action="apply", stream=False)
     finally:
         try:
             os.remove("/tmp/dev-cap-key")
@@ -186,9 +185,7 @@ def test_apply_playbooks_does_not_capture_destroy(tmp_path):
 
 
 def test_apply_playbooks_failed_run_saves_nothing(tmp_path):
-    env, ok = _apply(
-        tmp_path, ("materialize",), {"materialize": {"rig_outputs": {"x": 1}}}, run_ok=False
-    )
+    env, ok = _apply(tmp_path, ("materialize",), {"materialize": {"rig_outputs": {"x": 1}}}, run_ok=False)
     assert not ok
     env.manager.save_outputs.assert_not_called()
 

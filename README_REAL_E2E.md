@@ -31,15 +31,16 @@ Replace the simulation methods in `src/cli/storage.py` with actual Hetzner Objec
 import boto3
 from botocore.exceptions import ClientError
 
+
 def create_bucket(self, bucket_name: str) -> bool:
     """Create a new bucket using Hetzner Object Storage"""
     try:
         # Initialize S3 client with Hetzner endpoint
         s3_client = boto3.client(
-            's3',
+            "s3",
             endpoint_url=self.endpoint_url,
             aws_access_key_id=self.hetzner_token,  # This would be handled by Hetzner
-            aws_secret_access_key=self.hetzner_token  # This would be handled by Hetzner
+            aws_secret_access_key=self.hetzner_token,  # This would be handled by Hetzner
         )
         s3_client.create_bucket(Bucket=bucket_name)
         print(f"Bucket '{bucket_name}' created successfully")
@@ -47,6 +48,7 @@ def create_bucket(self, bucket_name: str) -> bool:
     except ClientError as e:
         print(f"Error creating bucket: {e}")
         return False
+
 
 # Similar implementations for other methods...
 ```

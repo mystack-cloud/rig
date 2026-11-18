@@ -72,9 +72,7 @@ def test_firewall_source_ips_dynamic_replace_overwrites():
 
 
 def test_firewall_source_ips_static_and_open():
-    assert firewall_source_ips(
-        {"mode": "static", "allowed_ips": ["203.0.113.0/24"]}
-    ) == ["203.0.113.0/24"]
+    assert firewall_source_ips({"mode": "static", "allowed_ips": ["203.0.113.0/24"]}) == ["203.0.113.0/24"]
     assert "0.0.0.0/0" in firewall_source_ips({"mode": "open"})
 
 
@@ -91,9 +89,7 @@ def test_detect_client_public_ip_parses_ipify(monkeypatch):
 
 
 def test_normalize_firewall_ports_accepts_forms():
-    ports = normalize_firewall_ports(
-        [8080, "3000-3001", {"port": 53, "protocol": "udp", "description": "DNS"}]
-    )
+    ports = normalize_firewall_ports([8080, "3000-3001", {"port": 53, "protocol": "udp", "description": "DNS"}])
     assert ports == [
         {
             "protocol": "tcp",
@@ -192,13 +188,9 @@ def test_static_firewall_still_opens_when_allowed_ips_empty():
 def test_client_ip_required_when_only_a_port_is_dynamic():
     cfg = {"mode": "static", "allowed_ips": ["203.0.113.0/24"]}
     assert firewall_config_needs_client_ip(cfg, [{"port": 443, "mode": "open"}]) is False
-    assert firewall_config_needs_client_ip(
-        cfg, [{"port": 8080, "mode": "dynamic_add"}]
-    ) is True
+    assert firewall_config_needs_client_ip(cfg, [{"port": 8080, "mode": "dynamic_add"}]) is True
     # SSH stays on the firewall mode, so a dynamic override on port 22 does not count.
-    assert firewall_config_needs_client_ip(
-        cfg, [{"port": 22, "mode": "dynamic_add"}]
-    ) is False
+    assert firewall_config_needs_client_ip(cfg, [{"port": 22, "mode": "dynamic_add"}]) is False
 
 
 def test_firewall_port_parsing_edge_cases():
@@ -251,11 +243,7 @@ def test_set_firewall_rules_posts_per_port_sources():
         firewall_cfg={"mode": "dynamic_add", "allowed_ips": ["203.0.113.0/24"]},
         client_ip="203.0.113.9",
     )
-    by_port = {
-        rule.get("port"): rule["source_ips"]
-        for rule in captured["data"]["rules"]
-        if rule.get("port")
-    }
+    by_port = {rule.get("port"): rule["source_ips"] for rule in captured["data"]["rules"] if rule.get("port")}
     assert by_port["22"] == ["203.0.113.9/32"]
     assert by_port["443"] == ["0.0.0.0/0", "::/0"]
     assert by_port["9090"] == ["203.0.113.9/32", "198.51.100.10/32"]
@@ -478,10 +466,11 @@ def test_attach_refreshes_firewall(monkeypatch):
     with open("/tmp/dev-x-key", "w", encoding="utf-8") as handle:
         handle.write("key\n")
     try:
-        with patch("cli.main.RemoteDevEnvironment", return_value=instance), patch(
-            "cli.main.StorageManager", side_effect=ValueError("no")
-        ), patch("cli.main.resolve_env_name", return_value="dev-x"), patch(
-            "cli.main.remember_last_env"
+        with (
+            patch("cli.main.RemoteDevEnvironment", return_value=instance),
+            patch("cli.main.StorageManager", side_effect=ValueError("no")),
+            patch("cli.main.resolve_env_name", return_value="dev-x"),
+            patch("cli.main.remember_last_env"),
         ):
             assert main(["attach"]) == 0
         instance.ensure_firewall_access.assert_called_once()

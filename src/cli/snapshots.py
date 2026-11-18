@@ -6,7 +6,8 @@ import hashlib
 import json
 import os
 import re
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any, Optional
 
 from cli import DISTRIBUTION_NAME
 
@@ -27,7 +28,7 @@ RIG_AGENT_LABEL_KEY = "rig_agent"
 # ---------------------------------------------------------------------------
 
 # Values that change what system.yml installs (agent CLIs, gh/glab, code-server).
-SYSTEM_SNAPSHOT_VAR_KEYS: Tuple[str, ...] = (
+SYSTEM_SNAPSHOT_VAR_KEYS: tuple[str, ...] = (
     "coding_agent_type",
     "coding_agent_types",
     "git_providers",
@@ -39,7 +40,7 @@ SYSTEM_SNAPSHOT_VAR_KEYS: Tuple[str, ...] = (
 # Values that change what workspace.yml configures (clone layout, root path).
 # ``git`` is the clone_repos structure (repo URLs / dests / password_var *names*
 # only — not secret values).
-WORKSPACE_SNAPSHOT_VAR_KEYS: Tuple[str, ...] = (
+WORKSPACE_SNAPSHOT_VAR_KEYS: tuple[str, ...] = (
     "workspace_root",
     "git",
 )
@@ -49,10 +50,12 @@ def package_version() -> str:
     """Installed package version (fallback ``0.0.0``)."""
     try:
         from importlib.metadata import version as pkg_version
+
         return pkg_version(DISTRIBUTION_NAME)
     except Exception:
         try:
             from importlib_metadata import version as pkg_version_fallback
+
             return pkg_version_fallback(DISTRIBUTION_NAME)
         except Exception:
             return "0.0.0"
@@ -69,7 +72,7 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
 
 
-def _project_merged_vars(project) -> Dict[str, Any]:
+def _project_merged_vars(project) -> dict[str, Any]:
     """Merge rig.yml + vars for snapshot map extraction (no personal vault files)."""
     cfg = dict(getattr(project, "config", None) or {})
     vars_cfg = dict(getattr(project, "vars_config", None) or {})
@@ -93,10 +96,10 @@ def _project_merged_vars(project) -> Dict[str, Any]:
 def extract_snapshot_var_map(
     project,
     keys: Iterable[str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Pull the declared snapshot keys from a loaded project."""
     merged = _project_merged_vars(project)
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for key in keys:
         if key not in merged:
             continue
@@ -108,7 +111,7 @@ def extract_snapshot_var_map(
     return out
 
 
-def system_hash_inputs_from_project(project) -> Dict[str, Any]:
+def system_hash_inputs_from_project(project) -> dict[str, Any]:
     """Backward-compatible alias: system var map (+ agent for labels)."""
     var_map = extract_snapshot_var_map(project, SYSTEM_SNAPSHOT_VAR_KEYS)
     types = var_map.get("coding_agent_types")
@@ -132,7 +135,7 @@ def _hash_bytes(*parts: bytes) -> str:
 
 def _read_text(path: str) -> str:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             return handle.read()
     except (OSError, UnicodeDecodeError):
         return ""
@@ -141,13 +144,13 @@ def _read_text(path: str) -> str:
 def system_content_hash(
     project=None,
     *,
-    var_map: Optional[Dict[str, Any]] = None,
-    playbook_body: Optional[str] = None,
-    project_dir: Optional[str] = None,
+    var_map: dict[str, Any] | None = None,
+    playbook_body: str | None = None,
+    project_dir: str | None = None,
     # Legacy kwargs kept for older call sites / tests:
-    agent_type: Optional[str] = None,
-    editor: Optional[str] = None,
-    git_providers: Optional[Iterable[str]] = None,
+    agent_type: str | None = None,
+    editor: str | None = None,
+    git_providers: Iterable[str] | None = None,
 ) -> str:
     """
     Hash for system snapshots: var map + ``provision.yml`` + ``configure.yml``
@@ -183,12 +186,14 @@ def system_content_hash(
         if not body:
             try:
                 from cli.remote_dev import PROVISION_PLAYBOOK
+
                 body = PROVISION_PLAYBOOK
             except Exception:
                 body = ""
         if not configure_body:
             try:
                 from cli.remote_dev import CONFIGURE_PLAYBOOK
+
                 configure_body = CONFIGURE_PLAYBOOK
             except Exception:
                 configure_body = ""
@@ -207,7 +212,7 @@ def system_content_hash(
     return _hash_bytes(*parts)
 
 
-def iter_workspace_hash_paths(project_dir: str) -> List[str]:
+def iter_workspace_hash_paths(project_dir: str) -> list[str]:
     """
     Files that feed the workspace snapshot hash (for tests / debugging).
 
@@ -216,7 +221,7 @@ def iter_workspace_hash_paths(project_dir: str) -> List[str]:
     and ``authorize.yml`` / ``provision.yml`` are excluded.
     """
     project_dir = os.path.abspath(project_dir)
-    paths: List[str] = []
+    paths: list[str] = []
     for rel in (".rig/materialize.yml", ".rig/vars.yml"):
         path = os.path.join(project_dir, rel)
         if os.path.isfile(path):
@@ -235,12 +240,13 @@ def workspace_content_hash(project_dir: str, project=None) -> str:
     if project is None:
         try:
             from cli.remote_dev import ProjectConfig
+
             project = ProjectConfig(project_dir)
             project.load()
         except Exception:
             project = None
 
-    var_map: Dict[str, Any] = {}
+    var_map: dict[str, Any] = {}
     if project is not None:
         var_map = extract_snapshot_var_map(project, WORKSPACE_SNAPSHOT_VAR_KEYS)
         # Name from rig.yml is part of workspace identity for clones/layout.
@@ -266,8 +272,8 @@ def workspace_content_hash(project_dir: str, project=None) -> str:
 
 
 def system_snapshot_name(
-    version: Optional[str] = None,
-    content_hash: Optional[str] = None,
+    version: str | None = None,
+    content_hash: str | None = None,
     **kwargs: Any,
 ) -> str:
     """Snapshot description after configure (build layer): ``rig-{version}-{hash}``."""
@@ -285,29 +291,25 @@ def workspace_snapshot_name(workspace_name: str, content_hash: str) -> str:
 
 
 def system_snapshot_labels(
-    version: Optional[str] = None,
-    content_hash: Optional[str] = None,
+    version: str | None = None,
+    content_hash: str | None = None,
     *,
-    agent_type: Optional[str] = None,
+    agent_type: str | None = None,
     **kwargs: Any,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     ver = sanitize_snapshot_token(version or package_version(), max_len=32)
-    digest = content_hash or system_content_hash(
-        agent_type=agent_type, **kwargs
-    )
+    digest = content_hash or system_content_hash(agent_type=agent_type, **kwargs)
     labels = {
         RIG_LABEL_KEY: SYSTEM_LABEL,
         RIG_VERSION_LABEL_KEY: ver,
         RIG_HASH_LABEL_KEY: sanitize_snapshot_token(digest, max_len=16),
     }
     if agent_type:
-        labels[RIG_AGENT_LABEL_KEY] = sanitize_snapshot_token(
-            str(agent_type), max_len=16
-        )
+        labels[RIG_AGENT_LABEL_KEY] = sanitize_snapshot_token(str(agent_type), max_len=16)
     return labels
 
 
-def workspace_snapshot_labels(workspace_name: str, content_hash: str) -> Dict[str, str]:
+def workspace_snapshot_labels(workspace_name: str, content_hash: str) -> dict[str, str]:
     return {
         RIG_LABEL_KEY: WORKSPACE_LABEL,
         RIG_WORKSPACE_LABEL_KEY: sanitize_snapshot_token(workspace_name, max_len=40),
@@ -316,46 +318,38 @@ def workspace_snapshot_labels(workspace_name: str, content_hash: str) -> Dict[st
 
 
 def is_system_snapshot(
-    image: Dict[str, Any],
-    version: Optional[str] = None,
-    content_hash: Optional[str] = None,
+    image: dict[str, Any],
+    version: str | None = None,
+    content_hash: str | None = None,
 ) -> bool:
     labels = image.get("labels") or {}
     description = image.get("description") or ""
     if labels.get(RIG_LABEL_KEY) == SYSTEM_LABEL:
         if version is None and content_hash is None:
             return True
-        if version is not None and labels.get(
-            RIG_VERSION_LABEL_KEY
-        ) != sanitize_snapshot_token(version, max_len=32):
+        if version is not None and labels.get(RIG_VERSION_LABEL_KEY) != sanitize_snapshot_token(version, max_len=32):
             return False
-        if content_hash is not None and labels.get(
-            RIG_HASH_LABEL_KEY
-        ) != sanitize_snapshot_token(content_hash, max_len=16):
+        if content_hash is not None and labels.get(RIG_HASH_LABEL_KEY) != sanitize_snapshot_token(
+            content_hash, max_len=16
+        ):
             return False
         return True
-    expected = (
-        system_snapshot_name(version, content_hash=content_hash)
-        if version and content_hash
-        else None
-    )
+    expected = system_snapshot_name(version, content_hash=content_hash) if version and content_hash else None
     if expected:
         return description == expected
     return bool(re.match(r"^rig-[A-Za-z0-9._-]+$", description))
 
 
 def is_workspace_snapshot(
-    image: Dict[str, Any],
-    workspace_name: Optional[str] = None,
+    image: dict[str, Any],
+    workspace_name: str | None = None,
 ) -> bool:
     labels = image.get("labels") or {}
     description = image.get("description") or ""
     if labels.get(RIG_LABEL_KEY) == WORKSPACE_LABEL:
         if workspace_name is None:
             return True
-        return labels.get(RIG_WORKSPACE_LABEL_KEY) == sanitize_snapshot_token(
-            workspace_name, max_len=40
-        )
+        return labels.get(RIG_WORKSPACE_LABEL_KEY) == sanitize_snapshot_token(workspace_name, max_len=40)
     if workspace_name:
         prefix = f"workspace-{sanitize_snapshot_token(workspace_name, max_len=40)}-"
         return description.startswith(prefix)
@@ -363,14 +357,14 @@ def is_workspace_snapshot(
 
 
 def filter_snapshots(
-    images: Iterable[Dict[str, Any]],
+    images: Iterable[dict[str, Any]],
     *,
     system: bool = False,
-    workspace_name: Optional[str] = None,
-    version: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    workspace_name: str | None = None,
+    version: str | None = None,
+) -> list[dict[str, Any]]:
     """Filter snapshot images by kind (legacy helper for broad selects)."""
-    selected: List[Dict[str, Any]] = []
+    selected: list[dict[str, Any]] = []
     for image in images:
         if image.get("type") and image.get("type") != "snapshot":
             continue
@@ -386,12 +380,12 @@ def filter_snapshots(
 _TRAILING_HASH_RE = re.compile(r"-([A-Za-z0-9]{8,16})$")
 
 
-def _trailing_hash(description: str) -> Optional[str]:
+def _trailing_hash(description: str) -> str | None:
     match = _TRAILING_HASH_RE.search(description or "")
     return match.group(1) if match else None
 
 
-def _parse_system_description(description: str) -> Tuple[Optional[str], Optional[str]]:
+def _parse_system_description(description: str) -> tuple[str | None, str | None]:
     """Return ``(version, hash)`` from ``rig-{version}`` or ``rig-{version}-{hash}``."""
     if not (description or "").startswith("rig-"):
         return None, None
@@ -404,7 +398,7 @@ def _parse_system_description(description: str) -> Tuple[Optional[str], Optional
 
 def _parse_workspace_description(
     description: str,
-) -> Tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """Return ``(workspace_name, hash)`` from ``workspace-{name}-{hash}``."""
     if not (description or "").startswith("workspace-"):
         return None, None
@@ -415,7 +409,7 @@ def _parse_workspace_description(
     return rest or None, None
 
 
-def describe_snapshot(image: Dict[str, Any]) -> Dict[str, Any]:
+def describe_snapshot(image: dict[str, Any]) -> dict[str, Any]:
     """
     Normalize a Hetzner image into ``kind`` / identity fields for cache logic.
 
@@ -434,9 +428,7 @@ def describe_snapshot(image: Dict[str, Any]) -> Dict[str, Any]:
         parsed_ver, parsed_hash = _parse_system_description(description)
         version = version or parsed_ver
         digest = digest or parsed_hash
-    elif labels.get(RIG_LABEL_KEY) == WORKSPACE_LABEL or description.startswith(
-        "workspace-"
-    ):
+    elif labels.get(RIG_LABEL_KEY) == WORKSPACE_LABEL or description.startswith("workspace-"):
         kind = "workspace"
         parsed_ws, parsed_hash = _parse_workspace_description(description)
         workspace = workspace or parsed_ws
@@ -445,9 +437,7 @@ def describe_snapshot(image: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "kind": kind,
         "version": sanitize_snapshot_token(version, max_len=32) if version else None,
-        "workspace": (
-            sanitize_snapshot_token(workspace, max_len=40) if workspace else None
-        ),
+        "workspace": (sanitize_snapshot_token(workspace, max_len=40) if workspace else None),
         "hash": sanitize_snapshot_token(digest, max_len=16) if digest else None,
         "description": description or str(image.get("id") or ""),
         "id": image.get("id"),
@@ -456,15 +446,15 @@ def describe_snapshot(image: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def find_unused_snapshots(
-    images: Iterable[Dict[str, Any]],
+    images: Iterable[dict[str, Any]],
     *,
-    current_version: Optional[str] = None,
-    current_system_hash: Optional[str] = None,
-    current_workspace_name: Optional[str] = None,
-    current_workspace_hash: Optional[str] = None,
+    current_version: str | None = None,
+    current_system_hash: str | None = None,
+    current_workspace_name: str | None = None,
+    current_workspace_hash: str | None = None,
     include_system: bool = True,
     include_workspace: bool = True,
-) -> Dict[str, List[Dict[str, Any]]]:
+) -> dict[str, list[dict[str, Any]]]:
     """
     Split rig snapshots into ``keep`` (current) and ``unused`` (stale).
 
@@ -472,26 +462,12 @@ def find_unused_snapshots(
     boot from. Workspace unused are limited to ``current_workspace_name`` when
     set; system unused cover any older version or non-matching system hash.
     """
-    keep: List[Dict[str, Any]] = []
-    unused: List[Dict[str, Any]] = []
-    cur_ver = (
-        sanitize_snapshot_token(current_version, max_len=32) if current_version else None
-    )
-    cur_sys = (
-        sanitize_snapshot_token(current_system_hash, max_len=16)
-        if current_system_hash
-        else None
-    )
-    cur_ws = (
-        sanitize_snapshot_token(current_workspace_name, max_len=40)
-        if current_workspace_name
-        else None
-    )
-    cur_ws_hash = (
-        sanitize_snapshot_token(current_workspace_hash, max_len=16)
-        if current_workspace_hash
-        else None
-    )
+    keep: list[dict[str, Any]] = []
+    unused: list[dict[str, Any]] = []
+    cur_ver = sanitize_snapshot_token(current_version, max_len=32) if current_version else None
+    cur_sys = sanitize_snapshot_token(current_system_hash, max_len=16) if current_system_hash else None
+    cur_ws = sanitize_snapshot_token(current_workspace_name, max_len=40) if current_workspace_name else None
+    cur_ws_hash = sanitize_snapshot_token(current_workspace_hash, max_len=16) if current_workspace_hash else None
 
     for image in images:
         if image.get("type") and image.get("type") != "snapshot":
@@ -499,12 +475,7 @@ def find_unused_snapshots(
         meta = describe_snapshot(image)
         kind = meta["kind"]
         if kind == "system" and include_system:
-            is_current = bool(
-                cur_ver
-                and cur_sys
-                and meta.get("version") == cur_ver
-                and meta.get("hash") == cur_sys
-            )
+            is_current = bool(cur_ver and cur_sys and meta.get("version") == cur_ver and meta.get("hash") == cur_sys)
             if is_current:
                 meta["reason"] = "current system snapshot"
                 keep.append(meta)
@@ -526,10 +497,7 @@ def find_unused_snapshots(
             if cur_ws and meta.get("workspace") != cur_ws:
                 continue
             is_current = bool(
-                cur_ws
-                and cur_ws_hash
-                and meta.get("workspace") == cur_ws
-                and meta.get("hash") == cur_ws_hash
+                cur_ws and cur_ws_hash and meta.get("workspace") == cur_ws and meta.get("hash") == cur_ws_hash
             )
             if is_current:
                 meta["reason"] = "current workspace snapshot"
@@ -548,15 +516,15 @@ def find_unused_snapshots(
     return {"keep": keep, "unused": unused}
 
 
-def _snapshot_usable(image: Dict[str, Any]) -> bool:
+def _snapshot_usable(image: dict[str, Any]) -> bool:
     status = (image.get("status") or "available").lower()
     return status == "available"
 
 
 def find_snapshot_by_description(
-    images: Iterable[Dict[str, Any]],
+    images: Iterable[dict[str, Any]],
     description: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     for image in images:
         if image.get("type") and image.get("type") != "snapshot":
             continue
@@ -569,13 +537,13 @@ def find_snapshot_by_description(
 
 
 def resolve_boot_snapshot(
-    images: Iterable[Dict[str, Any]],
+    images: Iterable[dict[str, Any]],
     *,
     workspace_name: str,
     content_hash: str,
-    version: Optional[str] = None,
-    system_hash: Optional[str] = None,
-) -> Dict[str, Any]:
+    version: str | None = None,
+    system_hash: str | None = None,
+) -> dict[str, Any]:
     """
     Pick a boot snapshot for faster create.
 

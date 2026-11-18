@@ -5,18 +5,17 @@ Main entry point for the remote development environment CLI
 
 import argparse
 import json
-import sys
 import os
-from typing import List, Optional
+import sys
+from typing import Optional
 
 # Add the src directory to the path so we can import our modules
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 
-from cli.storage import StorageManager
-from cli.config import RigConfig
-from cli.encrypt import interactive_decrypt, interactive_encrypt
 from cli import DISTRIBUTION_NAME
 from cli import log as log
+from cli.config import RigConfig
+from cli.encrypt import interactive_decrypt, interactive_encrypt
 from cli.last_env import clear_last_env, remember_last_env, resolve_env_name
 from cli.last_session import (
     agent_args_request_session,
@@ -33,6 +32,7 @@ from cli.remote_dev import (
     interactive_env_init,
     normalize_cloud_provider,
 )
+from cli.storage import StorageManager
 
 
 def _load_credentials() -> bool:
@@ -44,14 +44,17 @@ def _load_credentials() -> bool:
         log.warning("Could not load ~/.rig/config: %s", exc)
         return False
 
+
 # Import package version. The two libraries export the same function name;
 # bind them separately so the type checker does not see a redefinition.
 try:
     from importlib.metadata import version as package_version
+
     __version__ = package_version(DISTRIBUTION_NAME)
 except ImportError:
     try:
         from importlib_metadata import version as package_version_fallback
+
         __version__ = package_version_fallback(DISTRIBUTION_NAME)
     except ImportError:
         __version__ = "0.1.0"
@@ -81,12 +84,9 @@ def _cmd_create(args: argparse.Namespace) -> int:
                 available,
             )
             return 1
-        hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+        hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
         if not hetzner_token:
-            log.error(
-                "Hetzner credentials missing. "
-                "Run 'rig init' or set HETZNER_CLOUD_API_TOKEN"
-            )
+            log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
             return 1
         if getattr(args, "type", None):
             host_cfg["server_type"] = args.type
@@ -101,14 +101,8 @@ def _cmd_create(args: argparse.Namespace) -> int:
             config={"host": host_cfg},
             storage_manager=storage_manager,
         )
-        force_system = bool(
-            getattr(args, "force_system", False)
-            or getattr(args, "force_playbooks", False)
-        )
-        force_workspace = bool(
-            getattr(args, "force_workspace", False)
-            or getattr(args, "force_playbooks", False)
-        )
+        force_system = bool(getattr(args, "force_system", False) or getattr(args, "force_playbooks", False))
+        force_workspace = bool(getattr(args, "force_workspace", False) or getattr(args, "force_playbooks", False))
         if not env.setup(project_dir=os.getcwd()):
             return 1
 
@@ -181,7 +175,7 @@ def _attach_name_and_remainder(
 
 def _cmd_attach(args: argparse.Namespace) -> int:
     _load_credentials()
-    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
@@ -223,8 +217,8 @@ def _cmd_attach(args: argparse.Namespace) -> int:
 
         project = ProjectConfig(os.getcwd())
         project.load()
-        from cli.remote_dev import configured_agents
         from cli.agents import normalize_agent_type
+        from cli.remote_dev import configured_agents
 
         configured, default_agent = configured_agents(project)
         requested = getattr(args, "agent", None)
@@ -236,8 +230,7 @@ def _cmd_attach(args: argparse.Namespace) -> int:
                 return 1
             if agent_type not in configured:
                 log.error(
-                    "Coding agent '%s' is not enabled for this workspace "
-                    "(enabled: %s)",
+                    "Coding agent '%s' is not enabled for this workspace (enabled: %s)",
                     agent_type,
                     ", ".join(configured),
                 )
@@ -253,11 +246,7 @@ def _cmd_attach(args: argparse.Namespace) -> int:
             if stored:
                 session_id, stored_agent = stored
                 resume_agent = stored_agent or agent_type
-                if (
-                    not requested
-                    and stored_agent
-                    and stored_agent in configured
-                ):
+                if not requested and stored_agent and stored_agent in configured:
                     agent_type = stored_agent
                     resume_agent = stored_agent
                 if requested and stored_agent and stored_agent != agent_type:
@@ -296,7 +285,7 @@ def _cmd_attach(args: argparse.Namespace) -> int:
 def _cmd_ssh(args: argparse.Namespace) -> int:
     """Open a shell on an existing environment, or run one remote command."""
     _load_credentials()
-    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
@@ -341,6 +330,7 @@ def _cmd_ssh(args: argparse.Namespace) -> int:
         env.ensure_firewall_access(project_dir=os.getcwd())
         remember_last_env(env.name)
         import shlex
+
         remote = shlex.join(remainder) if remainder else None
         return env.open_ssh(remote_command=remote)
     except Exception as e:
@@ -354,7 +344,7 @@ def _env_for_readonly_cmd(args: argparse.Namespace, usage: str, need_storage: bo
     Returns ``(env, name)`` on success, or ``(None, exit_code)``.
     """
     _load_credentials()
-    if not os.getenv('HETZNER_CLOUD_API_TOKEN'):
+    if not os.getenv("HETZNER_CLOUD_API_TOKEN"):
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return None, 1
     name = resolve_env_name(getattr(args, "name", None), getattr(args, "name_flag", None))
@@ -375,6 +365,7 @@ def _env_for_readonly_cmd(args: argparse.Namespace, usage: str, need_storage: bo
 def _cmd_inspect(args: argparse.Namespace) -> int:
     """Print the technical details of one environment."""
     from cli.outputs import format_kv
+
     env, name = _env_for_readonly_cmd(args, "rig inspect [name] [--json]")
     if env is None:
         return name
@@ -404,9 +395,8 @@ def _cmd_describe(args: argparse.Namespace) -> int:
         format_kv,
         mask_outputs,
     )
-    env, name = _env_for_readonly_cmd(
-        args, "rig describe [name] [--json] [--show-secrets]", need_storage=True
-    )
+
+    env, name = _env_for_readonly_cmd(args, "rig describe [name] [--json] [--show-secrets]", need_storage=True)
     if env is None:
         return name
     try:
@@ -438,7 +428,7 @@ def _cmd_describe(args: argparse.Namespace) -> int:
 def _cmd_apply(args: argparse.Namespace) -> int:
     """Re-run lifecycle playbooks on an existing environment."""
     _load_credentials()
-    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
@@ -535,7 +525,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
 
 def _cmd_dev(args: argparse.Namespace) -> int:
     _load_credentials()
-    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
@@ -569,8 +559,8 @@ def _cmd_dev(args: argparse.Namespace) -> int:
         project.load()
         enabled, default_editor = configured_editors(project)
         requested = getattr(args, "editor", None)
-        editor: Optional[str] = None
-        editor_fallbacks: Optional[List[str]] = None
+        editor: str | None = None
+        editor_fallbacks: list[str] | None = None
         if requested:
             try:
                 editor = normalize_editor_type(requested)
@@ -608,7 +598,7 @@ def _cmd_dev(args: argparse.Namespace) -> int:
 
 def _cmd_list(args: argparse.Namespace) -> int:
     _load_credentials()
-    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
@@ -638,17 +628,17 @@ def _cmd_list(args: argparse.Namespace) -> int:
 
 def _cmd_delete(args: argparse.Namespace) -> int:
     _load_credentials()
-    hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
         log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
 
     names: list = []
-    for value in (getattr(args, "names", None) or []):
+    for value in getattr(args, "names", None) or []:
         if value and value not in names:
             names.append(value)
     # Back-compat: --name can still be passed (once or repeated).
-    for value in (getattr(args, "name_flags", None) or []):
+    for value in getattr(args, "name_flags", None) or []:
         if value and value not in names:
             names.append(value)
     if getattr(args, "name", None):
@@ -754,17 +744,11 @@ def _cache_select_snapshots(
             project_dir = os.getcwd()
             project = ProjectConfig(project_dir)
             if project.load() and project.config:
-                ws_name = project.config.get("name") or os.path.basename(
-                    project_dir.rstrip(os.sep)
-                )
+                ws_name = project.config.get("name") or os.path.basename(project_dir.rstrip(os.sep))
                 from cli.snapshots import sanitize_snapshot_token
 
                 cur = sanitize_snapshot_token(str(ws_name), max_len=40)
-                targets = [
-                    m
-                    for m in targets
-                    if m.get("kind") != "workspace" or m.get("workspace") == cur
-                ]
+                targets = [m for m in targets if m.get("kind") != "workspace" or m.get("workspace") == cur]
         label = f"{scope} snapshot(s)"
         return [], targets, label
 
@@ -776,9 +760,7 @@ def _cache_select_snapshots(
             "(use --all to include every matching snapshot)"
         )
 
-    workspace_name = project.config.get("name") or os.path.basename(
-        project_dir.rstrip(os.sep)
-    )
+    workspace_name = project.config.get("name") or os.path.basename(project_dir.rstrip(os.sep))
     workspace_hash = workspace_content_hash(project_dir, project=project)
     version = package_version()
     sys_inputs = system_hash_inputs_from_project(project)
@@ -811,9 +793,7 @@ def _cmd_cache(args: argparse.Namespace) -> int:
     _load_credentials()
     hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not hetzner_token:
-        log.error(
-            "Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN"
-        )
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
         return 1
 
     assume_yes = bool(getattr(args, "yes", False))
@@ -875,9 +855,7 @@ def _cmd_cache(args: argparse.Namespace) -> int:
 
     if not assume_yes:
         try:
-            answer = input(
-                f"Delete {len(targets)} {label}? [y/N]: "
-            ).strip().lower()
+            answer = input(f"Delete {len(targets)} {label}? [y/N]: ").strip().lower()
         except EOFError:
             answer = ""
         if answer not in ("y", "yes"):
@@ -979,9 +957,7 @@ def _cmd_vars_export_shared_key(args: argparse.Namespace) -> int:
 
 def main(argv=None):
     """Main CLI entry point"""
-    parser = argparse.ArgumentParser(
-        description="RIG - Remote Development Environment CLI"
-    )
+    parser = argparse.ArgumentParser(description="RIG - Remote Development Environment CLI")
     parser.add_argument("--version", action="version", version=f"rig {__version__}")
     parser.add_argument(
         "-v",
@@ -1045,10 +1021,7 @@ def main(argv=None):
     create_parser.add_argument(
         "--force-playbooks",
         action="store_true",
-        help=(
-            "Run provision/configure/materialize even when booting from a "
-            "matching snapshot (authorize always runs)"
-        ),
+        help=("Run provision/configure/materialize even when booting from a matching snapshot (authorize always runs)"),
     )
     create_parser.add_argument(
         "--force-system",
@@ -1063,10 +1036,7 @@ def main(argv=None):
 
     apply_parser = subparsers.add_parser(
         "apply",
-        help=(
-            "Re-run lifecycle playbooks on an existing env "
-            "(default: authorize then materialize)"
-        ),
+        help=("Re-run lifecycle playbooks on an existing env (default: authorize then materialize)"),
     )
     apply_parser.add_argument(
         "name",
@@ -1113,10 +1083,7 @@ def main(argv=None):
         action="append",
         default=None,
         metavar="TAGS",
-        help=(
-            "Ansible --tags for every playbook in this run "
-            "(comma-separated; may be repeated)."
-        ),
+        help=("Ansible --tags for every playbook in this run (comma-separated; may be repeated)."),
     )
     # Legacy aliases
     apply_parser.add_argument(
@@ -1173,8 +1140,7 @@ def main(argv=None):
         "--agent",
         dest="agent",
         help=(
-            "Coding agent to open when several are configured "
-            "(opencode, claude, or cursor). Defaults to agent.default"
+            "Coding agent to open when several are configured (opencode, claude, or cursor). Defaults to agent.default"
         ),
     )
     attach_parser.add_argument(
@@ -1307,10 +1273,7 @@ def main(argv=None):
 
     delete_parser = subparsers.add_parser(
         "delete",
-        help=(
-            "Delete remote environments (runs finalize then destroy playbooks first; "
-            "uses last env if name omitted)"
-        ),
+        help=("Delete remote environments (runs finalize then destroy playbooks first; uses last env if name omitted)"),
     )
     delete_parser.add_argument(
         "names",
@@ -1329,10 +1292,7 @@ def main(argv=None):
         action="append",
         default=None,
         metavar="TAGS",
-        help=(
-            "Ansible --tags for the finalize and destroy playbooks "
-            "(comma-separated; may be repeated)"
-        ),
+        help=("Ansible --tags for the finalize and destroy playbooks (comma-separated; may be repeated)"),
     )
 
     vars_parser = subparsers.add_parser(
@@ -1346,9 +1306,7 @@ def main(argv=None):
 
     encrypt_parser = vars_subparsers.add_parser(
         "encrypt",
-        help=(
-            "Encrypt a value (shared vars.yml, or identity file with --personal / PAT names)"
-        ),
+        help=("Encrypt a value (shared vars.yml, or identity file with --personal / PAT names)"),
     )
     encrypt_parser.add_argument(
         "--stdin-name",
@@ -1387,8 +1345,7 @@ def main(argv=None):
     mcp_add = mcp_subparsers.add_parser(
         "add",
         help="Add an MCP server (stdio: put the command after --; remote: --url)",
-        usage="rig mcp add NAME [--env KEY[=VALUE]]... [--header KEY=VALUE]... "
-              "(--url URL | -- COMMAND [ARGS...])",
+        usage="rig mcp add NAME [--env KEY[=VALUE]]... [--header KEY=VALUE]... (--url URL | -- COMMAND [ARGS...])",
         description=(
             "Examples:\n"
             "  rig mcp add awx --env AWX_MCP_API_KEY -- python3 -u /opt/awx.py\n"
@@ -1402,15 +1359,22 @@ def main(argv=None):
     mcp_add.add_argument("--url", help="Remote server URL")
     mcp_add.add_argument("--type", choices=["http", "sse"], help="Remote transport (default http)")
     mcp_add.add_argument(
-        "--env", action="append", default=[], metavar="KEY[=VALUE]",
+        "--env",
+        action="append",
+        default=[],
+        metavar="KEY[=VALUE]",
         help="Env var for a command server; bare KEY means KEY=${KEY}",
     )
     mcp_add.add_argument(
-        "--header", action="append", default=[], metavar="KEY=VALUE",
+        "--header",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
         help="Header for a remote server",
     )
     mcp_add.add_argument(
-        "--personal", action="store_true",
+        "--personal",
+        action="store_true",
         help="Store prompted secrets in vars.{identity}.yml instead of shared vars.yml",
     )
     mcp_add.add_argument("--force", action="store_true", help="Replace an existing server")
@@ -1420,12 +1384,12 @@ def main(argv=None):
     mcp_subparsers.add_parser("check", help="Validate .rig/mcp.json; exit 1 on problems")
 
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    server_command: List[str] = []
+    server_command: list[str] = []
     # `rig mcp add NAME [options] -- COMMAND ARGS...`: argparse would let a
     # trailing positional swallow the options, so split at `--` ourselves.
     if "--" in raw_argv and "mcp" in raw_argv and "add" in raw_argv:
         cut = raw_argv.index("--")
-        raw_argv, server_command = raw_argv[:cut], raw_argv[cut + 1:]
+        raw_argv, server_command = raw_argv[:cut], raw_argv[cut + 1 :]
     args = parser.parse_args(raw_argv)
     args.server_command = server_command
     verbosity = int(getattr(args, "verbose", 0) or 0)

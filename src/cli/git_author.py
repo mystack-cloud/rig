@@ -20,7 +20,8 @@ attribute the commits to somebody else.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 NAME_VAR = "git_author_name"
 EMAIL_VAR = "git_author_email"
@@ -34,7 +35,7 @@ def _clean(value: Any) -> str:
     return " ".join(value.split())
 
 
-def derive_git_author(identity: str) -> Dict[str, str]:
+def derive_git_author(identity: str) -> dict[str, str]:
     """Author derived from the rig identity alone."""
     name = _clean(identity)
     return {
@@ -45,8 +46,8 @@ def derive_git_author(identity: str) -> Dict[str, str]:
 
 def resolve_git_author(
     identity: str,
-    get_var: Optional[Callable[[str], Any]] = None,
-) -> Dict[str, str]:
+    get_var: Callable[[str], Any] | None = None,
+) -> dict[str, str]:
     """Resolve ``{"name": ..., "email": ...}``; either may override separately.
 
     ``get_var`` looks a key up in the project vars (``project.get_vars``).

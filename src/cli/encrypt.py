@@ -16,7 +16,8 @@ import re
 import secrets
 import subprocess
 import sys
-from typing import Callable, Optional, TextIO
+from collections.abc import Callable
+from typing import Optional, TextIO
 
 from cli.vault_keys import (
     DEFAULT_DATA_KEY_PATH,
@@ -45,7 +46,7 @@ _VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VSCODE_BROWSER_PASSWORD_VAR = "vscode_browser_password"
 
 
-def read_data_key(path: str = DEFAULT_DATA_KEY_PATH) -> Optional[str]:
+def read_data_key(path: str = DEFAULT_DATA_KEY_PATH) -> str | None:
     return read_data_key_file(path)
 
 
@@ -55,9 +56,9 @@ def write_data_key(data_key: str, path: str = DEFAULT_DATA_KEY_PATH) -> None:
 
 def ensure_data_key(
     path: str = DEFAULT_DATA_KEY_PATH,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
-    project_dir: Optional[str] = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
+    project_dir: str | None = None,
 ) -> str:
     """
     Ensure ephemeral data keys exist under ``/tmp/.rig``.
@@ -73,7 +74,7 @@ def ensure_data_key(
     root = resolve_project_dir(project_dir)
     # Prefer unwrapping master-key wraps when present.
     try:
-        from cli.vault_keys import read_wrap_fields, personal_vars_path, resolve_identity
+        from cli.vault_keys import personal_vars_path, read_wrap_fields, resolve_identity
 
         wraps = read_wrap_fields(personal_vars_path(root, resolve_identity()))
         if wraps:
@@ -125,14 +126,11 @@ def ensure_data_key(
 def validate_var_name(name: str) -> str:
     name = name.strip()
     if not name or not _VAR_NAME_RE.match(name):
-        raise ValueError(
-            "Variable name must match [A-Za-z_][A-Za-z0-9_]* "
-            f"(got {name!r})"
-        )
+        raise ValueError(f"Variable name must match [A-Za-z_][A-Za-z0-9_]* (got {name!r})")
     return name
 
 
-def resolve_project_dir(start: Optional[str] = None) -> str:
+def resolve_project_dir(start: str | None = None) -> str:
     """Prefer the nearest ancestor with ``rig.yml`` (cwd or git subfolder).
 
     Falls back to the git toplevel when no ``rig.yml`` is found above ``start``,
@@ -166,10 +164,10 @@ def resolve_project_dir(start: Optional[str] = None) -> str:
 
 
 def vars_path_for_project(
-    project_dir: Optional[str] = None,
+    project_dir: str | None = None,
     *,
     personal: bool = False,
-    identity: Optional[str] = None,
+    identity: str | None = None,
 ) -> str:
     """Return shared ``vars.yml`` or identity ``vars.{id}.yml`` path."""
     root = resolve_project_dir(project_dir)
@@ -201,7 +199,7 @@ def upsert_vault_var(vars_path: str, name: str, vault_block: str) -> None:
 
     existing = ""
     if os.path.exists(vars_path):
-        with open(vars_path, "r", encoding="utf-8") as handle:
+        with open(vars_path, encoding="utf-8") as handle:
             existing = handle.read()
 
     cleaned = _remove_top_level_key(existing, name).rstrip()
@@ -229,7 +227,7 @@ def encrypt_named_value(
     plaintext: str,
     name: str,
     vault_password_file: str = DEFAULT_DATA_KEY_PATH,
-    vault_id: Optional[str] = None,
+    vault_id: str | None = None,
 ) -> str:
     """Encrypt plaintext as an Ansible inventory/vars entry named `name`."""
     name = validate_var_name(name)
@@ -257,9 +255,7 @@ def encrypt_named_value(
             check=False,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            "ansible-vault not found. Install Ansible to use rig vars encrypt."
-        ) from exc
+        raise RuntimeError("ansible-vault not found. Install Ansible to use rig vars encrypt.") from exc
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "unknown error").strip()
@@ -294,8 +290,8 @@ def _echo_disabled(stream: TextIO):
 def encrypt_stdin(
     vault_password_file: str = DEFAULT_DATA_KEY_PATH,
     stdin_name: str = "",
-    stdin: Optional[TextIO] = None,
-    vault_id: Optional[str] = None,
+    stdin: TextIO | None = None,
+    vault_id: str | None = None,
 ) -> str:
     """Encrypt stdin until EOF (Ctrl+D) using ansible-vault --stdin-name.
 
@@ -317,14 +313,12 @@ def encrypt_stdin(
         plaintext = source.read()
     if plaintext == "":
         raise ValueError("Value to encrypt is required")
-    return encrypt_named_value(
-        plaintext, name, vault_password_file, vault_id=vault_id
-    )
+    return encrypt_named_value(plaintext, name, vault_password_file, vault_id=vault_id)
 
 
 def read_variable_name(
-    default: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
+    default: str | None = None,
+    input_fn: Callable[..., str] | None = None,
 ) -> str:
     ask = input_fn or input
     suffix = f" [{default}]" if default else ""
@@ -337,8 +331,8 @@ def read_variable_name(
 
 
 def read_single_line_value(
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
 ) -> str:
     """Read one line to encrypt (default encrypt mode), hidden while typing.
 
@@ -355,10 +349,10 @@ def read_single_line_value(
 def store_encrypted_var(
     name: str,
     plaintext: str,
-    project_dir: Optional[str] = None,
-    data_key_path: Optional[str] = None,
+    project_dir: str | None = None,
+    data_key_path: str | None = None,
     *,
-    personal: Optional[bool] = None,
+    personal: bool | None = None,
 ) -> str:
     """Encrypt plaintext as `name` into shared or personal vars file."""
     if personal is None:
@@ -381,8 +375,8 @@ def store_encrypted_var(
 def _prompt_secret_with_env_fallback(
     label: str,
     env_name: str,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
 ) -> str:
     ask_secret = secret_fn or getpass.getpass
     ask = input_fn or input
@@ -406,7 +400,7 @@ PROVIDER_ENV_VARS = {
 }
 
 
-def detect_git_provider(url: str) -> Optional[str]:
+def detect_git_provider(url: str) -> str | None:
     """Return 'github' or 'gitlab' when the remote URL is a known host."""
     if not url:
         return None
@@ -418,7 +412,7 @@ def detect_git_provider(url: str) -> Optional[str]:
     return None
 
 
-def git_providers_from_repos(repos: Optional[list]) -> list:
+def git_providers_from_repos(repos: list | None) -> list:
     """Unique git providers (github/gitlab) referenced by workspace repos."""
     found: list = []
     for repo in repos or []:
@@ -484,7 +478,7 @@ def to_https_git_url(url: str) -> str:
 def _prompt_yes_no(
     message: str,
     default: bool = True,
-    input_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
 ) -> bool:
     ask = input_fn or input
     suffix = " [Y/n]" if default else " [y/N]"
@@ -496,8 +490,8 @@ def _prompt_yes_no(
 
 def collect_repo_pats(
     repos: list,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
 ) -> tuple:
     """
     Ask for a PAT for each GitHub/GitLab repo (HTTPS or SSH).
@@ -530,16 +524,11 @@ def collect_repo_pats(
             continue
         if _is_ssh_git_url(url):
             print(
-                f"Note: '{name}' uses SSH remote; "
-                f"will clone via {to_https_git_url(url)} and use PAT for {provider} CLI"
+                f"Note: '{name}' uses SSH remote; will clone via {to_https_git_url(url)} and use PAT for {provider} CLI"
             )
 
         if provider in provider_shared:
-            shared_label = (
-                f"default {provider}_pat"
-                if provider in default_pats
-                else f"shared {provider} PAT"
-            )
+            shared_label = f"default {provider}_pat" if provider in default_pats else f"shared {provider} PAT"
             label = f"PAT for '{name}' ({provider}) [Enter reuses {shared_label}]"
             try:
                 value = ask_secret(f"{label}: ").strip()
@@ -586,7 +575,7 @@ def collect_repo_pats(
 def resolve_repo_pat_var_names(
     assignments: dict,
     repos: list,
-    default_pats: Optional[dict] = None,
+    default_pats: dict | None = None,
 ) -> tuple:
     """
     Map repo PATs to variable names.
@@ -631,8 +620,8 @@ def resolve_repo_pat_var_names(
 
 def prompt_store_as_personal(
     kind: str,
-    identity: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
+    identity: str | None = None,
+    input_fn: Callable[..., str] | None = None,
 ) -> bool:
     """
     Confirm whether to store a secret in ``vars.{identity}.yml`` (default yes).
@@ -651,25 +640,21 @@ def prompt_store_as_personal(
 
 def store_repo_pats(
     to_store: dict,
-    project_dir: Optional[str] = None,
-    data_key_path: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    project_dir: str | None = None,
+    data_key_path: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
     *,
-    personal: Optional[bool] = None,
+    personal: bool | None = None,
 ) -> bool:
     """Encrypt and upsert each PAT (default: identity/personal vars file)."""
     if not to_store:
         return False
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     if personal is None:
         personal = prompt_store_as_personal("git PAT(s)", input_fn=input_fn)
-    key_path = data_key_path or (
-        PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH
-    )
+    key_path = data_key_path or (PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH)
     for var_name, plaintext in to_store.items():
         store_encrypted_var(
             var_name,
@@ -684,11 +669,11 @@ def store_repo_pats(
 
 
 def prompt_and_store_git_pat(
-    project_dir: Optional[str] = None,
+    project_dir: str | None = None,
     data_key_path: str = DEFAULT_DATA_KEY_PATH,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
-    repos: Optional[list] = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
+    repos: list | None = None,
 ) -> dict:
     """
     Prompt for GitHub/GitLab PATs for the given repos and store them encrypted.
@@ -697,9 +682,7 @@ def prompt_and_store_git_pat(
     prompt (legacy). Returns ``{repo_name: var_name}`` for assigned PATs.
     """
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     key_path = data_key_path or PERSONAL_DATA_KEY_PATH
     if not repos:
         pat = _prompt_secret_with_env_fallback(
@@ -720,12 +703,8 @@ def prompt_and_store_git_pat(
         )
         return {}
 
-    assignments, default_pats = collect_repo_pats(
-        repos, input_fn=input_fn, secret_fn=secret_fn
-    )
-    password_vars, to_store = resolve_repo_pat_var_names(
-        assignments, repos, default_pats=default_pats
-    )
+    assignments, default_pats = collect_repo_pats(repos, input_fn=input_fn, secret_fn=secret_fn)
+    password_vars, to_store = resolve_repo_pat_var_names(assignments, repos, default_pats=default_pats)
     store_repo_pats(
         to_store,
         project_dir=root,
@@ -737,15 +716,15 @@ def prompt_and_store_git_pat(
 
 
 def prompt_and_store_coding_agent_credentials(
-    project_dir: Optional[str] = None,
-    data_key_path: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
-    agent_type: Optional[str] = None,
+    project_dir: str | None = None,
+    data_key_path: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
+    agent_type: str | None = None,
     *,
-    personal: Optional[bool] = None,
-    var_name: Optional[str] = None,
-    env_name: Optional[str] = None,
+    personal: bool | None = None,
+    var_name: str | None = None,
+    env_name: str | None = None,
 ) -> bool:
     """
     Ask for one coding agent API key and store it.
@@ -776,9 +755,7 @@ def prompt_and_store_coding_agent_credentials(
     else:
         env_var = "RIG_CODING_AGENT_API_KEY"
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     if agent_normalized == "opencode":
         skip_hint = " [Enter = OpenCode free models]"
     elif agent_normalized == "cursor":
@@ -795,26 +772,16 @@ def prompt_and_store_coding_agent_credentials(
     )
     if not api_key:
         if agent_normalized == "opencode":
-            print(
-                f"Skipping {stored_name} (no key provided); "
-                "OpenCode will use free models"
-            )
+            print(f"Skipping {stored_name} (no key provided); OpenCode will use free models")
         elif agent_normalized == "cursor":
-            print(
-                f"Skipping {stored_name} (no key provided); "
-                "set a Cursor user API key before rig attach"
-            )
+            print(f"Skipping {stored_name} (no key provided); set a Cursor user API key before rig attach")
         else:
             print(f"Skipping {stored_name} (no key provided)")
         return False
 
     if personal is None:
-        personal = prompt_store_as_personal(
-            "coding agent API key", input_fn=input_fn
-        )
-    key_path = data_key_path or (
-        PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH
-    )
+        personal = prompt_store_as_personal("coding agent API key", input_fn=input_fn)
+    key_path = data_key_path or (PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH)
     store_encrypted_var(
         stored_name,
         api_key,
@@ -829,12 +796,12 @@ def prompt_and_store_coding_agent_credentials(
 
 def prompt_and_store_coding_agents_credentials(
     agent_types: list,
-    project_dir: Optional[str] = None,
-    data_key_path: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    project_dir: str | None = None,
+    data_key_path: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
     *,
-    personal: Optional[bool] = None,
+    personal: bool | None = None,
 ) -> dict:
     """
     Ask for a distinct API key per selected coding agent.
@@ -851,9 +818,7 @@ def prompt_and_store_coding_agents_credentials(
 
     selected = coerce_agent_types(agent_types)
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     collected: dict = {}
     for agent in selected:
         label = f"{AGENT_LABELS.get(agent, agent)} API key"
@@ -871,10 +836,7 @@ def prompt_and_store_coding_agents_credentials(
         )
         if not api_key:
             if agent == "opencode":
-                print(
-                    f"Skipping {AGENT_API_KEY_VARS[agent]} (no key provided); "
-                    "OpenCode will use free models"
-                )
+                print(f"Skipping {AGENT_API_KEY_VARS[agent]} (no key provided); OpenCode will use free models")
             elif agent == "cursor":
                 print(
                     f"Skipping {AGENT_API_KEY_VARS[agent]} (no key provided); "
@@ -886,13 +848,9 @@ def prompt_and_store_coding_agents_credentials(
         collected[agent] = api_key
 
     if collected and personal is None:
-        personal = prompt_store_as_personal(
-            "coding agent API keys", input_fn=input_fn
-        )
+        personal = prompt_store_as_personal("coding agent API keys", input_fn=input_fn)
     if collected:
-        key_path = data_key_path or (
-            PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH
-        )
+        key_path = data_key_path or (PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH)
         scope = "personal" if personal else "shared"
         for agent, api_key in collected.items():
             var_name = AGENT_API_KEY_VARS[agent]
@@ -908,9 +866,9 @@ def prompt_and_store_coding_agents_credentials(
 
 
 def read_vscode_browser_password(
-    project_dir: Optional[str] = None,
-    data_key_path: Optional[str] = None,
-) -> Optional[str]:
+    project_dir: str | None = None,
+    data_key_path: str | None = None,
+) -> str | None:
     """Decrypt ``vscode_browser_password`` when present and decryptable."""
     root = resolve_project_dir(project_dir)
     try:
@@ -932,8 +890,8 @@ def read_vscode_browser_password(
 
 
 def ensure_vscode_browser_password(
-    project_dir: Optional[str] = None,
-    data_key_path: Optional[str] = None,
+    project_dir: str | None = None,
+    data_key_path: str | None = None,
     *,
     force: bool = False,
 ) -> bool:
@@ -963,14 +921,14 @@ def ensure_vscode_browser_password(
 
 
 def interactive_encrypt(
-    path: Optional[str] = None,
-    stdin_name: Optional[str] = None,
-    project_dir: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
-    stdin: Optional[TextIO] = None,
+    path: str | None = None,
+    stdin_name: str | None = None,
+    project_dir: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
+    stdin: TextIO | None = None,
     *,
-    personal: Optional[bool] = None,
+    personal: bool | None = None,
 ) -> str:
     """
     Unlock data keys, encrypt a value, and store it in shared or personal vars.
@@ -1025,10 +983,7 @@ def interactive_encrypt(
 def require_data_key_file(path: str = DEFAULT_DATA_KEY_PATH) -> str:
     """Return the data key path, or raise if the temporary key is missing."""
     if not os.path.exists(path):
-        raise ValueError(
-            f"Temporary data key not found at {path}. "
-            "Run 'rig vars encrypt' first to create it."
-        )
+        raise ValueError(f"Temporary data key not found at {path}. Run 'rig vars encrypt' first to create it.")
     return path
 
 
@@ -1056,14 +1011,10 @@ def extract_var_block(vars_content: str, name: str) -> str:
 
 def decrypt_vault_blob(
     ciphertext: str,
-    vault_password_file: Optional[str] = None,
+    vault_password_file: str | None = None,
 ) -> str:
     """Decrypt ansible-vault ciphertext using personal and/or shared data keys."""
-    body = (
-        extract_vault_ciphertext(ciphertext)
-        if "$ANSIBLE_VAULT" in ciphertext
-        else ciphertext
-    )
+    body = extract_vault_ciphertext(ciphertext) if "$ANSIBLE_VAULT" in ciphertext else ciphertext
 
     import tempfile
 
@@ -1081,9 +1032,7 @@ def decrypt_vault_blob(
         if pair not in " ".join(vault_ids):
             vault_ids.extend(["--vault-id", pair])
     if not vault_ids:
-        raise ValueError(
-            "No data keys under /tmp/.rig. Unlock with your personal master key first."
-        )
+        raise ValueError("No data keys under /tmp/.rig. Unlock with your personal master key first.")
 
     fd, temp_path = tempfile.mkstemp(prefix="rig-vault-", suffix=".txt")
     try:
@@ -1099,9 +1048,7 @@ def decrypt_vault_blob(
                 check=False,
             )
         except FileNotFoundError as exc:
-            raise RuntimeError(
-                "ansible-vault not found. Install Ansible to use rig vars decrypt."
-            ) from exc
+            raise RuntimeError("ansible-vault not found. Install Ansible to use rig vars decrypt.") from exc
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "unknown error").strip()
             raise RuntimeError(f"ansible-vault decrypt failed: {detail}")
@@ -1115,9 +1062,9 @@ def decrypt_vault_blob(
 
 def decrypt_var(
     name: str,
-    vars_path: Optional[str] = None,
-    vault_password_file: Optional[str] = None,
-    project_dir: Optional[str] = None,
+    vars_path: str | None = None,
+    vault_password_file: str | None = None,
+    project_dir: str | None = None,
 ) -> str:
     """Decrypt a named variable from shared or personal vars using data keys."""
     name = validate_var_name(name)
@@ -1126,13 +1073,12 @@ def decrypt_var(
         path = vars_path
         key_file = vault_password_file or (
             PERSONAL_DATA_KEY_PATH
-            if os.path.basename(path).startswith("vars.")
-            and os.path.basename(path) != "vars.yml"
+            if os.path.basename(path).startswith("vars.") and os.path.basename(path) != "vars.yml"
             else SHARED_DATA_KEY_PATH
         )
         if not os.path.exists(path):
             raise ValueError(f"vars file not found at {path}")
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             content = handle.read()
         block = extract_var_block(content, name)
         return decrypt_vault_blob(block, vault_password_file=key_file)
@@ -1143,12 +1089,12 @@ def decrypt_var(
         (vars_path_for_project(root, personal=True), PERSONAL_DATA_KEY_PATH),
         (vars_path_for_project(root, personal=False), SHARED_DATA_KEY_PATH),
     ]
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     for path, key_file in candidates:
         if not os.path.exists(path):
             continue
         try:
-            with open(path, "r", encoding="utf-8") as handle:
+            with open(path, encoding="utf-8") as handle:
                 content = handle.read()
             block = extract_var_block(content, name)
             key = vault_password_file or key_file
@@ -1161,11 +1107,11 @@ def decrypt_var(
     raise ValueError(f"Variable '{name}' not found in personal or shared vars")
 
 
-def list_vault_var_names(vars_path: Optional[str] = None, project_dir: Optional[str] = None) -> list[str]:
+def list_vault_var_names(vars_path: str | None = None, project_dir: str | None = None) -> list[str]:
     path = vars_path or vars_path_for_project(project_dir)
     if not os.path.exists(path):
         return []
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         content = handle.read()
     names = []
     for match in re.finditer(r"^([A-Za-z_][A-Za-z0-9_]*):\s*!vault\b", content, re.MULTILINE):
@@ -1173,7 +1119,7 @@ def list_vault_var_names(vars_path: Optional[str] = None, project_dir: Optional[
     return names
 
 
-def list_all_vault_vars(project_dir: Optional[str] = None) -> list[tuple[str, str]]:
+def list_all_vault_vars(project_dir: str | None = None) -> list[tuple[str, str]]:
     """Return ``(name, scope)`` for vaulted vars (scope: shared|identity)."""
     root = resolve_project_dir(project_dir)
     out: list[tuple[str, str]] = []
@@ -1189,10 +1135,10 @@ def list_all_vault_vars(project_dir: Optional[str] = None) -> list[tuple[str, st
 
 
 def interactive_decrypt(
-    path: Optional[str] = None,
-    name: Optional[str] = None,
-    project_dir: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
+    path: str | None = None,
+    name: str | None = None,
+    project_dir: str | None = None,
+    input_fn: Callable[..., str] | None = None,
 ) -> str:
     """Decrypt a variable from personal or shared vars after unlock."""
     root = resolve_project_dir(project_dir)
@@ -1210,9 +1156,9 @@ def interactive_decrypt(
 
 
 def export_shared_data_key(
-    project_dir: Optional[str] = None,
-    input_fn: Optional[Callable[..., str]] = None,
-    secret_fn: Optional[Callable[..., str]] = None,
+    project_dir: str | None = None,
+    input_fn: Callable[..., str] | None = None,
+    secret_fn: Callable[..., str] | None = None,
 ) -> str:
     """Unlock and return the plaintext shared data key (for teammate onboarding)."""
     root = resolve_project_dir(project_dir)

@@ -19,9 +19,11 @@ def test_ensure_data_key_prompts_and_writes(tmp_path, monkeypatch):
     monkeypatch.setattr(enc, "SHARED_DATA_KEY_PATH", str(tmp_path / "s"))
     monkeypatch.setattr(enc, "DEFAULT_DATA_KEY_PATH", str(tmp_path / "d"))
 
-    with patch("cli.encrypt.read_data_key", return_value=None), patch(
-        "cli.vault_keys.read_wrap_fields", return_value={}
-    ), patch("cli.encrypt.write_data_key") as write:
+    with (
+        patch("cli.encrypt.read_data_key", return_value=None),
+        patch("cli.vault_keys.read_wrap_fields", return_value={}),
+        patch("cli.encrypt.write_data_key") as write,
+    ):
         key = enc.ensure_data_key(
             path,
             input_fn=lambda _p: "secret-key",
@@ -35,8 +37,9 @@ def test_ensure_data_key_mismatch(tmp_path):
     from cli import encrypt as enc
 
     path = str(tmp_path / "key")
-    with patch("cli.encrypt.read_data_key", return_value=None), patch(
-        "cli.vault_keys.read_wrap_fields", return_value={}
+    with (
+        patch("cli.encrypt.read_data_key", return_value=None),
+        patch("cli.vault_keys.read_wrap_fields", return_value={}),
     ):
         with pytest.raises(ValueError, match="match"):
             enc.ensure_data_key(
@@ -52,9 +55,11 @@ def test_prompt_and_store_git_pat_legacy(tmp_path, monkeypatch):
     (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\n")
     (tmp_path / ".rig").mkdir()
 
-    with patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")), patch(
-        "cli.encrypt.store_encrypted_var"
-    ) as store, patch.dict(os.environ, {"RIG_GITHUB_PAT": "tok"}):
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.store_encrypted_var") as store,
+        patch.dict(os.environ, {"RIG_GITHUB_PAT": "tok"}),
+    ):
         out = enc.prompt_and_store_git_pat(
             project_dir=str(tmp_path),
             repos=None,
@@ -69,15 +74,13 @@ def test_prompt_coding_agent_credentials(tmp_path, monkeypatch):
     from cli import encrypt as enc
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "rig.yml").write_text(
-        "name: demo\nkind: workspace\nagent:\n  type: claude\n"
-    )
+    (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\nagent:\n  type: claude\n")
     (tmp_path / ".rig").mkdir()
 
-    with patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")), patch(
-        "cli.encrypt.store_encrypted_var"
-    ) as store, patch(
-        "cli.encrypt._prompt_secret_with_env_fallback", return_value="ak"
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.store_encrypted_var") as store,
+        patch("cli.encrypt._prompt_secret_with_env_fallback", return_value="ak"),
     ):
         assert (
             enc.prompt_and_store_coding_agent_credentials(
@@ -98,9 +101,11 @@ def test_coding_agent_key_env_selection_and_invalid_type(tmp_path, monkeypatch):
     (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\n")
     (tmp_path / ".rig").mkdir()
 
-    with patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")), patch(
-        "cli.encrypt.store_encrypted_var"
-    ), patch("cli.encrypt._prompt_secret_with_env_fallback", return_value="") as ask:
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.store_encrypted_var"),
+        patch("cli.encrypt._prompt_secret_with_env_fallback", return_value="") as ask,
+    ):
         assert (
             enc.prompt_and_store_coding_agent_credentials(
                 project_dir=str(tmp_path),
@@ -132,9 +137,11 @@ def test_multi_agent_keys_skip_each_provider(tmp_path, monkeypatch):
     (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\n")
     (tmp_path / ".rig").mkdir()
 
-    with patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")), patch(
-        "cli.encrypt.store_encrypted_var"
-    ), patch("cli.encrypt._prompt_secret_with_env_fallback", return_value=""):
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.store_encrypted_var"),
+        patch("cli.encrypt._prompt_secret_with_env_fallback", return_value=""),
+    ):
         stored = enc.prompt_and_store_coding_agents_credentials(
             ["opencode", "cursor", "claude"],
             project_dir=str(tmp_path),
@@ -151,14 +158,16 @@ def test_list_all_and_export_shared(tmp_path, monkeypatch):
     (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\n")
     (tmp_path / ".rig").mkdir()
 
-    with patch("cli.encrypt.list_vault_var_names", return_value=["foo"]), patch(
-        "cli.encrypt.personal_vars_path", return_value=str(tmp_path / "missing.yml")
+    with (
+        patch("cli.encrypt.list_vault_var_names", return_value=["foo"]),
+        patch("cli.encrypt.personal_vars_path", return_value=str(tmp_path / "missing.yml")),
     ):
         rows = enc.list_all_vault_vars(project_dir=str(tmp_path))
     assert any(r[0] == "foo" for r in rows)
 
-    with patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")), patch(
-        "cli.encrypt.read_data_key", return_value="SHAREDKEY"
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.read_data_key", return_value="SHAREDKEY"),
     ):
         assert enc.export_shared_data_key(project_dir=str(tmp_path)) == "SHAREDKEY"
 
@@ -170,10 +179,11 @@ def test_interactive_encrypt_decrypt_paths(tmp_path, monkeypatch):
     (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\n")
     (tmp_path / ".rig").mkdir()
 
-    with patch("cli.encrypt.ensure_data_key", return_value="k"), patch(
-        "cli.encrypt.unlock_data_keys", return_value=("p", "s")
-    ), patch("cli.encrypt.encrypt_stdin", return_value="CIPHER"), patch(
-        "cli.encrypt.upsert_vault_var"
+    with (
+        patch("cli.encrypt.ensure_data_key", return_value="k"),
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.encrypt_stdin", return_value="CIPHER"),
+        patch("cli.encrypt.upsert_vault_var"),
     ):
         assert (
             enc.interactive_encrypt(
@@ -185,8 +195,9 @@ def test_interactive_encrypt_decrypt_paths(tmp_path, monkeypatch):
             == "CIPHER"
         )
 
-    with patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")), patch(
-        "cli.encrypt.decrypt_var", return_value="plain\n"
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.decrypt_var", return_value="plain\n"),
     ):
         assert enc.interactive_decrypt(name="foo", project_dir=str(tmp_path)) == "plain\n"
 

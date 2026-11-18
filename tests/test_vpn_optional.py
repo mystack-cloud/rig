@@ -5,12 +5,13 @@ These tests verify the VPN functionality works when wireguard-tools is available
 They are marked as optional and will be skipped if wireguard-tools is not installed.
 """
 
-import pytest
 import os
 import sys
 
+import pytest
+
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def test_saved_wireguard_config_is_private():
@@ -40,6 +41,7 @@ def test_vpn_module_available():
     """Test that VPN module can be imported"""
     try:
         from cli.vpn import VPNManager, WireGuardConfig
+
         assert VPNManager is not None
         assert WireGuardConfig is not None
     except ImportError as e:
@@ -55,7 +57,8 @@ class TestVPNOPTIONAL:
         """Check if wireguard-tools are available"""
         try:
             import subprocess
-            result = subprocess.run(['wg', '--version'], capture_output=True, timeout=5)
+
+            result = subprocess.run(["wg", "--version"], capture_output=True, timeout=5)
             if result.returncode != 0:
                 pytest.skip("wireguard-tools not available")
         except FileNotFoundError:
@@ -71,7 +74,7 @@ class TestVPNOPTIONAL:
             public_key="B1lYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
             endpoint="vpn.example.com:51820",
             ip_address="10.0.0.2/24",
-            allowed_ips=["10.0.0.0/8"]
+            allowed_ips=["10.0.0.0/8"],
         )
 
         manager = VPNManager()
@@ -88,16 +91,17 @@ class TestVPNOPTIONAL:
 
     def test_vpn_config_save(self):
         """Test saving VPN configuration to file"""
-        from cli.vpn import VPNManager, WireGuardConfig
-        import tempfile
         import os
+        import tempfile
+
+        from cli.vpn import VPNManager, WireGuardConfig
 
         config = WireGuardConfig(
             interface_name="save-test",
             private_key="cMxYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
             public_key="B1lYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
             endpoint="vpn.example.com:51820",
-            ip_address="10.0.0.2/24"
+            ip_address="10.0.0.2/24",
         )
 
         manager = VPNManager()
@@ -125,7 +129,7 @@ class TestVPNOPTIONAL:
             public_key="B1lYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
             endpoint="vpn.example.com:51820",
             ip_address="10.0.0.2",  # No subnet mask
-            subnet_mask="24"
+            subnet_mask="24",
         )
 
         manager = VPNManager()
@@ -144,7 +148,7 @@ class TestVPNOPTIONAL:
             public_key="B1lYm1lW0qP1JZ5J6Z8q1Y4m5Z5J6Z8q1Y4m5Z5J6Z8=",
             endpoint="vpn.example.com:51820",
             ip_address="10.0.0.2/24",  # Already includes subnet mask
-            subnet_mask="24"
+            subnet_mask="24",
         )
 
         manager = VPNManager()

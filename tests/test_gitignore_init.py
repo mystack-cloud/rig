@@ -55,9 +55,7 @@ def test_ensure_gitignore_skips_entries_already_present(tmp_path):
 
 def test_ensure_gitignore_fills_missing_inside_managed_block(tmp_path):
     gitignore = tmp_path / ".gitignore"
-    gitignore.write_text(
-        f"{GITIGNORE_MARKER_BEGIN}\n.rig/collections/\n{GITIGNORE_MARKER_END}\n"
-    )
+    gitignore.write_text(f"{GITIGNORE_MARKER_BEGIN}\n.rig/collections/\n{GITIGNORE_MARKER_END}\n")
     added = ensure_project_gitignore(str(tmp_path))
     assert ".rig/roles/" in added
     assert ".rig/inventory.yml" in added

@@ -10,9 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 COVERAGE_XML = ROOT / "coverage.xml"
-BADGE_RE = re.compile(
-    r"https://img\.shields\.io/badge/coverage-\d+%25-[a-z]+"
-)
+BADGE_RE = re.compile(r"https://img\.shields\.io/badge/coverage-\d+%25-[a-z]+")
 
 
 def line_percent(xml_path: Path) -> int:

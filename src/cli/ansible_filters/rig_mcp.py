@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from collections.abc import Iterable, Mapping
+from typing import Any, Optional
 
 try:  # pragma: no cover - exercised only under Ansible
     from ansible.errors import AnsibleFilterError
@@ -48,7 +49,7 @@ def _warn(message: str) -> None:
 # ---------------------------------------------------------------- parsing
 
 
-def parse_config(raw: Any) -> Dict[str, Any]:
+def parse_config(raw: Any) -> dict[str, Any]:
     """Return a validated ``{"mcpServers": {...}}`` from text, a dict or nothing."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return {"mcpServers": {}}
@@ -91,28 +92,24 @@ def validate_server(name: str, server: Any) -> None:
             raise McpConfigError(f"{where}: 'url' must be a non-empty string")
         _check_str_map(where, "headers", server.get("headers", {}))
         if server.get("type", "http") not in REMOTE_TYPES:
-            raise McpConfigError(
-                f"{where}: a 'url' server must have type 'http' or 'sse'"
-            )
+            raise McpConfigError(f"{where}: a 'url' server must have type 'http' or 'sse'")
 
 
 def _check_str_map(where: str, key: str, value: Any) -> None:
-    if not isinstance(value, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
-    ):
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
         raise McpConfigError(f"{where}: '{key}' must be an object of strings")
 
 
-def unknown_keys(server: Mapping[str, Any]) -> List[str]:
+def unknown_keys(server: Mapping[str, Any]) -> list[str]:
     return sorted(k for k in server if k not in KNOWN_KEYS)
 
 
 # -------------------------------------------------------------- variables
 
 
-def variables_in(obj: Any) -> Dict[str, bool]:
+def variables_in(obj: Any) -> dict[str, bool]:
     """Map each referenced variable name to whether it is required (no default)."""
-    found: Dict[str, bool] = {}
+    found: dict[str, bool] = {}
 
     def walk(x: Any) -> None:
         if isinstance(x, str):
@@ -130,17 +127,16 @@ def variables_in(obj: Any) -> Dict[str, bool]:
     return found
 
 
-def required_variables(obj: Any) -> List[str]:
+def required_variables(obj: Any) -> list[str]:
     return sorted(n for n, req in variables_in(obj).items() if req)
 
 
 class VariableLookup:
     """Case-insensitive lookup of variables by name."""
 
-    def __init__(self, variables: Optional[Mapping[str, Any]] = None,
-                 names: Optional[Iterable[str]] = None) -> None:
+    def __init__(self, variables: Mapping[str, Any] | None = None, names: Iterable[str] | None = None) -> None:
         self._variables = variables
-        self._by_lower: Dict[str, List[str]] = {}
+        self._by_lower: dict[str, list[str]] = {}
         keys = names if names is not None else (variables or {}).keys()
         for key in keys:
             self._by_lower.setdefault(str(key).lower(), []).append(str(key))
@@ -148,13 +144,12 @@ class VariableLookup:
     def has(self, name: str) -> bool:
         return name.lower() in self._by_lower
 
-    def get(self, name: str) -> Optional[str]:
+    def get(self, name: str) -> str | None:
         """Value as text, or None when absent or empty."""
         keys = self._by_lower.get(name.lower(), [])
         if len(keys) > 1:
             raise McpConfigError(
-                f"MCP variable {name} is ambiguous: variables {', '.join(sorted(keys))} "
-                "differ only by case"
+                f"MCP variable {name} is ambiguous: variables {', '.join(sorted(keys))} differ only by case"
             )
         if not keys or self._variables is None:
             return None
@@ -165,7 +160,7 @@ class VariableLookup:
         return text if text != "" else None
 
 
-def missing_variables(server: Any, lookup: VariableLookup) -> List[str]:
+def missing_variables(server: Any, lookup: VariableLookup) -> list[str]:
     """Required variables of one server with no (non-empty) value."""
     out = []
     for name in required_variables(server):
@@ -183,7 +178,7 @@ def missing_variables(server: Any, lookup: VariableLookup) -> List[str]:
 def resolve_value(obj: Any, lookup: VariableLookup) -> Any:
     """Substitute ``${NAME}`` / ``${NAME:-default}`` in every string, in one pass."""
 
-    def sub(m: "re.Match[str]") -> str:
+    def sub(m: re.Match[str]) -> str:
         value = lookup.get(m.group(1))
         if value is not None:
             return value
@@ -203,7 +198,7 @@ def resolve_value(obj: Any, lookup: VariableLookup) -> Any:
 # -------------------------------------------------------------- rendering
 
 
-def render_server(agent: str, server: Mapping[str, Any]) -> Dict[str, Any]:
+def render_server(agent: str, server: Mapping[str, Any]) -> dict[str, Any]:
     """Translate one resolved neutral server into an Agent's native shape."""
     if agent not in AGENTS:
         raise McpConfigError(f"unknown agent '{agent}'")
@@ -211,7 +206,7 @@ def render_server(agent: str, server: Mapping[str, Any]) -> Dict[str, Any]:
         args = list(server.get("args") or [])
         env = dict(server.get("env") or {})
         if agent == "opencode":
-            out: Dict[str, Any] = {"type": "local", "command": [server["command"], *args]}
+            out: dict[str, Any] = {"type": "local", "command": [server["command"], *args]}
             if env:
                 out["environment"] = env
             return out
@@ -241,8 +236,9 @@ def render_server(agent: str, server: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def render(config: Any, agents: Iterable[str], variables: Mapping[str, Any]
-           ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]], List[str]]:
+def render(
+    config: Any, agents: Iterable[str], variables: Mapping[str, Any]
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]], list[str]]:
     """Render ``config`` for each agent.
 
     Returns ``(servers_by_agent, skipped, warnings)``. A server with an
@@ -251,35 +247,28 @@ def render(config: Any, agents: Iterable[str], variables: Mapping[str, Any]
     """
     servers = parse_config(config)["mcpServers"]
     lookup = VariableLookup(variables)
-    warnings: List[str] = []
-    skipped: Dict[str, List[str]] = {}
-    resolved: Dict[str, Dict[str, Any]] = {}
+    warnings: list[str] = []
+    skipped: dict[str, list[str]] = {}
+    resolved: dict[str, dict[str, Any]] = {}
     for name, server in servers.items():
         extra = unknown_keys(server)
         if extra:
-            warnings.append(
-                f"MCP server '{name}': ignoring unsupported field(s) {', '.join(extra)}"
-            )
+            warnings.append(f"MCP server '{name}': ignoring unsupported field(s) {', '.join(extra)}")
         missing = missing_variables(server, lookup)
         if missing:
             skipped[name] = missing
             warnings.append(
-                f"MCP server '{name}' skipped: no value for {', '.join(missing)} "
-                "(store it with `rig vars encrypt`)"
+                f"MCP server '{name}' skipped: no value for {', '.join(missing)} (store it with `rig vars encrypt`)"
             )
             continue
-        resolved[name] = resolve_value(
-            {k: v for k, v in server.items() if k in KNOWN_KEYS}, lookup
-        )
+        resolved[name] = resolve_value({k: v for k, v in server.items() if k in KNOWN_KEYS}, lookup)
     by_agent = {
-        agent: {name: render_server(agent, s) for name, s in resolved.items()}
-        for agent in agents
-        if agent in AGENTS
+        agent: {name: render_server(agent, s) for name, s in resolved.items()} for agent in agents if agent in AGENTS
     }
     return by_agent, skipped, warnings
 
 
-def merge_servers(existing: Any, key: str, servers: Mapping[str, Any]) -> Dict[str, Any]:
+def merge_servers(existing: Any, key: str, servers: Mapping[str, Any]) -> dict[str, Any]:
     """Overlay rig-managed servers onto ``existing[key]`` by name.
 
     A same-name entry is replaced whole, not deep-merged; every other server
@@ -296,8 +285,7 @@ def merge_servers(existing: Any, key: str, servers: Mapping[str, Any]) -> Dict[s
 # ------------------------------------------------------- Ansible filters
 
 
-def rig_mcp_render(raw_config: Any, agents: Any, variables: Mapping[str, Any]
-                   ) -> Dict[str, Dict[str, Any]]:
+def rig_mcp_render(raw_config: Any, agents: Any, variables: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """``{{ raw | rig_mcp_render(agents, vars) }}`` -> ``{agent: {server: cfg}}``."""
     try:
         by_agent, _skipped, warnings = render(raw_config, list(agents or []), variables)
@@ -308,11 +296,11 @@ def rig_mcp_render(raw_config: Any, agents: Any, variables: Mapping[str, Any]
     return by_agent
 
 
-def rig_mcp_merge(existing: Any, key: str, servers: Mapping[str, Any]) -> Dict[str, Any]:
+def rig_mcp_merge(existing: Any, key: str, servers: Mapping[str, Any]) -> dict[str, Any]:
     """``{{ existing | rig_mcp_merge('mcpServers', servers) }}``."""
     return merge_servers(existing, key, servers)
 
 
-class FilterModule(object):
-    def filters(self) -> Dict[str, Any]:
+class FilterModule:
+    def filters(self) -> dict[str, Any]:
         return {"rig_mcp_render": rig_mcp_render, "rig_mcp_merge": rig_mcp_merge}
