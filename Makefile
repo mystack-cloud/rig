@@ -1,7 +1,7 @@
 VENV := .venv
 PY := $(VENV)/bin/python3
 
-.PHONY: venv install test test-e2e test-remote-dev test-remote-dev-e2e coverage run lint clean
+.PHONY: venv install test test-e2e test-remote-dev test-remote-dev-e2e coverage run lint format clean
 
 # Create local venv (avoids PEP 668 on Homebrew/system Python)
 venv: $(PY)
@@ -46,8 +46,17 @@ test-remote-dev-e2e: venv
 	$(PY) -m pytest tests/test_workspace_git_clone.py -v -m e2e
 
 # Run linting
+# Same checks as CI (ruff version pinned there)
 lint: venv
-	$(PY) -m pylint src/
+	$(PY) -m pip install -q "ruff==0.17.5"
+	$(PY) -m ruff check .
+	$(PY) -m ruff format --check .
+
+# Apply ruff's formatting and safe lint fixes
+format: venv
+	$(PY) -m pip install -q "ruff==0.17.5"
+	$(PY) -m ruff check --fix .
+	$(PY) -m ruff format .
 
 # Clean build artifacts
 clean:

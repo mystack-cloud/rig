@@ -155,7 +155,7 @@ python -m pytest tests/
 
 ### Linting
 ```bash
-pylint src/
+ruff check . && ruff format --check .
 ```
 
 ### Building Distribution
