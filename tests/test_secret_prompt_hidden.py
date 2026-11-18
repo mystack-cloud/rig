@@ -155,3 +155,115 @@ def test_piped_stdin_still_reads_everything_without_a_terminal(tmp_path):
     with patch("cli.encrypt.encrypt_named_value", return_value="v") as call:
         enc.encrypt_stdin(str(key), "name", io.StringIO("a\nb\n"))
     assert call.call_args.args[0] == "a\nb\n"
+
+
+# ---- in-process terminal tests (so coverage traces the code under test) ------------
+
+def _tty_pair():
+    """A real terminal pair inside this process: (master fd, slave as a text stream)."""
+    master, slave = os.openpty()
+    return master, os.fdopen(slave, "r")
+
+
+def _echo_on(stream):
+    import termios
+
+    return bool(termios.tcgetattr(stream.fileno())[3] & termios.ECHO)
+
+
+def test_echo_is_off_inside_the_context_and_back_on_after():
+    master, tty = _tty_pair()
+    try:
+        assert _echo_on(tty)
+        with enc._echo_disabled(tty) as hidden:
+            assert hidden is True
+            assert not _echo_on(tty)
+        assert _echo_on(tty)
+    finally:
+        tty.close()
+        os.close(master)
+
+
+def test_echo_is_restored_even_when_reading_fails():
+    master, tty = _tty_pair()
+    try:
+        with pytest.raises(RuntimeError):
+            with enc._echo_disabled(tty):
+                raise RuntimeError("boom")
+        assert _echo_on(tty)
+    finally:
+        tty.close()
+        os.close(master)
+
+
+def _feed_when_echo_is_off(master, tty, payload, *, per_char=False):
+    """Type/paste ``payload`` once the reader has turned echo off (as a user would)."""
+    import threading
+
+    def feed():
+        deadline = time.time() + 10
+        while time.time() < deadline and _echo_on(tty):
+            time.sleep(0.01)
+        for chunk in (payload if per_char else [payload]):
+            os.write(master, chunk.encode())
+            time.sleep(0.005)
+
+    thread = threading.Thread(target=feed, daemon=True)
+    thread.start()
+    return thread
+
+
+@pytest.mark.parametrize("per_char", [False, True], ids=["pasted", "typed"])
+def test_encrypt_stdin_on_a_terminal_reads_hidden(tmp_path, capsys, per_char):
+    key = tmp_path / "k"
+    key.write_text("pw\n")
+    master, tty = _tty_pair()
+    payload = f"{SECRET}\nline-two\n\x04"  # Ctrl+D ends the input
+    try:
+        feeder = _feed_when_echo_is_off(master, tty, payload, per_char=per_char)
+        with patch("cli.encrypt.encrypt_named_value", return_value="vault") as call:
+            assert enc.encrypt_stdin(str(key), "db_password", tty) == "vault"
+        feeder.join(5)
+        assert call.call_args.args[0] == f"{SECRET}\nline-two\n"
+        assert _echo_on(tty)  # restored
+        # Nothing was echoed back to the terminal.
+        ready, _, _ = select.select([master], [], [], 0.2)
+        echoed = os.read(master, 4096).decode(errors="replace") if ready else ""
+        assert SECRET not in echoed and "line-two" not in echoed
+    finally:
+        tty.close()
+        os.close(master)
+    err = capsys.readouterr().err
+    assert "input hidden" in err and "'db_password'" in err
+    assert SECRET not in err
+
+
+def test_encrypt_stdin_on_a_terminal_requires_a_value(tmp_path):
+    key = tmp_path / "k"
+    key.write_text("pw\n")
+    master, tty = _tty_pair()
+    try:
+        feeder = _feed_when_echo_is_off(master, tty, "\x04")  # immediate EOF
+        with pytest.raises(ValueError, match="required"):
+            enc.encrypt_stdin(str(key), "x", tty)
+        feeder.join(5)
+        assert _echo_on(tty)
+    finally:
+        tty.close()
+        os.close(master)
+
+
+def test_encrypt_stdin_still_works_when_echo_cannot_be_disabled(tmp_path, capsys):
+    """A tty-like stream without termios support: read anyway, just without the 'hidden' note."""
+
+    class FakeTty(io.StringIO):
+        def isatty(self):
+            return True
+
+    key = tmp_path / "k"
+    key.write_text("pw\n")
+    with patch("cli.encrypt.encrypt_named_value", return_value="v") as call:
+        enc.encrypt_stdin(str(key), "n", FakeTty("abc\n"))
+    assert call.call_args.args[0] == "abc\n"
+    err = capsys.readouterr().err
+    assert "input hidden" not in err and "finish with Ctrl+D" in err
