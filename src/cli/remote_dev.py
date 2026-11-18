@@ -653,6 +653,23 @@ def build_rig_ansible_vars(
         "rig_repos": repos,
         "rig_git_providers": list(providers or []),
     }
+    # Git author for commits made on the VM, derived from the developer identity
+    # (overridable with git_author_name / git_author_email in the vars files).
+    try:
+        from cli.vault_keys import resolve_identity
+        from cli.git_author import resolve_git_author
+
+        identity = resolve_identity()
+        author = resolve_git_author(
+            identity,
+            project.get_vars if project is not None else None,
+        )
+    except Exception:
+        identity = ""
+        author = {"name": "", "email": ""}
+    vars_out["rig_identity"] = identity
+    vars_out["rig_git_author_name"] = author["name"]
+    vars_out["rig_git_author_email"] = author["email"]
     if action:
         vars_out["rig_action"] = action
     return vars_out
@@ -1818,6 +1835,16 @@ class RemoteDevManager:
                     })
 
         return dev_envs
+
+
+# Provider tokens (GH_TOKEN / GITLAB_TOKEN) written by authorize.yml. The agent
+# is started with `ssh host '<command>'`, a non-login shell, so /etc/profile.d
+# is never read: source the file here or `gh` / `glab` inside the agent's shell
+# commands have no token.
+PROVIDER_TOKENS_ENV_FILE = "/root/.config/rig/git-provider.env"
+SOURCE_PROVIDER_TOKENS = (
+    f"[ -f {PROVIDER_TOKENS_ENV_FILE} ] && . {PROVIDER_TOKENS_ENV_FILE}; "
+)
 
 
 class RemoteDevEnvironment:
@@ -3005,6 +3032,7 @@ echo "Agent installation complete!"
                 'export PATH="$HOME/.local/bin:$PATH"; '
                 "set -a; "
                 "[ -f /root/.claude/credentials.env ] && . /root/.claude/credentials.env; "
+                f"{SOURCE_PROVIDER_TOKENS}"
                 "set +a; "
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
                 f"cd {REMOTE_WORKSPACE_ROOT} && exec claude{suffix}"
@@ -3014,6 +3042,7 @@ echo "Agent installation complete!"
                 'export PATH="$HOME/.local/bin:$PATH"; '
                 "set -a; "
                 "[ -f /root/.cursor/credentials.env ] && . /root/.cursor/credentials.env; "
+                f"{SOURCE_PROVIDER_TOKENS}"
                 "set +a; "
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
                 f"cd {REMOTE_WORKSPACE_ROOT} && exec agent --approve-mcps{suffix}"
@@ -3023,6 +3052,7 @@ echo "Agent installation complete!"
             "set -a; "
             "[ -f /root/.config/opencode/credentials.env ] && "
             ". /root/.config/opencode/credentials.env; "
+            f"{SOURCE_PROVIDER_TOKENS}"
             "set +a; "
             f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
             f"cd {REMOTE_WORKSPACE_ROOT} && exec opencode{suffix}"
@@ -4129,6 +4159,89 @@ AUTHORIZE_PLAYBOOK = r"""---
         (rig_opencode_api_key | default('') | length > 0)
         or (rig_claude_api_key | default('') | length > 0)
         or (rig_cursor_api_key | default('') | length > 0)
+
+    # Git author: a fresh VM has none, so the first commit fails with
+    # "Author identity unknown". Derived from the rig identity (see
+    # cli/git_author.py); override with git_author_name / git_author_email.
+    - name: Set the git author for commits made on the VM
+      command:
+        argv: ["git", "config", "--global", "{{ item.key }}", "{{ item.value }}"]
+      loop:
+        - { key: user.name, value: "{{ rig_git_author_name | default('') }}" }
+        - { key: user.email, value: "{{ rig_git_author_email | default('') }}" }
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      when: item.value | length > 0
+
+    # Provider tokens: kept in one root-only file instead of being embedded in
+    # repo URLs (where they would sit in every clone's .git/config and show up
+    # in `git remote -v`). gh / glab read GH_TOKEN / GITLAB_TOKEN out of the box.
+    - name: Provider tokens for git, gh and glab
+      vars:
+        _rig_gh_token: "{{ github_pat | default('') }}"
+        _rig_gl_token: "{{ gitlab_pat | default('') }}"
+      when: (_rig_gh_token | length > 0) or (_rig_gl_token | length > 0)
+      block:
+        - name: Ensure the rig config directory exists
+          file:
+            path: /root/.config/rig
+            state: directory
+            mode: "0700"
+
+        - name: Write the provider token file (root only)
+          copy:
+            dest: /root/.config/rig/git-provider.env
+            mode: "0600"
+            content: |
+              {% if _rig_gh_token | length > 0 %}
+              GH_TOKEN={{ _rig_gh_token }}
+              {% endif %}
+              {% if _rig_gl_token | length > 0 %}
+              GITLAB_TOKEN={{ _rig_gl_token }}
+              {% endif %}
+          no_log: true
+
+        - name: Export the tokens in login shells (gh and glab work out of the box)
+          copy:
+            dest: /etc/profile.d/rig-git-provider.sh
+            mode: "0644"
+            content: |
+              if [ -r /root/.config/rig/git-provider.env ]; then
+                set -a
+                . /root/.config/rig/git-provider.env
+                set +a
+              fi
+
+        - name: Install the git credential helper (answers from the root-only file)
+          copy:
+            dest: /usr/local/bin/rig-git-credential
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              # git credential helper: serves GitHub/GitLab HTTPS credentials from
+              # /root/.config/rig/git-provider.env so repo URLs stay plain. Only
+              # root can read that file; any other user simply gets no answer.
+              [ "$1" = get ] || exit 0
+              host=""
+              while IFS='=' read -r key value; do
+                [ -z "$key" ] && break
+                [ "$key" = host ] && host="$value"
+              done
+              [ -r /root/.config/rig/git-provider.env ] || exit 0
+              . /root/.config/rig/git-provider.env
+              case "$host" in
+                github.com) user=x-access-token; pass="${GH_TOKEN:-}" ;;
+                gitlab.com) user=oauth2; pass="${GITLAB_TOKEN:-}" ;;
+                *) exit 0 ;;
+              esac
+              [ -n "$pass" ] || exit 0
+              printf 'username=%s\npassword=%s\n' "$user" "$pass"
+
+        - name: Use the helper for every git HTTPS operation
+          command:
+            argv: ["git", "config", "--system", "credential.helper", "/usr/local/bin/rig-git-credential"]
+          changed_when: false
 """
 
 # Materialize playbook (.rig/materialize.yml). Project content after authorize.
@@ -4150,6 +4263,12 @@ MATERIALIZE_PLAYBOOK = """---
         group: root
         mode: "0755"
 
+    # Plain repo URLs: the token reaches git through an inline credential
+    # helper fed from this task's environment, so it is never embedded in the
+    # URL (where it would end up in every clone's .git/config and in
+    # `git remote -v`) and never written to disk. Honours a per-repo
+    # password_var, else github_pat / gitlab_pat. authorize.yml additionally
+    # installs a system-wide helper so later `git pull/push` work too.
     - name: Clone configured git repositories
       vars:
         _pat_var: "{{ item.password_var | default('') }}"
@@ -4166,11 +4285,16 @@ MATERIALIZE_PLAYBOOK = """---
       environment:
         # Never hang on an interactive username/password prompt (missing PAT).
         GIT_TERMINAL_PROMPT: "0"
+        RIG_GIT_USERNAME: "{{ _auth_user }}"
+        RIG_GIT_PASSWORD: "{{ _pat }}"
+        # Empty helper first: reset anything inherited, then answer from env.
+        GIT_CONFIG_COUNT: "{{ 2 if (_pat | length > 0) else 0 }}"
+        GIT_CONFIG_KEY_0: credential.helper
+        GIT_CONFIG_VALUE_0: ""
+        GIT_CONFIG_KEY_1: credential.helper
+        GIT_CONFIG_VALUE_1: '!f() { test "$1" = get && { echo "username=$RIG_GIT_USERNAME"; echo "password=$RIG_GIT_PASSWORD"; }; }; f'
       git:
-        repo: >-
-          {{ item.repo
-             if (_pat | length == 0 or not item.repo.startswith('https://'))
-             else item.repo.replace('https://', 'https://' ~ _auth_user ~ ':' ~ _pat ~ '@', 1) }}
+        repo: "{{ item.repo }}"
         dest: "{{ item.dest }}"
         version: "{{ item.version | default(omit) }}"
         accept_hostkey: "{{ item.accept_hostkey | default(true) }}"
