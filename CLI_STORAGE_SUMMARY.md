@@ -162,7 +162,7 @@ pip install -r requirements.txt
 python -m pytest tests/
 
 # Run linter
-pylint src/
+ruff check . && ruff format --check .
 ```
 
 ## License

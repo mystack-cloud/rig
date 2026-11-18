@@ -2,6 +2,7 @@
 [![Tests](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml/badge.svg)](https://github.com/mystack-cloud/rig/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/mystack-cloud/rig/graph/badge.svg)](https://codecov.io/gh/mystack-cloud/rig)
 [![License: MIT](https://img.shields.io/github/license/mystack-cloud/rig)](https://github.com/mystack-cloud/rig/blob/master/LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 # rig
 
@@ -333,6 +334,17 @@ From a checkout, `pip install .` installs the same `rig` command. Use an editabl
 pip install -e .
 rig --version
 ```
+
+### Code style
+
+[Ruff](https://docs.astral.sh/ruff/) does linting and formatting (configured in `pyproject.toml`: line length 120, double quotes, Python 3.10 syntax). CI runs `ruff check .` and `ruff format --check .`.
+
+```bash
+make format   # apply ruff's formatting and safe lint fixes
+make lint     # the same checks as CI
+```
+
+`mypy src/` also runs in CI. Commits that only reformat code are listed in `.git-blame-ignore-revs`; run `git config blame.ignoreRevsFile .git-blame-ignore-revs` to make local `git blame` skip them (GitHub does this automatically).
 
 ## Tests
 
