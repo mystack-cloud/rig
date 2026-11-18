@@ -278,6 +278,8 @@ Playbooks load `.rig/vars.yml` then `.rig/vars.{identity}.yml` (personal wins), 
 | `rig_firewall_name` | Firewall resource name |
 | `rig_repos` | `[{name, url, path}, …]` (no secrets) |
 | `rig_git_providers` | e.g. `github`, `gitlab` |
+| `rig_identity` | Developer identity (the `.rig/vars.{identity}.yml` handle) |
+| `rig_git_author_name` / `rig_git_author_email` | Git author set on the VM (see [Git credentials and author](#git-credentials-and-author)) |
 
 Also available from vars files (defaults): `workspace_root`, `coding_agent_type`, `coding_agent_types`, `git.clone_repos`. On `rig init`, git PATs and each coding agent API key default to **personal** storage in `vars.{identity}.yml` (you are asked to confirm once); shared secrets such as `vscode_browser_password` live in `vars.yml`.
 
@@ -344,3 +346,37 @@ Push a version tag to publish that version to PyPI. The package version is the t
 ## License
 
 MIT
+
+## Git credentials and author
+
+**Provider tokens never go into repo URLs.** `authorize.yml` (managed) takes
+`github_pat` / `gitlab_pat` from the vars files and writes them to
+`/root/.config/rig/git-provider.env` (mode `0600`, root only). From there:
+
+- login shells get `GH_TOKEN` / `GITLAB_TOKEN` via `/etc/profile.d`, and `rig attach`
+  exports them to the agent process itself (it starts the agent in a non-login
+  shell, which never reads `/etc/profile.d`), so `gh` and `glab` work out of the
+  box in both;
+- a system-wide git credential helper (`/usr/local/bin/rig-git-credential`)
+  answers `github.com` / `gitlab.com` HTTPS requests from that same file, so
+  `git clone`, `git push` and the `materialize.yml` clone task all use plain
+  URLs (`https://github.com/org/repo.git`) and nothing sits in `.git/config`
+  or `git remote -v`. Other users on the VM can't read the file and get no
+  credentials.
+
+The `materialize.yml` clone task passes the token to git through an inline
+helper fed from the task's environment (a per-repo `password_var` still wins over
+`github_pat` / `gitlab_pat`), so it never touches the URL or disk. Projects
+scaffolded by an older rig still have the token-in-URL clone task in their
+`materialize.yml` (user-owned, never overwritten): copy the `vars:` and
+`environment:` blocks of the current template and set `repo: "{{ item.repo }}"`.
+
+**Git author.** A fresh VM has no git identity, so the first commit would fail
+with *Author identity unknown*. `authorize.yml` sets `user.name` / `user.email`
+(global) from `rig_git_author_name` / `rig_git_author_email`, which rig derives
+from your identity: the identity as the name and `<identity>@rig.local` as the
+email. Set `git_author_name` / `git_author_email` in `.rig/vars.yml`, or in your
+personal `.rig/vars.{identity}.yml`, to use a real name and a GitHub-linked
+email (the derived `rig.local` address is deliberately not a
+`users.noreply.github.com` one, which GitHub would attribute to whoever owns
+that handle).
