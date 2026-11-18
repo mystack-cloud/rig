@@ -28,9 +28,7 @@ def tok_env():
 
 
 def test_load_credentials_warning_on_config_error():
-    with patch.object(
-        main_mod.RigConfig, "apply_to_environ", side_effect=OSError("nope")
-    ):
+    with patch.object(main_mod.RigConfig, "apply_to_environ", side_effect=OSError("nope")):
         assert main_mod._load_credentials() is False
 
 
@@ -110,9 +108,7 @@ def test_list_empty_and_nonempty(tok_env, capsys):
             assert "No remote" in capsys.readouterr().err
 
             capsys.readouterr()
-            inst.list_environments.return_value = [
-                {"name": "a", "status": "running"}
-            ]
+            inst.list_environments.return_value = [{"name": "a", "status": "running"}]
             assert main(["list"]) == 0
             err = capsys.readouterr().err
             assert "Remote environments" in err
@@ -120,9 +116,11 @@ def test_list_empty_and_nonempty(tok_env, capsys):
 
 
 def test_list_without_storage_credentials(tok_env, capsys):
-    with patch("cli.main._load_credentials"), \
-            patch("cli.main.StorageManager", side_effect=ValueError("no creds")), \
-            patch("cli.main.RemoteDevEnvironment") as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no creds")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         env_cls.return_value.list_environments.return_value = []
         assert main(["list"]) == 0
         assert env_cls.call_args.kwargs["storage_manager"] is None
@@ -132,9 +130,7 @@ def test_list_all_passes_flag_and_shows_owner(tok_env, capsys):
     with patch("cli.main._load_credentials"):
         with patch("cli.main.RemoteDevEnvironment") as env_cls:
             inst = env_cls.return_value
-            inst.list_environments.return_value = [
-                {"name": "dev-a", "status": "active", "owner": "bob"}
-            ]
+            inst.list_environments.return_value = [{"name": "dev-a", "status": "active", "owner": "bob"}]
             assert main(["list", "--all"]) == 0
             inst.list_environments.assert_called_with(all_identities=True)
             assert "[bob]" in capsys.readouterr().err
@@ -150,12 +146,13 @@ def test_list_exception(tok_env, capsys):
 
 def test_apply_materialize_stack(tok_env):
     """--materialize adds authorize when not already selected."""
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env"), patch(
-        "cli.main.os.path.exists", return_value=True
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.os.path.exists", return_value=True),
     ):
         inst = MagicMock()
         inst.resolve_resources.return_value = True
@@ -171,12 +168,13 @@ def test_apply_materialize_stack(tok_env):
 
 def test_apply_authorize_only_branch(tok_env):
     """--authorize alone → authorize only."""
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env"), patch(
-        "cli.main.os.path.exists", return_value=True
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.os.path.exists", return_value=True),
     ):
         inst = MagicMock()
         inst.resolve_resources.return_value = True
@@ -191,12 +189,13 @@ def test_apply_authorize_only_branch(tok_env):
 
 def test_apply_configure_only(tok_env):
     """--configure without --provision runs configure only."""
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env"), patch(
-        "cli.main.os.path.exists", return_value=True
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.os.path.exists", return_value=True),
     ):
         inst = MagicMock()
         inst.resolve_resources.return_value = True
@@ -210,22 +209,24 @@ def test_apply_configure_only(tok_env):
 
 
 def test_apply_exception(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         env_cls.return_value.resolve_resources.side_effect = RuntimeError("x")
         assert main(["apply"]) == 1
     assert "Error applying" in capsys.readouterr().err
 
 
 def test_apply_no_vm_ip(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         inst = MagicMock()
         inst.resolve_resources.return_value = True
         inst.vm_ip = ""
@@ -235,11 +236,13 @@ def test_apply_no_vm_ip(tok_env, capsys):
 
 
 def test_apply_missing_ssh_key(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.path.exists", return_value=False):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.path.exists", return_value=False),
+    ):
         inst = MagicMock()
         inst.resolve_resources.return_value = True
         inst.vm_ip = "10.0.0.1"
@@ -251,12 +254,13 @@ def test_apply_missing_ssh_key(tok_env, capsys):
 
 def test_create_success_and_no_attach(tok_env, tmp_path, capsys):
     (tmp_path / "rig.yml").write_text("name: p\n")
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.ProjectConfig") as pc_cls, patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env") as remember, patch(
-        "cli.main.os.getcwd", return_value=str(tmp_path)
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.ProjectConfig") as pc_cls,
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env") as remember,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
     ):
         pc = MagicMock()
         pc.config = {"vm": {}}
@@ -282,11 +286,13 @@ def test_create_success_and_no_attach(tok_env, tmp_path, capsys):
 
 def test_create_setup_fails(tok_env, tmp_path, capsys):
     (tmp_path / "rig.yml").write_text("name: p\n")
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.ProjectConfig") as pc_cls, patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value=str(tmp_path)):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.ProjectConfig") as pc_cls,
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+    ):
         pc = MagicMock()
         pc.config = {"vm": {}}
         pc.load.return_value = True
@@ -297,11 +303,13 @@ def test_create_setup_fails(tok_env, tmp_path, capsys):
 
 def test_create_provision_fails(tok_env, tmp_path):
     (tmp_path / "rig.yml").write_text("name: p\n")
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.ProjectConfig") as pc_cls, patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value=str(tmp_path)):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.ProjectConfig") as pc_cls,
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+    ):
         pc = MagicMock()
         pc.config = {"vm": {}}
         pc.load.return_value = True
@@ -325,11 +333,13 @@ def test_create_region_and_image_overrides(tok_env, tmp_path):
         inst.attach_to_agent.return_value = 0
         return inst
 
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.ProjectConfig") as pc_cls, patch(
-        "cli.main.RemoteDevEnvironment", side_effect=make_env
-    ), patch("cli.main.os.getcwd", return_value=str(tmp_path)):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.ProjectConfig") as pc_cls,
+        patch("cli.main.RemoteDevEnvironment", side_effect=make_env),
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+    ):
         pc = MagicMock()
         pc.config = {"vm": {"region": "old", "type": "small"}}
         pc.load.return_value = True
@@ -362,11 +372,13 @@ def test_create_region_and_image_overrides(tok_env, tmp_path):
 
 def test_create_exception(tok_env, tmp_path, capsys):
     (tmp_path / "rig.yml").write_text("name: p\n")
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.ProjectConfig") as pc_cls, patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value=str(tmp_path)):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.ProjectConfig") as pc_cls,
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+    ):
         pc = MagicMock()
         pc.config = {}
         pc.load.return_value = True
@@ -377,13 +389,14 @@ def test_create_exception(tok_env, tmp_path, capsys):
 
 
 def test_dev_uses_project_editor_when_omitted(tok_env, tmp_path):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env"), patch(
-        "cli.remote_dev.configured_editors", return_value=(["codium"], "codium")
-    ) as pref:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.remote_dev.configured_editors", return_value=(["codium"], "codium")) as pref,
+    ):
         inst = MagicMock()
         inst.resolve_resources.return_value = True
         inst.vm_ip = "10.0.0.1"
@@ -396,22 +409,25 @@ def test_dev_uses_project_editor_when_omitted(tok_env, tmp_path):
 
 
 def test_dev_exception(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         env_cls.return_value.resolve_resources.side_effect = RuntimeError("x")
         assert main(["dev"]) == 1
     assert "VS Code" in capsys.readouterr().err
 
 
 def test_destroy_multiple_names_and_failure(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.clear_last_env"
-    ), patch("cli.main.clear_last_session"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.clear_last_env"),
+        patch("cli.main.clear_last_session"),
+    ):
         first = MagicMock()
         second = MagicMock()
         second.cleanup.side_effect = RuntimeError("nope")
@@ -423,12 +439,13 @@ def test_destroy_multiple_names_and_failure(tok_env, capsys):
 
 
 def test_destroy_uses_last_env(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="last-only"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.clear_last_env"), patch(
-        "cli.main.clear_last_session"
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="last-only"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.clear_last_env"),
+        patch("cli.main.clear_last_session"),
     ):
         inst = MagicMock()
         env_cls.return_value = inst
@@ -437,23 +454,26 @@ def test_destroy_uses_last_env(tok_env, capsys):
 
 
 def test_destroy_no_name_and_no_last(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value=None):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value=None),
+    ):
         assert main(["delete"]) == 1
     assert "required" in capsys.readouterr().err.lower()
 
 
 def test_attach_flag_like_name_moves_to_remainder(tok_env):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env"), patch(
-        "cli.main.read_last_session", return_value=None
-    ), patch("cli.main.os.path.exists", return_value=True), patch(
-        "cli.main.ProjectConfig"
-    ) as pc_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.read_last_session", return_value=None),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as pc_cls,
+    ):
         pc = MagicMock()
         pc.config = {"agent": {"type": "opencode"}}
         pc.get_vars.return_value = None
@@ -471,22 +491,24 @@ def test_attach_flag_like_name_moves_to_remainder(tok_env):
 
 
 def test_attach_resolve_fails(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         env_cls.return_value.resolve_resources.return_value = False
         assert main(["attach", "dev"]) == 1
     assert "Could not resolve" in capsys.readouterr().err
 
 
 def test_attach_exception(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
-    ), patch("cli.main.resolve_env_name", return_value="dev"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+    ):
         env_cls.return_value.resolve_resources.side_effect = RuntimeError("x")
         assert main(["attach"]) == 1
     assert "Error attaching" in capsys.readouterr().err
@@ -497,10 +519,11 @@ def test_cache_list_unused_only_branch(tok_env, tmp_path, capsys):
     (tmp_path / "rig.yml").write_text("name: app\n")
     (tmp_path / ".rig").mkdir(exist_ok=True)
     keep = [{"description": "current", "id": "1"}]
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value=str(tmp_path)), patch(
-        "cli.main._cache_select_snapshots", return_value=(keep, [], "unused x")
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+        patch("cli.main._cache_select_snapshots", return_value=(keep, [], "unused x")),
     ):
         inst = MagicMock()
         inst.manager.list_snapshots.return_value = []
@@ -513,11 +536,13 @@ def test_cache_clear_eof_confirms(tok_env, tmp_path):
     (tmp_path / "rig.yml").write_text("name: app\n")
     (tmp_path / ".rig").mkdir(exist_ok=True)
     targets = [{"id": 9, "description": "stale"}]
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value=str(tmp_path)), patch(
-        "cli.main._cache_select_snapshots", return_value=([], targets, "unused")
-    ), patch("builtins.input", side_effect=EOFError()):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+        patch("cli.main._cache_select_snapshots", return_value=([], targets, "unused")),
+        patch("builtins.input", side_effect=EOFError()),
+    ):
         inst = MagicMock()
         inst.manager.list_snapshots.return_value = []
         env_cls.return_value = inst
@@ -528,10 +553,11 @@ def test_cache_delete_partial_failure(tok_env, tmp_path, capsys):
     (tmp_path / "rig.yml").write_text("name: app\n")
     (tmp_path / ".rig").mkdir(exist_ok=True)
     targets = [{"id": 9, "description": "stale"}]
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value=str(tmp_path)), patch(
-        "cli.main._cache_select_snapshots", return_value=([], targets, "unused")
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+        patch("cli.main._cache_select_snapshots", return_value=([], targets, "unused")),
     ):
         inst = MagicMock()
         inst.manager.list_snapshots.return_value = []
@@ -542,18 +568,18 @@ def test_cache_delete_partial_failure(tok_env, tmp_path, capsys):
 
 
 def test_cache_list_snapshots_fails(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls:
+    with patch("cli.main._load_credentials"), patch("cli.main.RemoteDevEnvironment") as env_cls:
         env_cls.return_value.manager.list_snapshots.side_effect = RuntimeError("x")
         assert main(["cache", "list"]) == 1
     assert "Failed to list" in capsys.readouterr().err
 
 
 def test_cache_select_runtime_error(tok_env, capsys):
-    with patch("cli.main._load_credentials"), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.getcwd", return_value="/no-rig-here"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.getcwd", return_value="/no-rig-here"),
+    ):
         inst = MagicMock()
         inst.manager.list_snapshots.return_value = []
         env_cls.return_value = inst
@@ -563,16 +589,12 @@ def test_cache_select_runtime_error(tok_env, capsys):
 
 def test_vars_encrypt_decrypt_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    with patch(
-        "cli.main.interactive_encrypt", return_value="cipher"
-    ) as enc, patch("builtins.print") as pr:
+    with patch("cli.main.interactive_encrypt", return_value="cipher") as enc, patch("builtins.print") as pr:
         assert main(["vars", "encrypt"]) == 0
         enc.assert_called_once()
         pr.assert_called()
 
-    with patch(
-        "cli.main.interactive_decrypt", return_value="secret\n"
-    ) as dec, patch("builtins.print") as pr:
+    with patch("cli.main.interactive_decrypt", return_value="secret\n") as dec, patch("builtins.print") as pr:
         assert main(["vars", "decrypt", "x"]) == 0
         dec.assert_called_once()
         pr.assert_called()
@@ -580,15 +602,11 @@ def test_vars_encrypt_decrypt_cli(tmp_path, monkeypatch, capsys):
 
 def test_vars_list_and_export_key(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    with patch(
-        "cli.encrypt.list_all_vault_vars", return_value=[("a", "shared")]
-    ), patch("builtins.print") as pr:
+    with patch("cli.encrypt.list_all_vault_vars", return_value=[("a", "shared")]), patch("builtins.print") as pr:
         assert main(["vars", "list"]) == 0
         pr.assert_called()
 
-    with patch(
-        "cli.encrypt.export_shared_data_key", return_value="shared-key"
-    ) as ex, patch("builtins.print") as pr:
+    with patch("cli.encrypt.export_shared_data_key", return_value="shared-key") as ex, patch("builtins.print") as pr:
         assert main(["vars", "export-shared-key"]) == 0
         ex.assert_called_once()
         pr.assert_called()

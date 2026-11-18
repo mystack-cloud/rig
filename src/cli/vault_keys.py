@@ -70,6 +70,7 @@ def resolve_identity(
     if config is None:
         try:
             from cli.config import RigConfig
+
             config = RigConfig()
         except Exception:
             config = None
@@ -179,10 +180,7 @@ def materialize_data_keys(identity_key: str, shared_key: str) -> Tuple[str, str]
 
 
 def tmp_data_keys_present() -> bool:
-    return bool(
-        read_data_key_file(PERSONAL_DATA_KEY_PATH)
-        and read_data_key_file(SHARED_DATA_KEY_PATH)
-    )
+    return bool(read_data_key_file(PERSONAL_DATA_KEY_PATH) and read_data_key_file(SHARED_DATA_KEY_PATH))
 
 
 def read_wrap_fields(identity_vars_path: str) -> dict:
@@ -359,10 +357,7 @@ def bootstrap_identity_keys(
         shared_dk = read_data_key_file(SHARED_DATA_KEY_PATH) or generate_data_key()
     elif shared_vault_exists(project_dir):
         ask_secret = secret_fn or getpass.getpass
-        print(
-            "Shared secrets already exist. Paste the shared data key "
-            "(from a teammate: rig vars export-shared-key)."
-        )
+        print("Shared secrets already exist. Paste the shared data key (from a teammate: rig vars export-shared-key).")
         try:
             pasted = ask_secret("Shared data key: ").strip()
         except Exception:

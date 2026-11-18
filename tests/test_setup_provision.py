@@ -57,8 +57,9 @@ def test_provision_runs_playbooks_in_order(tmp_path):
         return True
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run_one
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
         ):
             assert env.provision(project_dir=str(project_dir), stream=True) is True
     finally:
@@ -99,8 +100,9 @@ def test_playbook_lifecycle_line_hides_skip_and_apply_detail(tmp_path, capsys):
     try:
         rig_log.configure_logging()
         capsys.readouterr()
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run_one
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
         ):
             assert env.provision(project_dir=str(project_dir), stream=True) is True
         quiet = capsys.readouterr().err
@@ -115,8 +117,9 @@ def test_playbook_lifecycle_line_hides_skip_and_apply_detail(tmp_path, capsys):
 
         rig_log.configure_logging(verbose=True)
         capsys.readouterr()
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run_one
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
         ):
             assert env.provision(project_dir=str(project_dir), stream=True) is True
         verbose = capsys.readouterr().err
@@ -150,19 +153,26 @@ def test_apply_playbooks_workspace_only_by_default(tmp_path):
         return True
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run_one
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
         ):
-            assert env.apply_playbooks(
-                project_dir=str(project_dir),
-                stream=False,
-                playbooks=("materialize",),
-            ) is True
-            assert env.apply_playbooks(
-                project_dir=str(project_dir),
-                stream=False,
-                playbooks=("provision",),
-            ) is True
+            assert (
+                env.apply_playbooks(
+                    project_dir=str(project_dir),
+                    stream=False,
+                    playbooks=("materialize",),
+                )
+                is True
+            )
+            assert (
+                env.apply_playbooks(
+                    project_dir=str(project_dir),
+                    stream=False,
+                    playbooks=("provision",),
+                )
+                is True
+            )
     finally:
         try:
             os.remove(real_key)
@@ -188,13 +198,15 @@ def test_apply_help_mentions_lifecycle_flags(capsys):
 
 
 def test_apply_command_passes_materialize_tags():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-apply"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch("cli.main.os.path.exists", return_value=True):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-apply"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.os.path.exists", return_value=True),
+    ):
         instance = MagicMock()
         instance.name = "dev-apply"
         instance.vm_ip = "10.0.0.2"
@@ -254,27 +266,34 @@ def test_materialize_playbook_receives_ansible_tags(tmp_path):
         return True
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run_one
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
         ):
-            assert env.apply_playbooks(
-                project_dir=str(project_dir),
-                stream=False,
-                playbooks=("authorize", "materialize"),
-                ansible_tags=["git,clone", "deps"],
-            ) is True
+            assert (
+                env.apply_playbooks(
+                    project_dir=str(project_dir),
+                    stream=False,
+                    playbooks=("authorize", "materialize"),
+                    ansible_tags=["git,clone", "deps"],
+                )
+                is True
+            )
             assert calls[0]["path"].endswith("authorize.yml")
             assert calls[0]["ansible_args"] == ["--tags", "git,clone,deps"]
             assert calls[1]["path"].endswith("materialize.yml")
             assert calls[1]["ansible_args"] == ["--tags", "git,clone,deps"]
 
             calls.clear()
-            assert env.apply_playbooks(
-                project_dir=str(project_dir),
-                stream=False,
-                playbooks=("authorize", "finalize", "destroy"),
-                ansible_tags=["cleanup"],
-            ) is True
+            assert (
+                env.apply_playbooks(
+                    project_dir=str(project_dir),
+                    stream=False,
+                    playbooks=("authorize", "finalize", "destroy"),
+                    ansible_tags=["cleanup"],
+                )
+                is True
+            )
     finally:
         try:
             os.remove(real_key)
@@ -302,6 +321,7 @@ def _attach_ssh_command(captured_cmd):
         idx = captured_cmd.index("-c")
         if idx + 1 < len(captured_cmd):
             import shlex
+
             return shlex.split(captured_cmd[idx + 1])
     # BSD: script -q logfile ssh …
     for i, part in enumerate(captured_cmd):
@@ -450,14 +470,16 @@ def test_host_block_defaults_kind_and_reads_legacy_vm():
     assert legacy["availability_zone"] == "nbg1"
     assert "region" not in legacy
 
-    explicit = host_block({
-        "host": {
-            "type": "vm",
-            "server_type": "cax21",
-            "availability_zone": "fsn1",
-        },
-        "vm": {"type": "cax11"},
-    })
+    explicit = host_block(
+        {
+            "host": {
+                "type": "vm",
+                "server_type": "cax21",
+                "availability_zone": "fsn1",
+            },
+            "vm": {"type": "cax11"},
+        }
+    )
     assert explicit["type"] == "vm"
     assert explicit["server_type"] == "cax21"
     assert explicit["availability_zone"] == "fsn1"
@@ -535,8 +557,9 @@ def test_create_uses_vm_from_rig_yml(tmp_path, monkeypatch):
         def setup(self, project_dir=None):
             return False
 
-    with patch("cli.main.RemoteDevEnvironment", FakeEnv), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
+    with (
+        patch("cli.main.RemoteDevEnvironment", FakeEnv),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
     ):
         assert main(["create", "--name", "from-yml"]) == 1
 
@@ -811,8 +834,9 @@ def test_create_provider_override(tmp_path, monkeypatch, capsys):
         def setup(self, project_dir=None):
             return False
 
-    with patch("cli.main.RemoteDevEnvironment", FakeEnv), patch(
-        "cli.main.StorageManager", side_effect=ValueError("no storage")
+    with (
+        patch("cli.main.RemoteDevEnvironment", FakeEnv),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
     ):
         assert main(["create", "--name", "from-flag", "--provider", "hcloud"]) == 1
         assert main(["create", "--provider", "gcp"]) == 1
@@ -885,21 +909,29 @@ def test_claude_seed_merges_into_existing_files(tmp_path):
     (root / ".claude.json").write_text(
         json.dumps({"numStartups": 1, "projects": {"/other": {"x": 1}, "/workspace": {"allowedTools": []}}})
     )
-    (root / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Edit(*)", "Read(*)", "Bash(git push:*)"], "deny": ["Read(.env)"]}}))
+    (root / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Edit(*)", "Read(*)", "Bash(git push:*)"], "deny": ["Read(.env)"]}})
+    )
 
     play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
     names = ("Ensure Claude config", "Check for existing Claude", "Read existing Claude", "Seed Claude")
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
-    pb = [{
-        "hosts": "localhost", "connection": "local", "gather_facts": False,
-        "vars": {"_rig_agent_types": ["claude"], "workspace_root": "/workspace"},
-        "tasks": tasks,
-    }]
+    pb = [
+        {
+            "hosts": "localhost",
+            "connection": "local",
+            "gather_facts": False,
+            "vars": {"_rig_agent_types": ["claude"], "workspace_root": "/workspace"},
+            "tasks": tasks,
+        }
+    ]
     (tmp_path / "pb.yml").write_text(yaml.safe_dump(pb))
     result = subprocess.run(
         ["ansible-playbook", "-i", "localhost,", str(tmp_path / "pb.yml")],
-        capture_output=True, text=True, cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -965,6 +997,7 @@ def test_materialize_clone_retries_only_transient_network_errors():
 
 # ---- MCP servers (.rig/mcp.json) --------------------------------------------
 
+
 def test_provision_no_longer_deploys_per_agent_mcp_files():
     from cli.remote_dev import PROVISION_PLAYBOOK
 
@@ -1023,17 +1056,25 @@ def _run_authorize_mcp_tasks(tmp_path, mcp_config, agents, extra_vars=None, file
     if mcp_config is not None:
         (tmp_path / "mcp.json").write_text(json.dumps(mcp_config))
     names = (
-        "Render MCP servers", "Select Agents that have MCP", "Ensure MCP config directories",
-        "Read existing Agent MCP", "Merge MCP servers into Agent",
+        "Render MCP servers",
+        "Select Agents that have MCP",
+        "Ensure MCP config directories",
+        "Read existing Agent MCP",
+        "Merge MCP servers into Agent",
     )
     play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     assert len(tasks) == len(names)
     tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
-    playbook = [{
-        "hosts": "localhost", "connection": "local", "gather_facts": False,
-        "vars": {"_rig_agent_types": agents}, "tasks": tasks,
-    }]
+    playbook = [
+        {
+            "hosts": "localhost",
+            "connection": "local",
+            "gather_facts": False,
+            "vars": {"_rig_agent_types": agents},
+            "tasks": tasks,
+        }
+    ]
     (tmp_path / "pb.yml").write_text(yaml.safe_dump(playbook))
     cmd = ["ansible-playbook", "-i", "localhost,", str(tmp_path / "pb.yml")]
     for k, v in (extra_vars or {}).items():
@@ -1059,17 +1100,26 @@ def test_authorize_installs_mcp_servers_into_every_enabled_agent(tmp_path):
     import stat
 
     _need_ansible()
-    cfg = {"mcpServers": {
-        "awx": {"command": "python3", "args": ["-u", "/x.py"],
-                "env": {"AWX_MCP_API_KEY": "${AWX_MCP_API_KEY}", "U": "${AWX_URL:-https://d/mcp}"}},
-        "ctx": {"url": "https://c/mcp", "headers": {"K": "${CTX_KEY}"}},
-    }}
+    cfg = {
+        "mcpServers": {
+            "awx": {
+                "command": "python3",
+                "args": ["-u", "/x.py"],
+                "env": {"AWX_MCP_API_KEY": "${AWX_MCP_API_KEY}", "U": "${AWX_URL:-https://d/mcp}"},
+            },
+            "ctx": {"url": "https://c/mcp", "headers": {"K": "${CTX_KEY}"}},
+        }
+    }
     root, result = _run_authorize_mcp_tasks(
-        tmp_path, cfg, ["claude", "cursor", "opencode"],
+        tmp_path,
+        cfg,
+        ["claude", "cursor", "opencode"],
         extra_vars={"awx_mcp_api_key": "sekret"},  # lower-case var, upper-case reference
         files={
-            ".claude.json": {"numStartups": 1, "mcpServers": {
-                "awx": {"command": "OLD", "env": {"STALE": "1"}}, "mine": {"command": "hand"}}},
+            ".claude.json": {
+                "numStartups": 1,
+                "mcpServers": {"awx": {"command": "OLD", "env": {"STALE": "1"}}, "mine": {"command": "hand"}},
+            },
             ".config/opencode/opencode.json": {"model": "m", "mcp": {}},
         },
     )
@@ -1078,7 +1128,9 @@ def test_authorize_installs_mcp_servers_into_every_enabled_agent(tmp_path):
     claude = json.loads((root / ".claude.json").read_text())
     assert claude["numStartups"] == 1
     assert claude["mcpServers"]["awx"] == {
-        "type": "stdio", "command": "python3", "args": ["-u", "/x.py"],
+        "type": "stdio",
+        "command": "python3",
+        "args": ["-u", "/x.py"],
         "env": {"AWX_MCP_API_KEY": "sekret", "U": "https://d/mcp"},
     }  # same name replaced whole: no STALE key
     assert claude["mcpServers"]["mine"] == {"command": "hand"}  # hand-added server kept
@@ -1122,8 +1174,6 @@ def test_authorize_only_touches_enabled_agents_and_skips_without_servers(tmp_pat
 
 def test_authorize_fails_loudly_on_an_invalid_mcp_json(tmp_path):
     _need_ansible()
-    _root, result = _run_authorize_mcp_tasks(
-        tmp_path, {"mcpServers": {"a": {}}}, ["claude"]
-    )
+    _root, result = _run_authorize_mcp_tasks(tmp_path, {"mcpServers": {"a": {}}}, ["claude"])
     assert result.returncode != 0
     assert "exactly one of" in result.stdout + result.stderr

@@ -196,7 +196,11 @@ def test_authorize_registers_the_helper_system_wide():
     block = _provider_block()
     cfg = next(t for t in block if t["name"].startswith("Use the helper"))
     assert cfg["command"]["argv"] == [
-        "git", "config", "--system", "credential.helper", "/usr/local/bin/rig-git-credential",
+        "git",
+        "config",
+        "--system",
+        "credential.helper",
+        "/usr/local/bin/rig-git-credential",
     ]
 
 
@@ -206,9 +210,7 @@ def _helper_script(tmp_path):
     assert helper["copy"]["mode"] == "0755"
     token_file = tmp_path / "git-provider.env"
     script = tmp_path / "rig-git-credential"
-    script.write_text(
-        helper["copy"]["content"].replace("/root/.config/rig/git-provider.env", str(token_file))
-    )
+    script.write_text(helper["copy"]["content"].replace("/root/.config/rig/git-provider.env", str(token_file)))
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return script, token_file
 

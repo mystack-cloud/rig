@@ -49,10 +49,12 @@ def package_version() -> str:
     """Installed package version (fallback ``0.0.0``)."""
     try:
         from importlib.metadata import version as pkg_version
+
         return pkg_version(DISTRIBUTION_NAME)
     except Exception:
         try:
             from importlib_metadata import version as pkg_version_fallback
+
             return pkg_version_fallback(DISTRIBUTION_NAME)
         except Exception:
             return "0.0.0"
@@ -183,12 +185,14 @@ def system_content_hash(
         if not body:
             try:
                 from cli.remote_dev import PROVISION_PLAYBOOK
+
                 body = PROVISION_PLAYBOOK
             except Exception:
                 body = ""
         if not configure_body:
             try:
                 from cli.remote_dev import CONFIGURE_PLAYBOOK
+
                 configure_body = CONFIGURE_PLAYBOOK
             except Exception:
                 configure_body = ""
@@ -235,6 +239,7 @@ def workspace_content_hash(project_dir: str, project=None) -> str:
     if project is None:
         try:
             from cli.remote_dev import ProjectConfig
+
             project = ProjectConfig(project_dir)
             project.load()
         except Exception:
@@ -292,18 +297,14 @@ def system_snapshot_labels(
     **kwargs: Any,
 ) -> Dict[str, str]:
     ver = sanitize_snapshot_token(version or package_version(), max_len=32)
-    digest = content_hash or system_content_hash(
-        agent_type=agent_type, **kwargs
-    )
+    digest = content_hash or system_content_hash(agent_type=agent_type, **kwargs)
     labels = {
         RIG_LABEL_KEY: SYSTEM_LABEL,
         RIG_VERSION_LABEL_KEY: ver,
         RIG_HASH_LABEL_KEY: sanitize_snapshot_token(digest, max_len=16),
     }
     if agent_type:
-        labels[RIG_AGENT_LABEL_KEY] = sanitize_snapshot_token(
-            str(agent_type), max_len=16
-        )
+        labels[RIG_AGENT_LABEL_KEY] = sanitize_snapshot_token(str(agent_type), max_len=16)
     return labels
 
 
@@ -325,20 +326,14 @@ def is_system_snapshot(
     if labels.get(RIG_LABEL_KEY) == SYSTEM_LABEL:
         if version is None and content_hash is None:
             return True
-        if version is not None and labels.get(
-            RIG_VERSION_LABEL_KEY
-        ) != sanitize_snapshot_token(version, max_len=32):
+        if version is not None and labels.get(RIG_VERSION_LABEL_KEY) != sanitize_snapshot_token(version, max_len=32):
             return False
-        if content_hash is not None and labels.get(
-            RIG_HASH_LABEL_KEY
-        ) != sanitize_snapshot_token(content_hash, max_len=16):
+        if content_hash is not None and labels.get(RIG_HASH_LABEL_KEY) != sanitize_snapshot_token(
+            content_hash, max_len=16
+        ):
             return False
         return True
-    expected = (
-        system_snapshot_name(version, content_hash=content_hash)
-        if version and content_hash
-        else None
-    )
+    expected = system_snapshot_name(version, content_hash=content_hash) if version and content_hash else None
     if expected:
         return description == expected
     return bool(re.match(r"^rig-[A-Za-z0-9._-]+$", description))
@@ -353,9 +348,7 @@ def is_workspace_snapshot(
     if labels.get(RIG_LABEL_KEY) == WORKSPACE_LABEL:
         if workspace_name is None:
             return True
-        return labels.get(RIG_WORKSPACE_LABEL_KEY) == sanitize_snapshot_token(
-            workspace_name, max_len=40
-        )
+        return labels.get(RIG_WORKSPACE_LABEL_KEY) == sanitize_snapshot_token(workspace_name, max_len=40)
     if workspace_name:
         prefix = f"workspace-{sanitize_snapshot_token(workspace_name, max_len=40)}-"
         return description.startswith(prefix)
@@ -434,9 +427,7 @@ def describe_snapshot(image: Dict[str, Any]) -> Dict[str, Any]:
         parsed_ver, parsed_hash = _parse_system_description(description)
         version = version or parsed_ver
         digest = digest or parsed_hash
-    elif labels.get(RIG_LABEL_KEY) == WORKSPACE_LABEL or description.startswith(
-        "workspace-"
-    ):
+    elif labels.get(RIG_LABEL_KEY) == WORKSPACE_LABEL or description.startswith("workspace-"):
         kind = "workspace"
         parsed_ws, parsed_hash = _parse_workspace_description(description)
         workspace = workspace or parsed_ws
@@ -445,9 +436,7 @@ def describe_snapshot(image: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "kind": kind,
         "version": sanitize_snapshot_token(version, max_len=32) if version else None,
-        "workspace": (
-            sanitize_snapshot_token(workspace, max_len=40) if workspace else None
-        ),
+        "workspace": (sanitize_snapshot_token(workspace, max_len=40) if workspace else None),
         "hash": sanitize_snapshot_token(digest, max_len=16) if digest else None,
         "description": description or str(image.get("id") or ""),
         "id": image.get("id"),
@@ -474,24 +463,10 @@ def find_unused_snapshots(
     """
     keep: List[Dict[str, Any]] = []
     unused: List[Dict[str, Any]] = []
-    cur_ver = (
-        sanitize_snapshot_token(current_version, max_len=32) if current_version else None
-    )
-    cur_sys = (
-        sanitize_snapshot_token(current_system_hash, max_len=16)
-        if current_system_hash
-        else None
-    )
-    cur_ws = (
-        sanitize_snapshot_token(current_workspace_name, max_len=40)
-        if current_workspace_name
-        else None
-    )
-    cur_ws_hash = (
-        sanitize_snapshot_token(current_workspace_hash, max_len=16)
-        if current_workspace_hash
-        else None
-    )
+    cur_ver = sanitize_snapshot_token(current_version, max_len=32) if current_version else None
+    cur_sys = sanitize_snapshot_token(current_system_hash, max_len=16) if current_system_hash else None
+    cur_ws = sanitize_snapshot_token(current_workspace_name, max_len=40) if current_workspace_name else None
+    cur_ws_hash = sanitize_snapshot_token(current_workspace_hash, max_len=16) if current_workspace_hash else None
 
     for image in images:
         if image.get("type") and image.get("type") != "snapshot":
@@ -499,12 +474,7 @@ def find_unused_snapshots(
         meta = describe_snapshot(image)
         kind = meta["kind"]
         if kind == "system" and include_system:
-            is_current = bool(
-                cur_ver
-                and cur_sys
-                and meta.get("version") == cur_ver
-                and meta.get("hash") == cur_sys
-            )
+            is_current = bool(cur_ver and cur_sys and meta.get("version") == cur_ver and meta.get("hash") == cur_sys)
             if is_current:
                 meta["reason"] = "current system snapshot"
                 keep.append(meta)
@@ -526,10 +496,7 @@ def find_unused_snapshots(
             if cur_ws and meta.get("workspace") != cur_ws:
                 continue
             is_current = bool(
-                cur_ws
-                and cur_ws_hash
-                and meta.get("workspace") == cur_ws
-                and meta.get("hash") == cur_ws_hash
+                cur_ws and cur_ws_hash and meta.get("workspace") == cur_ws and meta.get("hash") == cur_ws_hash
             )
             if is_current:
                 meta["reason"] = "current workspace snapshot"

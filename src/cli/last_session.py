@@ -143,7 +143,7 @@ def extract_session_from_agent_args(agent_args: Optional[List[str]]) -> Optional
                 return str(value)
         for prefix in ("--session=", "--resume=", "-s="):
             if token.startswith(prefix) and len(token) > len(prefix):
-                return token[len(prefix):]
+                return token[len(prefix) :]
     return None
 
 

@@ -1,6 +1,7 @@
 """
 Remote Development Environment Module
 """
+
 import json
 import os
 import re
@@ -21,15 +22,18 @@ from cli.state_bucket import StateBucketError
 # YAML support
 try:
     import yaml  # type: ignore
+
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
     import yaml  # type: ignore
+
     YAML_AVAILABLE = True
 
 # WireGuard VPN support (optional)
 try:
     from .vpn import VPNManager, setup_remote_vpn_connection, get_vpn_status, teardown_vpn_connection
+
     VPN_AVAILABLE = True
     VPNManagerType = VPNManager
 except ImportError:
@@ -68,10 +72,7 @@ def normalize_editor_type(value: Optional[str]) -> str:
     }
     editor = aliases.get(raw, raw)
     if editor not in SUPPORTED_EDITORS:
-        raise ValueError(
-            f"Unsupported editor {value!r}. "
-            f"Choose one of: {', '.join(SUPPORTED_EDITORS)}"
-        )
+        raise ValueError(f"Unsupported editor {value!r}. Choose one of: {', '.join(SUPPORTED_EDITORS)}")
     return editor
 
 
@@ -259,8 +260,7 @@ def parse_editor_selection(
             index = int(token) - 1
             if not 0 <= index < len(SUPPORTED_EDITORS):
                 raise ValueError(
-                    f"Editor number {token} is out of range. "
-                    f"Choose 1-{len(SUPPORTED_EDITORS)}, names, or all."
+                    f"Editor number {token} is out of range. Choose 1-{len(SUPPORTED_EDITORS)}, names, or all."
                 )
             editor = SUPPORTED_EDITORS[index]
         else:
@@ -290,10 +290,7 @@ def prompt_editors(
     for index, editor in enumerate(SUPPORTED_EDITORS, start=1):
         print(f"  {index}. {editor} ({EDITOR_LABELS[editor]})")
     default_label = ",".join(defaults)
-    answer = ask(
-        "Editors to include (numbers, names, or all) "
-        f"[{default_label}]: "
-    )
+    answer = ask(f"Editors to include (numbers, names, or all) [{default_label}]: ")
     return parse_editor_selection(answer, default=defaults)
 
 
@@ -322,11 +319,7 @@ def prompt_default_editor(
             candidate = None
         if candidate in editors:
             preferred = candidate
-    by_number = {
-        str(index): editor
-        for index, editor in enumerate(SUPPORTED_EDITORS, start=1)
-        if editor in editors
-    }
+    by_number = {str(index): editor for index, editor in enumerate(SUPPORTED_EDITORS, start=1) if editor in editors}
     print("Default editor for rig dev:")
     for number, editor in by_number.items():
         print(f"  {number}. {editor} ({EDITOR_LABELS[editor]})")
@@ -338,16 +331,12 @@ def prompt_default_editor(
         numbered = by_number.get(answer)
         if not numbered:
             raise ValueError(
-                f"Default editor number {answer} is not one of the selected editors "
-                f"({', '.join(editors)})"
+                f"Default editor number {answer} is not one of the selected editors ({', '.join(editors)})"
             )
         return numbered
     chosen = normalize_editor_type(answer)
     if chosen not in editors:
-        raise ValueError(
-            f"Default editor {chosen!r} was not selected. "
-            f"Choose one of: {', '.join(editors)}"
-        )
+        raise ValueError(f"Default editor {chosen!r} was not selected. Choose one of: {', '.join(editors)}")
     return chosen
 
 
@@ -370,6 +359,7 @@ def project_editor_preference(project_dir: Optional[str] = None) -> Optional[str
     if raw not in (None, ""):
         log.warning("Ignoring invalid editor %r in rig.yml", raw)
     return None
+
 
 # Paths written under the project by Galaxy / create that should not be committed.
 # ``local_roles`` is the committed role directory and is intentionally absent.
@@ -397,8 +387,8 @@ def ssh_option_log_level() -> str:
 
 # Ansible SSH tolerance for freshly booted VMs (seconds / attempts).
 ANSIBLE_SSH_DEFAULTS = {
-    'ANSIBLE_TIMEOUT': '60',
-    'ANSIBLE_SSH_RETRIES': '3',
+    "ANSIBLE_TIMEOUT": "60",
+    "ANSIBLE_SSH_RETRIES": "3",
 }
 
 
@@ -412,10 +402,7 @@ def rig_filter_plugins_path(existing: Optional[str] = None) -> str:
 
 def roles_search_path(rig_dir: str) -> str:
     """Ansible role search path: committed roles, then Galaxy installs."""
-    return os.pathsep.join(
-        os.path.join(rig_dir, name)
-        for name in (LOCAL_ROLES_DIRNAME, ROLES_DIRNAME)
-    )
+    return os.pathsep.join(os.path.join(rig_dir, name) for name in (LOCAL_ROLES_DIRNAME, ROLES_DIRNAME))
 
 
 def ensure_local_roles_dir(rig_dir: str) -> bool:
@@ -464,11 +451,7 @@ def ensure_project_gitignore(project_dir: str) -> List[str]:
         with open(path, "r", encoding="utf-8") as handle:
             existing = handle.read()
 
-    covered = {
-        line.strip()
-        for line in existing.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    }
+    covered = {line.strip() for line in existing.splitlines() if line.strip() and not line.strip().startswith("#")}
     begin = GITIGNORE_MARKER_BEGIN
     end = GITIGNORE_MARKER_END
 
@@ -476,9 +459,7 @@ def ensure_project_gitignore(project_dir: str) -> List[str]:
         before, rest = existing.split(begin, 1)
         block, after = rest.split(end, 1)
         block_entries = [
-            line.strip()
-            for line in block.splitlines()
-            if line.strip() and not line.strip().startswith("#")
+            line.strip() for line in block.splitlines() if line.strip() and not line.strip().startswith("#")
         ]
         missing = [entry for entry in GITIGNORE_ENTRIES if entry not in block_entries]
         if not missing:
@@ -533,9 +514,7 @@ def normalize_cloud_provider(value: Optional[str]) -> str:
     provider = CLOUD_PROVIDER_ALIASES.get(raw, raw)
     if provider not in RECOGNIZED_CLOUD_PROVIDERS:
         known = ", ".join(sorted(RECOGNIZED_CLOUD_PROVIDERS))
-        raise ValueError(
-            f"Unsupported cloud provider {value!r}. Choose one of: {known}"
-        )
+        raise ValueError(f"Unsupported cloud provider {value!r}. Choose one of: {known}")
     return provider
 
 
@@ -617,6 +596,7 @@ def build_rig_ansible_vars(
         providers = project.get_vars("git_providers")
     try:
         from cli.snapshots import package_version
+
         version = package_version()
     except Exception:
         version = "0.0.0"
@@ -631,19 +611,9 @@ def build_rig_ansible_vars(
         "rig_workspace_name": workspace_name,
         "rig_cloud_provider": host_cfg.get("provider") or CLOUD_PROVIDER_HETZNER,
         "rig_vm_name": (env.vm_name if env else None) or (env.name if env else ""),
-        "rig_vm_type": (
-            (env.vm_type if env else None)
-            or host_cfg.get("server_type")
-            or DEFAULT_SERVER_TYPE
-        ),
-        "rig_availability_zone": (
-            (env.region if env else None)
-            or host_cfg.get("availability_zone")
-            or "hel1"
-        ),
-        "rig_vm_image": str(
-            (env.image if env else None) or host_cfg.get("image") or "ubuntu-24.04"
-        ),
+        "rig_vm_type": ((env.vm_type if env else None) or host_cfg.get("server_type") or DEFAULT_SERVER_TYPE),
+        "rig_availability_zone": ((env.region if env else None) or host_cfg.get("availability_zone") or "hel1"),
+        "rig_vm_image": str((env.image if env else None) or host_cfg.get("image") or "ubuntu-24.04"),
         "rig_vm_ip": (env.vm_ip if env else None) or "",
         "rig_vm_id": str(env.vm_id) if env and env.vm_id is not None else "",
         "rig_agent_type": default_agent,
@@ -651,9 +621,7 @@ def build_rig_ansible_vars(
         "rig_workspace_root": REMOTE_WORKSPACE_ROOT,
         "rig_version": version,
         "rig_boot_source": (env.boot_source if env else None) or "base",
-        "rig_project_dir": (
-            project.project_dir if project else os.getcwd()
-        ),
+        "rig_project_dir": (project.project_dir if project else os.getcwd()),
         "rig_ssh_key_name": ssh_key_name,
         "rig_ssh_key_path": ssh_key_path,
         "rig_firewall_name": (env.firewall_name if env else None) or "",
@@ -692,13 +660,13 @@ def remote_workspace_path(*parts: str) -> str:
 
 def _ipv4_from_public_net(public_net: Dict[str, Any]) -> Optional[str]:
     """Read the public IPv4 address from either Hetzner API shape."""
-    ipv4 = public_net.get('ipv4') or {}
-    if isinstance(ipv4, dict) and ipv4.get('ip'):
-        return ipv4.get('ip')
+    ipv4 = public_net.get("ipv4") or {}
+    if isinstance(ipv4, dict) and ipv4.get("ip"):
+        return ipv4.get("ip")
 
-    primary_ipv4 = public_net.get('primary_ipv4') or {}
-    if isinstance(primary_ipv4, dict) and primary_ipv4.get('ip'):
-        return primary_ipv4.get('ip')
+    primary_ipv4 = public_net.get("primary_ipv4") or {}
+    if isinstance(primary_ipv4, dict) and primary_ipv4.get("ip"):
+        return primary_ipv4.get("ip")
 
     return None
 
@@ -824,11 +792,7 @@ def firewall_source_ips(
     """
     cfg = firewall_cfg or {}
     mode = resolve_firewall_mode(cfg)
-    extras = [
-        as_cidr(str(item))
-        for item in (cfg.get("allowed_ips") or [])
-        if item is not None and str(item).strip()
-    ]
+    extras = [as_cidr(str(item)) for item in (cfg.get("allowed_ips") or []) if item is not None and str(item).strip()]
     client_cidr = as_cidr(client_ip) if client_ip else None
 
     if mode == "open":
@@ -848,11 +812,7 @@ def firewall_source_ips(
         return _dedupe_cidrs(sources) or list(_OPEN_SOURCE_IPS)
 
     # dynamic_add — preserve existing allow-list entries
-    sources = [
-        as_cidr(str(item))
-        for item in (existing_ips or [])
-        if item is not None and str(item).strip()
-    ]
+    sources = [as_cidr(str(item)) for item in (existing_ips or []) if item is not None and str(item).strip()]
     # Drop world-open entries when we start locking to concrete IPs.
     if client_cidr or extras:
         sources = [s for s in sources if s not in ("0.0.0.0/0", "::/0")]
@@ -1070,7 +1030,7 @@ class RemoteDevManager:
         workspace_dir: Optional[str] = None,
         profile: Optional[str] = None,
     ):
-        self.hetzner_token = hetzner_token or os.getenv('HETZNER_CLOUD_API_TOKEN')
+        self.hetzner_token = hetzner_token or os.getenv("HETZNER_CLOUD_API_TOKEN")
         self.base_url = "https://api.hetzner.cloud/v1"
 
         # Storage manager for shared state
@@ -1083,10 +1043,10 @@ class RemoteDevManager:
         self._profile = profile
         self._state_bucket: Optional[str] = None
         if is_test:
-            test_prefix = os.getenv('TEST_BUCKET_PREFIX', 'test-')
+            test_prefix = os.getenv("TEST_BUCKET_PREFIX", "test-")
             self._state_bucket = f"{test_prefix}rig-{uuid.uuid4().hex[:8]}"
         else:
-            self._state_bucket = os.getenv('STATE_BUCKET') or None
+            self._state_bucket = os.getenv("STATE_BUCKET") or None
         self.state_prefix = "remote-dev/environments"
 
         if not self.hetzner_token:
@@ -1095,18 +1055,18 @@ class RemoteDevManager:
     def _request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Make API request to Hetzner Cloud"""
         headers = {
-            'Authorization': f'Bearer {self.hetzner_token}',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {self.hetzner_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
 
         url = f"{self.base_url}{endpoint}"
 
-        if method == 'GET':
+        if method == "GET":
             response = requests.get(url, headers=headers, timeout=30)
-        elif method == 'POST':
+        elif method == "POST":
             response = requests.post(url, headers=headers, json=data, timeout=30)
-        elif method == 'DELETE':
+        elif method == "DELETE":
             response = requests.delete(url, headers=headers, timeout=30)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
@@ -1114,13 +1074,13 @@ class RemoteDevManager:
         try:
             response.raise_for_status()
         except requests.HTTPError as e:
-            detail = ''
+            detail = ""
             try:
-                err = response.json().get('error', {})
+                err = response.json().get("error", {})
                 detail = f" - {err.get('code')}: {err.get('message')} {err.get('details') or ''}".rstrip()
             except Exception:
-                text = getattr(response, 'text', '')
-                detail = f" - {text[:300]}" if isinstance(text, str) and text else ''
+                text = getattr(response, "text", "")
+                detail = f" - {text[:300]}" if isinstance(text, str) and text else ""
             raise requests.HTTPError(f"{e}{detail}", response=response) from e
         if response.status_code == 204 or not response.content:
             return {}
@@ -1128,20 +1088,17 @@ class RemoteDevManager:
 
     def create_ssh_key(self, name: str, public_key: str) -> Dict:
         """Create SSH key in Hetzner Cloud"""
-        data = {
-            'name': name,
-            'public_key': public_key
-        }
+        data = {"name": name, "public_key": public_key}
 
-        result = self._request('POST', '/ssh_keys', data)
+        result = self._request("POST", "/ssh_keys", data)
         return result
 
     def get_ssh_key_by_name(self, name: str) -> Optional[Dict]:
         """Find SSH key by name"""
-        result = self._request('GET', '/ssh_keys')
+        result = self._request("GET", "/ssh_keys")
 
-        for key in result.get('ssh_keys', []):
-            if key.get('name') == name:
+        for key in result.get("ssh_keys", []):
+            if key.get("name") == name:
                 return key
 
         return None
@@ -1149,7 +1106,7 @@ class RemoteDevManager:
     def delete_ssh_key(self, key_id: str) -> bool:
         """Delete SSH key by ID"""
         try:
-            self._request('DELETE', f'/ssh_keys/{key_id}')
+            self._request("DELETE", f"/ssh_keys/{key_id}")
             return True
         except Exception:
             return False
@@ -1166,10 +1123,10 @@ class RemoteDevManager:
     ) -> Dict[str, Any]:
         """Create firewall with SSH + ICMP (+ optional app ports) for ``allowed_ips``."""
         if allowed_ips is None:
-            allowed_ips = ['0.0.0.0/0', '::/0']
+            allowed_ips = ["0.0.0.0/0", "::/0"]
         data = {
-            'name': name,
-            'rules': default_firewall_rules(
+            "name": name,
+            "rules": default_firewall_rules(
                 list(allowed_ips),
                 extra_rules=extra_rules,
                 ports=ports,
@@ -1178,12 +1135,12 @@ class RemoteDevManager:
                 existing_port_ips=existing_port_ips,
             ),
         }
-        result = self._request('POST', '/firewalls', data)
+        result = self._request("POST", "/firewalls", data)
         return result
 
     def get_firewall(self, firewall_id: Any) -> Dict[str, Any]:
         """Fetch a firewall by id."""
-        return self._request('GET', f'/firewalls/{firewall_id}')
+        return self._request("GET", f"/firewalls/{firewall_id}")
 
     def set_firewall_rules(
         self,
@@ -1197,7 +1154,7 @@ class RemoteDevManager:
     ) -> Dict[str, Any]:
         """Replace firewall rules (Hetzner ``set_rules`` action)."""
         data = {
-            'rules': default_firewall_rules(
+            "rules": default_firewall_rules(
                 list(allowed_ips),
                 extra_rules=extra_rules,
                 ports=ports,
@@ -1207,48 +1164,50 @@ class RemoteDevManager:
             ),
         }
         return self._request(
-            'POST',
-            f'/firewalls/{firewall_id}/actions/set_rules',
+            "POST",
+            f"/firewalls/{firewall_id}/actions/set_rules",
             data,
         )
 
-    def create_vm(self,
-                  name: str,
-                  vm_type: str,
-                  region: str,
-                  image: str,
-                  ssh_key_id: Optional[str] = None,
-                  firewall_id: Optional[str] = None,
-                  start_after_create: bool = True) -> Dict:
+    def create_vm(
+        self,
+        name: str,
+        vm_type: str,
+        region: str,
+        image: str,
+        ssh_key_id: Optional[str] = None,
+        firewall_id: Optional[str] = None,
+        start_after_create: bool = True,
+    ) -> Dict:
         """Create a VM for remote development"""
         data = {
-            'name': name,
-            'server_type': vm_type,
-            'location': region,
-            'image': image,
-            'start_after_create': start_after_create
+            "name": name,
+            "server_type": vm_type,
+            "location": region,
+            "image": image,
+            "start_after_create": start_after_create,
         }
 
         if ssh_key_id:
-            data['ssh_keys'] = [ssh_key_id]
+            data["ssh_keys"] = [ssh_key_id]
 
         if firewall_id:
-            data['firewalls'] = [{'firewall': firewall_id}]
+            data["firewalls"] = [{"firewall": firewall_id}]
 
-        result = self._request('POST', '/servers', data)
+        result = self._request("POST", "/servers", data)
         return result
 
     def get_vm(self, vm_id: str) -> Dict:
         """Get VM details"""
-        result = self._request('GET', f'/servers/{vm_id}')
+        result = self._request("GET", f"/servers/{vm_id}")
         return result
 
     def get_vm_by_name(self, name: str) -> Optional[Dict]:
         """Find VM by name"""
-        result = self._request('GET', '/servers')
+        result = self._request("GET", "/servers")
 
-        for server in result.get('servers', []):
-            if server.get('name') == name:
+        for server in result.get("servers", []):
+            if server.get("name") == name:
                 return server
 
         return None
@@ -1256,7 +1215,7 @@ class RemoteDevManager:
     def delete_vm(self, vm_id: str) -> bool:
         """Delete VM"""
         try:
-            self._request('DELETE', f'/servers/{vm_id}')
+            self._request("DELETE", f"/servers/{vm_id}")
             return True
         except Exception:
             return False
@@ -1265,7 +1224,7 @@ class RemoteDevManager:
         """Delete firewall, retrying while the VM is still detaching it."""
         for _ in range(12):
             try:
-                self._request('DELETE', f'/firewalls/{firewall_id}')
+                self._request("DELETE", f"/firewalls/{firewall_id}")
                 return True
             except Exception:
                 time.sleep(5)
@@ -1391,20 +1350,26 @@ class RemoteDevManager:
 
         while time.time() - start_time < timeout:
             vm = self.get_vm(vm_id)
-            status = vm.get('server', {}).get('status', '')
+            status = vm.get("server", {}).get("status", "")
 
-            if status in ['active', 'running']:
+            if status in ["active", "running"]:
                 return True
 
-            if status in ['error', 'unknown']:
+            if status in ["error", "unknown"]:
                 return False
 
             time.sleep(5)
 
         return False
 
-    def wait_for_ssh(self, ip: str, timeout: int = 180, interval: int = 5,
-                     identity_file: Optional[str] = None, username: str = 'root') -> bool:
+    def wait_for_ssh(
+        self,
+        ip: str,
+        timeout: int = 180,
+        interval: int = 5,
+        identity_file: Optional[str] = None,
+        username: str = "root",
+    ) -> bool:
         """Wait until SSH accepts connections, authenticating when a key is available."""
         start_time = time.time()
 
@@ -1413,14 +1378,21 @@ class RemoteDevManager:
                 if identity_file:
                     result = subprocess.run(
                         [
-                            'ssh', '-i', identity_file,
-                            '-o', 'StrictHostKeyChecking=no',
-                            '-o', 'UserKnownHostsFile=/dev/null',
-                            '-o', 'IdentitiesOnly=yes',
-                            '-o', 'BatchMode=yes',
-                            '-o', 'ConnectTimeout=10',
-                            f'{username}@{ip}',
-                            'true',
+                            "ssh",
+                            "-i",
+                            identity_file,
+                            "-o",
+                            "StrictHostKeyChecking=no",
+                            "-o",
+                            "UserKnownHostsFile=/dev/null",
+                            "-o",
+                            "IdentitiesOnly=yes",
+                            "-o",
+                            "BatchMode=yes",
+                            "-o",
+                            "ConnectTimeout=10",
+                            f"{username}@{ip}",
+                            "true",
                         ],
                         capture_output=True,
                         text=True,
@@ -1445,7 +1417,7 @@ class RemoteDevManager:
     def get_vm_ip(self, vm_id: str) -> Optional[str]:
         """Get VM's public IP address"""
         vm = self.get_vm(vm_id)
-        public_net = vm.get('server', {}).get('public_net', {})
+        public_net = vm.get("server", {}).get("public_net", {})
         return _ipv4_from_public_net(public_net)
 
     def _bucket_context(self) -> Tuple[str, str]:
@@ -1486,7 +1458,7 @@ class RemoteDevManager:
             raise StateBucketError("No storage manager available to create a state bucket")
         workspace, profile = self._bucket_context()
         existing = set(storage.list_buckets())
-        exists = getattr(storage, 'bucket_exists', None)
+        exists = getattr(storage, "bucket_exists", None)
         for _ in range(3):
             name = new_state_bucket()
             if name in existing or (exists and exists(name)):
@@ -1495,8 +1467,7 @@ class RemoteDevManager:
                 continue
             path = write_state_bucket(workspace, profile, name)
             self._state_bucket = name
-            print(f"Created state bucket {name} for profile {profile!r}. "
-                  f"Commit {path} so your team shares it.")
+            print(f"Created state bucket {name} for profile {profile!r}. Commit {path} so your team shares it.")
             return name
         raise StateBucketError("Could not create a uniquely named state bucket after 3 attempts")
 
@@ -1561,13 +1532,14 @@ class RemoteDevManager:
     def _read_yaml_object(self, key: str) -> Optional[Dict]:
         """Download one object and parse it as YAML; None if unavailable."""
         import tempfile
+
         assert self.storage_manager is not None
         fd, tmp = tempfile.mkstemp(suffix=".yml")
         os.close(fd)
         try:
             if not self.storage_manager.download_file(self.state_bucket, key, tmp):
                 return None
-            with open(tmp, 'r') as f:
+            with open(tmp, "r") as f:
                 data = yaml.safe_load(f)
             return data if isinstance(data, dict) else None
         finally:
@@ -1592,7 +1564,8 @@ class RemoteDevManager:
                 return False
 
             from cli.vault_keys import resolve_identity
-            env_name = environment.get('name') or 'unknown'
+
+            env_name = environment.get("name") or "unknown"
 
             # Read right before write: if the record already exists (possibly
             # updated by someone else), merge into it instead of clobbering it.
@@ -1600,9 +1573,7 @@ class RemoteDevManager:
             key = None
             existing: Dict[str, Any] = {}
             suffix = f"/{env_name}.yml"
-            for candidate in self.storage_manager.list_objects(
-                self.state_bucket, self._records_prefix()
-            ):
+            for candidate in self.storage_manager.list_objects(self.state_bucket, self._records_prefix()):
                 if candidate.endswith(suffix):
                     key = candidate
                     existing = self._read_yaml_object(candidate) or {}
@@ -1611,19 +1582,20 @@ class RemoteDevManager:
             record = dict(existing)
             record.update({k: v for k, v in environment.items() if v is not None})
             if key:
-                owner = existing.get('owner') or key.split('/')[-2]
-                if existing.get('created_at'):
-                    record['created_at'] = existing['created_at']
+                owner = existing.get("owner") or key.split("/")[-2]
+                if existing.get("created_at"):
+                    record["created_at"] = existing["created_at"]
             else:
-                owner = environment.get('owner') or resolve_identity()
+                owner = environment.get("owner") or resolve_identity()
                 key = self._record_key(owner, env_name)
-            record['owner'] = owner
-            record['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            record["owner"] = owner
+            record["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
             import tempfile
+
             fd, tmp = tempfile.mkstemp(suffix=".yml")
             try:
-                with os.fdopen(fd, 'w') as f:
+                with os.fdopen(fd, "w") as f:
                     yaml.dump(record, f, default_flow_style=False, sort_keys=False)
                 self.storage_manager.upload_file(self.state_bucket, tmp, key)
             finally:
@@ -1672,16 +1644,18 @@ class RemoteDevManager:
         if not self.storage_manager:
             return False
         from cli.outputs import merge_outputs
+
         try:
             if not self._ensure_state_bucket():
                 log.warning("Could not ensure state bucket exists")
                 return False
             merged = merge_outputs(self._read_outputs_object(name), new)
-            merged['updated_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            merged["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             import tempfile
+
             fd, tmp = tempfile.mkstemp(suffix=".yml")
             try:
-                with os.fdopen(fd, 'w') as f:
+                with os.fdopen(fd, "w") as f:
                     yaml.dump(merged, f, default_flow_style=False, sort_keys=False)
                 os.chmod(tmp, 0o600)
                 self.storage_manager.upload_file(self.state_bucket, tmp, self._outputs_key(name))
@@ -1699,8 +1673,8 @@ class RemoteDevManager:
 
     def find_record(self, name: str) -> Optional[Dict]:
         """The stored record of the Environment called *name*, whoever owns it."""
-        for record in self._load_state().get('environments', []):
-            if record.get('name') == name:
+        for record in self._load_state().get("environments", []):
+            if record.get("name") == name:
                 return record
         return None
 
@@ -1709,7 +1683,7 @@ class RemoteDevManager:
         record = self.find_record(name)
         if not record:
             return None
-        existing = record.get('owner')
+        existing = record.get("owner")
         return existing if existing and existing != owner else None
 
     def _delete_state(self, name: str) -> bool:
@@ -1740,27 +1714,24 @@ class RemoteDevManager:
             legacy = self._read_yaml_object(f"{self.state_prefix}/state.yml")
             if not legacy:
                 return
-            envs = legacy.get('environments') or []
-            kept = [e for e in envs if e.get('name') != name]
+            envs = legacy.get("environments") or []
+            kept = [e for e in envs if e.get("name") != name]
             if len(kept) == len(envs):
                 return
-            legacy['environments'] = kept
+            legacy["environments"] = kept
             import tempfile
+
             fd, tmp = tempfile.mkstemp(suffix=".yml")
             try:
-                with os.fdopen(fd, 'w') as f:
+                with os.fdopen(fd, "w") as f:
                     yaml.dump(legacy, f, default_flow_style=False, sort_keys=False)
-                self.storage_manager.upload_file(
-                    self.state_bucket, tmp, f"{self.state_prefix}/state.yml"
-                )
+                self.storage_manager.upload_file(self.state_bucket, tmp, f"{self.state_prefix}/state.yml")
             finally:
                 try:
                     os.unlink(tmp)
                 except OSError:
                     pass
-            self.storage_manager.delete_object(
-                self.state_bucket, f"{self.state_prefix}/environments/{name}.yml"
-            )
+            self.storage_manager.delete_object(self.state_bucket, f"{self.state_prefix}/environments/{name}.yml")
         except Exception as e:
             log.debug("Could not clean legacy state record: %s", e)
 
@@ -1771,38 +1742,36 @@ class RemoteDevManager:
         record is read, plus entries from a legacy ``state.yml`` index.
         """
         if not self.storage_manager:
-            return {'environments': []}
+            return {"environments": []}
 
         try:
             # Read-only: never creates or names a bucket.
             if not self._state_bucket_present():
-                return {'environments': []}
+                return {"environments": []}
 
             environments: List[Dict] = []
             seen = set()
-            for key in self.storage_manager.list_objects(
-                self.state_bucket, self._records_prefix(owner)
-            ):
+            for key in self.storage_manager.list_objects(self.state_bucket, self._records_prefix(owner)):
                 if not key.endswith(".yml"):
                     continue
                 record = self._read_yaml_object(key)
-                if record and record.get('name'):
+                if record and record.get("name"):
                     environments.append(record)
-                    seen.add(record['name'])
+                    seen.add(record["name"])
 
             if owner is None:
                 legacy = self._read_yaml_object(f"{self.state_prefix}/state.yml") or {}
-                for entry in legacy.get('environments') or []:
-                    if entry.get('name') not in seen:
+                for entry in legacy.get("environments") or []:
+                    if entry.get("name") not in seen:
                         environments.append(entry)
 
             log.debug("State loaded (%d environments)", len(environments))
-            return {'environments': environments}
+            return {"environments": environments}
         except StateBucketError:
             raise
         except Exception as e:
             log.warning("Could not load state: %s", e)
-            return {'environments': []}
+            return {"environments": []}
 
     def list_dev_environments(self, prefix: str = "dev-", owner: Optional[str] = None) -> list:
         """List development environments with given prefix.
@@ -1815,31 +1784,33 @@ class RemoteDevManager:
         """
         # First try to load from shared state
         state = self._load_state(owner=owner)
-        environments = state.get('environments', [])
+        environments = state.get("environments", [])
 
         # Filter by prefix
-        dev_envs = [env for env in environments if env.get('name', '').startswith(prefix)]
+        dev_envs = [env for env in environments if env.get("name", "").startswith(prefix)]
         if owner is not None:
-            dev_envs = [env for env in dev_envs if env.get('owner') == owner]
+            dev_envs = [env for env in dev_envs if env.get("owner") == owner]
             # The Hetzner API fallback cannot attribute servers to an Identity.
             return dev_envs
 
         # If no state found, fall back to direct API call
         if not dev_envs:
-            result = self._request('GET', '/servers')
+            result = self._request("GET", "/servers")
 
-            for server in result.get('servers', []):
-                name = server.get('name', '')
+            for server in result.get("servers", []):
+                name = server.get("name", "")
                 if name.startswith(prefix):
-                    public_net = server.get('public_net', {})
-                    dev_envs.append({
-                        'name': name,
-                        'id': server.get('id'),
-                        'status': server.get('status'),
-                        'ip': _ipv4_from_public_net(public_net),
-                        'type': server.get('server_type'),
-                        'region': server.get('location')
-                    })
+                    public_net = server.get("public_net", {})
+                    dev_envs.append(
+                        {
+                            "name": name,
+                            "id": server.get("id"),
+                            "status": server.get("status"),
+                            "ip": _ipv4_from_public_net(public_net),
+                            "type": server.get("server_type"),
+                            "region": server.get("location"),
+                        }
+                    )
 
         return dev_envs
 
@@ -1849,15 +1820,15 @@ class RemoteDevManager:
 # is never read: source the file here or `gh` / `glab` inside the agent's shell
 # commands have no token.
 PROVIDER_TOKENS_ENV_FILE = "/root/.config/rig/git-provider.env"
-SOURCE_PROVIDER_TOKENS = (
-    f"[ -f {PROVIDER_TOKENS_ENV_FILE} ] && . {PROVIDER_TOKENS_ENV_FILE}; "
-)
+SOURCE_PROVIDER_TOKENS = f"[ -f {PROVIDER_TOKENS_ENV_FILE} ] && . {PROVIDER_TOKENS_ENV_FILE}; "
 
 
 class RemoteDevEnvironment:
     """Manages a complete remote development environment"""
 
-    def __init__(self, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None, storage_manager: Optional[Any] = None):
+    def __init__(
+        self, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None, storage_manager: Optional[Any] = None
+    ):
         self.name = name or f"dev-{uuid.uuid4().hex[:8]}"
         self.config = config or {}
 
@@ -1871,12 +1842,9 @@ class RemoteDevEnvironment:
         self.image = host.get("image") or "ubuntu-24.04"
         if self.provider not in IMPLEMENTED_CLOUD_PROVIDERS:
             available = ", ".join(sorted(IMPLEMENTED_CLOUD_PROVIDERS))
-            raise ValueError(
-                f"Cloud provider {self.provider!r} is not available yet "
-                f"(supported now: {available})"
-            )
+            raise ValueError(f"Cloud provider {self.provider!r} is not available yet (supported now: {available})")
 
-        self.hetzner_token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+        self.hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
         self.manager = RemoteDevManager(self.hetzner_token, storage_manager)
 
         # SSH key
@@ -1937,11 +1905,7 @@ class RemoteDevEnvironment:
 
         project = ProjectConfig(project_dir)
         project.load()
-        workspace_name = (
-            (project.config or {}).get("name")
-            or os.path.basename(project_dir.rstrip(os.sep))
-            or self.name
-        )
+        workspace_name = (project.config or {}).get("name") or os.path.basename(project_dir.rstrip(os.sep)) or self.name
         digest = workspace_content_hash(project_dir, project=project)
         sys_inputs = system_hash_inputs_from_project(project)
         system_hash = system_content_hash(
@@ -1963,7 +1927,9 @@ class RemoteDevEnvironment:
             if len(compatible) != len(images):
                 log.debug(
                     "Ignoring %d snapshot(s) not matching %s architecture of %s",
-                    len(images) - len(compatible), arch, self.vm_type,
+                    len(images) - len(compatible),
+                    arch,
+                    self.vm_type,
                 )
             images = compatible
 
@@ -1999,15 +1965,14 @@ class RemoteDevEnvironment:
 
     def generate_ssh_keys(self):
         """Generate an SSH key pair that can actually log in to the VM."""
-        key_path = f'/tmp/{self.ssh_key_name}'
+        key_path = f"/tmp/{self.ssh_key_name}"
         try:
-            for path in (key_path, f'{key_path}.pub'):
+            for path in (key_path, f"{key_path}.pub"):
                 if os.path.exists(path):
                     os.remove(path)
 
             result = subprocess.run(
-                ['ssh-keygen', '-t', 'ed25519', '-C', f'{self.ssh_key_name}@rig',
-                 '-N', '', '-f', key_path],
+                ["ssh-keygen", "-t", "ed25519", "-C", f"{self.ssh_key_name}@rig", "-N", "", "-f", key_path],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -2016,9 +1981,9 @@ class RemoteDevEnvironment:
                 log.error("SSH key generation failed: %s", result.stderr)
                 return False
 
-            with open(key_path, 'r') as private_key_file:
+            with open(key_path, "r") as private_key_file:
                 self.ssh_private_key = private_key_file.read()
-            with open(f'{key_path}.pub', 'r') as public_key_file:
+            with open(f"{key_path}.pub", "r") as public_key_file:
                 self.ssh_public_key = public_key_file.read().strip()
             return True
         except Exception as e:
@@ -2045,36 +2010,36 @@ class RemoteDevEnvironment:
             return None
         record = record or {}
         details: Dict[str, Any] = {
-            'name': self.name,
-            'owner': record.get('owner'),
-            'id': record.get('id') or self.vm_id,
-            'status': None,
-            'ip': record.get('ip') or self.vm_ip,
-            'type': record.get('type'),
-            'region': record.get('region'),
-            'ssh_key_id': record.get('ssh_key_id') or self.ssh_key_id,
-            'firewall_id': record.get('firewall_id') or self.firewall_id,
-            'created_at': record.get('created_at'),
-            'updated_at': record.get('updated_at'),
-            'stale': False,
+            "name": self.name,
+            "owner": record.get("owner"),
+            "id": record.get("id") or self.vm_id,
+            "status": None,
+            "ip": record.get("ip") or self.vm_ip,
+            "type": record.get("type"),
+            "region": record.get("region"),
+            "ssh_key_id": record.get("ssh_key_id") or self.ssh_key_id,
+            "firewall_id": record.get("firewall_id") or self.firewall_id,
+            "created_at": record.get("created_at"),
+            "updated_at": record.get("updated_at"),
+            "stale": False,
         }
         try:
             if not self.vm_id:
                 raise ValueError("no server id")
-            server = (self.manager.get_vm(self.vm_id) or {}).get('server') or {}
+            server = (self.manager.get_vm(self.vm_id) or {}).get("server") or {}
             if not server:
                 raise ValueError("server not found")
-            details['status'] = server.get('status')
-            details['ip'] = _ipv4_from_public_net(server.get('public_net') or {}) or details['ip']
-            details['type'] = (server.get('server_type') or {}).get('name') or details['type']
-            details['region'] = (server.get('datacenter') or {}).get('name') or details['region']
+            details["status"] = server.get("status")
+            details["ip"] = _ipv4_from_public_net(server.get("public_net") or {}) or details["ip"]
+            details["type"] = (server.get("server_type") or {}).get("name") or details["type"]
+            details["region"] = (server.get("datacenter") or {}).get("name") or details["region"]
         except Exception as exc:
             log.debug("Live server lookup failed for %s: %s", self.name, exc)
-            details['stale'] = True
-        details['connection'] = {
-            'host': details['ip'],
-            'user': 'root',
-            'ssh_key_path': f'/tmp/{self.ssh_key_name}',
+            details["stale"] = True
+        details["connection"] = {
+            "host": details["ip"],
+            "user": "root",
+            "ssh_key_path": f"/tmp/{self.ssh_key_name}",
         }
         return details
 
@@ -2087,6 +2052,7 @@ class RemoteDevEnvironment:
         if not self.manager.storage_manager:
             return True
         from cli.state_bucket import StateBucketNotConfigured
+
         try:
             other = self.manager.conflicting_owner(self.name, self._owner_identity())
         except StateBucketNotConfigured:
@@ -2119,10 +2085,8 @@ class RemoteDevEnvironment:
             log.error("SSH public key missing after generation")
             return False
         try:
-            key_result = self.manager.create_ssh_key(
-                self.ssh_key_name, self.ssh_public_key
-            )
-            self.ssh_key_id = key_result.get('ssh_key', {}).get('id')
+            key_result = self.manager.create_ssh_key(self.ssh_key_name, self.ssh_public_key)
+            self.ssh_key_id = key_result.get("ssh_key", {}).get("id")
             log.debug("SSH key registered (id=%s)", self.ssh_key_id)
         except Exception as e:
             log.warning("SSH key registration failed: %s", e)
@@ -2137,8 +2101,7 @@ class RemoteDevEnvironment:
                 client_ip = detect_client_public_ip()
                 if not client_ip:
                     log.error(
-                        "firewall.mode=%s requires the CLI host public IP, "
-                        "but it could not be detected",
+                        "firewall.mode=%s requires the CLI host public IP, but it could not be detected",
                         mode,
                     )
                     return False
@@ -2148,9 +2111,7 @@ class RemoteDevEnvironment:
                 existing_ips=None,
             )
             extra_rules = firewall_config.get("extra_rules")
-            port_label = ", ".join(
-                f"{p['protocol']}/{p['port']}" for p in normalize_firewall_ports(ports)
-            )
+            port_label = ", ".join(f"{p['protocol']}/{p['port']}" for p in normalize_firewall_ports(ports))
             log.info(
                 "Firewall mode=%s source IPs: %s%s%s",
                 mode,
@@ -2166,7 +2127,7 @@ class RemoteDevEnvironment:
                 firewall_cfg=firewall_config,
                 client_ip=client_ip,
             )
-            self.firewall_id = fw_result.get('firewall', {}).get('id')
+            self.firewall_id = fw_result.get("firewall", {}).get("id")
             log.debug("Firewall created (id=%s)", self.firewall_id)
         except Exception as e:
             log.warning("Firewall creation failed: %s", e)
@@ -2184,9 +2145,9 @@ class RemoteDevEnvironment:
                 self.region,
                 self.image,
                 ssh_key_id=self.ssh_key_id,
-                firewall_id=self.firewall_id
+                firewall_id=self.firewall_id,
             )
-            self.vm_id = vm_result.get('server', {}).get('id')
+            self.vm_id = vm_result.get("server", {}).get("id")
             log.debug("VM created (id=%s)", self.vm_id)
         except Exception as e:
             log.error("VM creation failed: %s", e)
@@ -2205,7 +2166,7 @@ class RemoteDevEnvironment:
 
         log.debug("Waiting for SSH")
         self.vm_ip = self.manager.get_vm_ip(str(self.vm_id))
-        identity_file = f'/tmp/{self.ssh_key_name}'
+        identity_file = f"/tmp/{self.ssh_key_name}"
         if self.vm_ip and self.manager.wait_for_ssh(self.vm_ip, timeout=300, identity_file=identity_file):
             log.debug("SSH available at %s", self.vm_ip)
         else:
@@ -2214,16 +2175,16 @@ class RemoteDevEnvironment:
 
         log.debug("Saving environment state")
         env_state = {
-            'name': self.vm_name,
-            'id': self.vm_id,
-            'status': 'active',
-            'ip': self.vm_ip,
-            'type': self.vm_type,
-            'region': self.region,
-            'ssh_key_id': self.ssh_key_id,
-            'firewall_id': self.firewall_id,
-            'owner': self._owner_identity(),
-            'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            "name": self.vm_name,
+            "id": self.vm_id,
+            "status": "active",
+            "ip": self.vm_ip,
+            "type": self.vm_type,
+            "region": self.region,
+            "ssh_key_id": self.ssh_key_id,
+            "firewall_id": self.firewall_id,
+            "owner": self._owner_identity(),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         if self.manager._save_state(env_state):
             log.debug("State saved to bucket")
@@ -2293,8 +2254,7 @@ class RemoteDevEnvironment:
         wanted = tuple(p for p in playbooks if p in allowed)
         if not wanted:
             log.error(
-                "No playbooks selected (use provision, configure, authorize, "
-                "materialize, finalize, and/or destroy)"
+                "No playbooks selected (use provision, configure, authorize, materialize, finalize, and/or destroy)"
             )
             return False
 
@@ -2322,9 +2282,7 @@ class RemoteDevEnvironment:
                 log.debug(
                     "Skipping playbook(s) covered by %s snapshot%s: %s",
                     self.boot_source,
-                    f" ({self.boot_snapshot_description})"
-                    if self.boot_snapshot_description
-                    else "",
+                    f" ({self.boot_snapshot_description})" if self.boot_snapshot_description else "",
                     ", ".join(skipped),
                 )
             wanted = tuple(p for p in wanted if p not in skip)
@@ -2343,10 +2301,9 @@ class RemoteDevEnvironment:
 
         try:
             from cli.encrypt import ensure_vscode_browser_password
+
             if ensure_vscode_browser_password(project_dir=project_dir):
-                log.info(
-                    "Generated vscode_browser_password for code-server browser login"
-                )
+                log.info("Generated vscode_browser_password for code-server browser login")
         except Exception as exc:
             log.warning("Could not ensure vscode_browser_password: %s", exc)
 
@@ -2367,6 +2324,7 @@ class RemoteDevEnvironment:
         # Ensure legacy /root/<repo> clone destinations are under /workspace.
         try:
             from cli.git import GitManager
+
             GitManager(project).normalize_workspace_dests()
         except Exception as exc:
             log.debug("Could not normalize clone destinations: %s", exc)
@@ -2448,10 +2406,7 @@ class RemoteDevEnvironment:
                 log.info("Running %s playbook %s", kind, path)
             if not ansible._run_one_playbook(path, **run_kwargs):
                 if kind == "materialize" and soft_fail_materialize:
-                    log.warning(
-                        "Materialize playbook failed (often an invalid git PAT); "
-                        "continuing"
-                    )
+                    log.warning("Materialize playbook failed (often an invalid git PAT); continuing")
                     materialize_failed = True
                     continue
                 log.error("%s playbook failed", kind.capitalize())
@@ -2568,9 +2523,7 @@ class RemoteDevEnvironment:
         if firewall_config_needs_client_ip(firewall_config, ports):
             client_ip = detect_client_public_ip()
             if not client_ip:
-                log.warning(
-                    "Could not detect CLI public IP; leaving firewall rules unchanged"
-                )
+                log.warning("Could not detect CLI public IP; leaving firewall rules unchanged")
                 return False
 
         try:
@@ -2612,9 +2565,7 @@ class RemoteDevEnvironment:
                 if rule.get("protocol") in ("tcp", "udp") and rule.get("port") not in (None, "", "22")
             }
             sources_unchanged = set(ssh_sources) == set(desired)
-            ports_unchanged = {
-                key: tuple(sorted(value)) for key, value in current_port_ips.items()
-            } == {
+            ports_unchanged = {key: tuple(sorted(value)) for key, value in current_port_ips.items()} == {
                 key: tuple(sorted(value)) for key, value in desired_port_ips.items()
             }
             if sources_unchanged and ports_unchanged:
@@ -2802,8 +2753,8 @@ class RemoteDevEnvironment:
         self.manager._delete_state(self.name)
 
         log.debug("Cleaning up local SSH keys and config host")
-        subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}'], capture_output=True)
-        subprocess.run(['rm', '-f', f'/tmp/{self.ssh_key_name}.pub'], capture_output=True)
+        subprocess.run(["rm", "-f", f"/tmp/{self.ssh_key_name}"], capture_output=True)
+        subprocess.run(["rm", "-f", f"/tmp/{self.ssh_key_name}.pub"], capture_output=True)
         try:
             self.remove_ssh_config_host()
         except OSError:
@@ -2812,103 +2763,106 @@ class RemoteDevEnvironment:
     def get_connection_info(self) -> Dict:
         """Get information needed to connect to the VM"""
         return {
-            'vm_ip': self.vm_ip,
-            'ssh_key_path': f'/tmp/{self.ssh_key_name}',
-            'username': 'root',  # Hetzner uses root by default for Ubuntu
-            'vm_name': self.vm_name,
-            'region': self.region
+            "vm_ip": self.vm_ip,
+            "ssh_key_path": f"/tmp/{self.ssh_key_name}",
+            "username": "root",  # Hetzner uses root by default for Ubuntu
+            "vm_name": self.vm_name,
+            "region": self.region,
         }
 
     def setup_vpn(self, endpoint: str, peer_public_key: str, allowed_ips: Optional[List[str]] = None) -> bool:
         """
         Setup WireGuard VPN tunnel to remote gateway
-        
+
         Args:
             endpoint: VPN gateway endpoint (host:port)
             peer_public_key: Remote gateway's public key
             allowed_ips: IPs/ranges accessible through VPN (default: 0.0.0.0/0, ::0/0)
-        
+
         Returns:
             bool: True if VPN tunnel was established successfully
         """
         if not VPN_AVAILABLE or self.vpn_manager is None:
             print("Error: VPN support not available. Install wireguard-tools to enable.")
             return False
-        
+
         print(f"\n=== Setting up VPN tunnel to {endpoint} ===")
-        
+
         # Generate local keys
         keys = self.vpn_manager.generate_wireguard_keys()
         self.vpn_config = {
-            'endpoint': endpoint,
-            'private_key': keys['private_key'],
-            'peer_public_key': peer_public_key,
-            'allowed_ips': allowed_ips or ['0.0.0.0/0', '::0/0'],
-            'interface_name': self.vpn_interface
+            "endpoint": endpoint,
+            "private_key": keys["private_key"],
+            "peer_public_key": peer_public_key,
+            "allowed_ips": allowed_ips or ["0.0.0.0/0", "::0/0"],
+            "interface_name": self.vpn_interface,
         }
-        
+
         # Setup VPN tunnel
         assert self.vpn_interface is not None
         success = self.vpn_manager.setup_vpn_with_credentials(
             name=self.vpn_interface,
             endpoint=endpoint,
-            private_key=keys['private_key'],
+            private_key=keys["private_key"],
             peer_public_key=peer_public_key,
-            allowed_ips=allowed_ips
+            allowed_ips=allowed_ips,
         )
-        
+
         if success:
             print(f"✓ VPN tunnel '{self.vpn_interface}' established successfully")
             # Save VPN config for cleanup
-            with open(f'/tmp/{self.vpn_interface}.json', 'w') as f:
+            with open(f"/tmp/{self.vpn_interface}.json", "w") as f:
                 import json
+
                 json.dump(self.vpn_config, f, indent=2)
         else:
             print(f"✗ Failed to setup VPN tunnel")
-        
+
         return success
 
     def teardown_vpn(self) -> bool:
         """
         Tear down WireGuard VPN tunnel
-        
+
         Returns:
             bool: True if VPN tunnel was torn down successfully
         """
         if not VPN_AVAILABLE or self.vpn_manager is None or not self.vpn_interface:
             print("Error: VPN support not available")
             return False
-        
+
         print(f"\n=== Tearing down VPN tunnel {self.vpn_interface} ===")
-        
+
         success = self.vpn_manager.teardown_vpn_tunnel(self.vpn_interface)
-        
+
         if success:
             print(f"✓ VPN tunnel '{self.vpn_interface}' torn down successfully")
             # Clean up config file
             import os
-            config_path = f'/tmp/{self.vpn_interface}.json'
+
+            config_path = f"/tmp/{self.vpn_interface}.json"
             if os.path.exists(config_path):
                 os.remove(config_path)
         else:
             print(f"✗ Failed to teardown VPN tunnel")
-        
+
         return success
 
     def check_vpn_status(self) -> Dict[str, Any]:
         """
         Check status of WireGuard VPN tunnel
-        
+
         Returns:
             Dict containing VPN status information
         """
         if not VPN_AVAILABLE or self.vpn_manager is None or not self.vpn_interface:
-            return {'error': 'VPN support not available'}
+            return {"error": "VPN support not available"}
         return self.vpn_manager.check_vpn_status(self.vpn_interface)
 
     @staticmethod
     def _owner_identity() -> str:
         from cli.vault_keys import resolve_identity
+
         return resolve_identity()
 
     def list_environments(self, all_identities: bool = False) -> list:
@@ -2930,7 +2884,7 @@ class RemoteDevEnvironment:
         print(f"\n=== Installing {agent_type} agent on remote VM ===")
 
         # SSH key path
-        ssh_key_path = f'/tmp/{self.ssh_key_name}'
+        ssh_key_path = f"/tmp/{self.ssh_key_name}"
 
         # Agent installation script
         install_script = f"""
@@ -2972,43 +2926,63 @@ echo "Agent installation complete!"
 
         try:
             # Write script to temp file
-            with open('/tmp/install_agent.sh', 'w') as f:
+            with open("/tmp/install_agent.sh", "w") as f:
                 f.write(install_script)
 
             # Copy script to VM
             import subprocess
-            subprocess.run([
-                'ssh', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
-                f'root@{self.vm_ip}', 'mkdir -p /tmp'
-            ], check=True, capture_output=True)
 
-            subprocess.run([
-                'scp', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
-                '/tmp/install_agent.sh', f'root@{self.vm_ip}:/tmp/'
-            ], check=True, capture_output=True)
+            subprocess.run(
+                ["ssh", "-i", ssh_key_path, "-o", "StrictHostKeyChecking=no", f"root@{self.vm_ip}", "mkdir -p /tmp"],
+                check=True,
+                capture_output=True,
+            )
+
+            subprocess.run(
+                [
+                    "scp",
+                    "-i",
+                    ssh_key_path,
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "/tmp/install_agent.sh",
+                    f"root@{self.vm_ip}:/tmp/",
+                ],
+                check=True,
+                capture_output=True,
+            )
 
             # Execute installation
-            subprocess.run([
-                'ssh', '-i', ssh_key_path, '-o', 'StrictHostKeyChecking=no',
-                f'root@{self.vm_ip}', 'bash /tmp/install_agent.sh'
-            ], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "ssh",
+                    "-i",
+                    ssh_key_path,
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    f"root@{self.vm_ip}",
+                    "bash /tmp/install_agent.sh",
+                ],
+                check=True,
+                capture_output=True,
+            )
 
             print(f"✓ {agent_type} agent installed successfully")
 
             # Update this environment's record with agent info
             env_state = {
-                'name': self.name,
-                'id': self.vm_id,
-                'status': 'active',
-                'ip': self.vm_ip,
-                'type': self.vm_type,
-                'region': self.region,
-                'ssh_key_id': self.ssh_key_id,
-                'firewall_id': self.firewall_id,
-                'agent_installed': True,
-                'agent_type': agent_type,
-                'owner': self._owner_identity(),
-                'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                "name": self.name,
+                "id": self.vm_id,
+                "status": "active",
+                "ip": self.vm_ip,
+                "type": self.vm_type,
+                "region": self.region,
+                "ssh_key_id": self.ssh_key_id,
+                "firewall_id": self.firewall_id,
+                "agent_installed": True,
+                "agent_type": agent_type,
+                "owner": self._owner_identity(),
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }
             self.manager._save_state(env_state)
 
@@ -3026,6 +3000,7 @@ echo "Agent installation complete!"
         """Shell command run on the VM inside an interactive SSH TTY."""
         try:
             from cli.agents import normalize_agent_type
+
             agent = normalize_agent_type(agent_type)
         except ValueError:
             agent = "opencode"
@@ -3164,10 +3139,7 @@ echo "Agent installation complete!"
         if remote_command:
             remote_cmd = remote_command
         else:
-            remote_cmd = (
-                f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
-                f"cd {REMOTE_WORKSPACE_ROOT} && exec bash -l"
-            )
+            remote_cmd = f"mkdir -p {REMOTE_WORKSPACE_ROOT} && cd {REMOTE_WORKSPACE_ROOT} && exec bash -l"
         ssh_cmd = self._interactive_ssh_command(remote_cmd)
         log.info("Connecting to %s", self.name)
         log.debug("SSH key=%s", f"/tmp/{self.ssh_key_name}")
@@ -3198,9 +3170,7 @@ echo "Agent installation complete!"
             try:
                 if sys.platform == "darwin":
                     # BSD script: script [-q] [file] command...
-                    completed = subprocess.run(
-                        [script_bin, "-q", attach_log, *ssh_cmd]
-                    )
+                    completed = subprocess.run([script_bin, "-q", attach_log, *ssh_cmd])
                 else:
                     # util-linux: script -q -c 'cmd' file
                     completed = subprocess.run(
@@ -3340,6 +3310,7 @@ echo "Agent installation complete!"
             raw = project.get_vars("code_server_port")
             port = int(raw) if raw else 8080
         from urllib.parse import quote
+
         target = folder or REMOTE_WORKSPACE_ROOT
         return f"http://{self.vm_ip}:{port}/?folder={quote(target)}"
 
@@ -3374,15 +3345,14 @@ echo "Agent installation complete!"
             remote_path = "/" + remote_path
 
         if browser:
-            url = self.code_server_url(
-                project_dir=project_dir, folder=remote_path
-            )
+            url = self.code_server_url(project_dir=project_dir, folder=remote_path)
             try:
                 from cli.encrypt import (
                     VSCODE_BROWSER_PASSWORD_VAR,
                     ensure_vscode_browser_password,
                     read_vscode_browser_password,
                 )
+
                 root = project_dir or os.getcwd()
                 ensure_vscode_browser_password(project_dir=root)
                 password = read_vscode_browser_password(project_dir=root)
@@ -3394,15 +3364,12 @@ echo "Agent installation complete!"
                     )
                 else:
                     log.info(
-                        "Decrypt the browser password with: "
-                        "rig vars decrypt %s",
+                        "Decrypt the browser password with: rig vars decrypt %s",
                         VSCODE_BROWSER_PASSWORD_VAR,
                     )
             except Exception as exc:
                 log.warning("Could not load vscode_browser_password: %s", exc)
-                log.info(
-                    "Decrypt with: rig vars decrypt vscode_browser_password"
-                )
+                log.info("Decrypt with: rig vars decrypt vscode_browser_password")
             log.info("Opening code-server at %s", url)
             try:
                 if webbrowser.open(url):
@@ -3414,13 +3381,9 @@ echo "Agent installation complete!"
                 log.info("Open this URL manually: %s", url)
                 return 1
 
-        editor_bin = self.resolve_editor_command(
-            prefer=editor, fallbacks=editor_fallbacks
-        )
+        editor_bin = self.resolve_editor_command(prefer=editor, fallbacks=editor_fallbacks)
         if not editor_bin:
-            url = self.code_server_url(
-                project_dir=project_dir, folder=remote_path
-            )
+            url = self.code_server_url(project_dir=project_dir, folder=remote_path)
             if editor and editor_fallbacks == []:
                 log.error("Editor '%s' not found", editor)
             else:
@@ -3460,27 +3423,27 @@ echo "Agent installation complete!"
         }
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
-    token = os.getenv('HETZNER_CLOUD_API_TOKEN')
+    token = os.getenv("HETZNER_CLOUD_API_TOKEN")
     if not token:
         print("Error: HETZNER_CLOUD_API_TOKEN not set")
         sys.exit(1)
 
     # Example configuration
     config = {
-        'host': {
-            'provider': 'hetzner',
-            'type': 'vm',
-            'server_type': 'cax11',
-            'availability_zone': 'hel1',
-            'image': 'ubuntu-24.04'
+        "host": {
+            "provider": "hetzner",
+            "type": "vm",
+            "server_type": "cax11",
+            "availability_zone": "hel1",
+            "image": "ubuntu-24.04",
         },
-        'firewall': {
-            'mode': DEFAULT_FIREWALL_MODE,
-            'allowed_ips': [],
-            'ports': [],
-        }
+        "firewall": {
+            "mode": DEFAULT_FIREWALL_MODE,
+            "allowed_ips": [],
+            "ports": [],
+        },
     }
 
     env = RemoteDevEnvironment(config=config)
@@ -4384,7 +4347,8 @@ class ProjectConfig:
     def setup_config(self) -> Dict[str, Any]:
         """Backward-compatible view of bootstrap/agent settings living in rig.yml."""
         return {
-            "bootstrap": self.config.get("bootstrap") or {
+            "bootstrap": self.config.get("bootstrap")
+            or {
                 "enabled": True,
                 "playbooks": self.config.get("playbooks") or {},
                 "inventory": self.config.get("inventory", f"{self.RIG_DIR}/inventory.yml"),
@@ -4492,19 +4456,22 @@ class ProjectConfig:
                 if os.path.exists(legacy_setup):
                     with open(legacy_setup, "r", encoding="utf-8") as handle:
                         legacy = yaml.safe_load(handle) or {}
-                        self.config = self._merge_missing(self.config, {
-                            "agent": legacy.get("agent") or {},
-                            "playbooks": {
-                                "provision": f"{self.RIG_DIR}/{self.PROVISION_YAML}",
-                                "configure": f"{self.RIG_DIR}/{self.CONFIGURE_YAML}",
-                                "authorize": f"{self.RIG_DIR}/{self.AUTHORIZE_YAML}",
-                                "materialize": f"{self.RIG_DIR}/{self.MATERIALIZE_YAML}",
-                                "finalize": f"{self.RIG_DIR}/{self.FINALIZE_YAML}",
-                                "destroy": f"{self.RIG_DIR}/{self.DESTROY_YAML}",
+                        self.config = self._merge_missing(
+                            self.config,
+                            {
+                                "agent": legacy.get("agent") or {},
+                                "playbooks": {
+                                    "provision": f"{self.RIG_DIR}/{self.PROVISION_YAML}",
+                                    "configure": f"{self.RIG_DIR}/{self.CONFIGURE_YAML}",
+                                    "authorize": f"{self.RIG_DIR}/{self.AUTHORIZE_YAML}",
+                                    "materialize": f"{self.RIG_DIR}/{self.MATERIALIZE_YAML}",
+                                    "finalize": f"{self.RIG_DIR}/{self.FINALIZE_YAML}",
+                                    "destroy": f"{self.RIG_DIR}/{self.DESTROY_YAML}",
+                                },
+                                "inventory": f"{self.RIG_DIR}/inventory.yml",
+                                "bootstrap": legacy.get("bootstrap") or {},
                             },
-                            "inventory": f"{self.RIG_DIR}/inventory.yml",
-                            "bootstrap": legacy.get("bootstrap") or {},
-                        })
+                        )
 
             vars_path = os.path.join(self.rig_dir, self.VARS_YAML)
             if os.path.exists(vars_path):
@@ -4512,6 +4479,7 @@ class ProjectConfig:
             # Merge identity personal vars (PATs, agent key) over shared.
             try:
                 from cli.vault_keys import personal_vars_path, filter_wrap_fields_from_yaml_text
+
                 id_path = personal_vars_path(self.project_dir)
                 if os.path.exists(id_path):
                     personal = self._load_vars_with_vault(id_path)
@@ -4562,23 +4530,24 @@ class ProjectConfig:
     def _load_vars_with_vault(self, vars_path: str) -> Dict:
         """Load vars.yml with optional Ansible Vault encryption support"""
         try:
-            with open(vars_path, 'r') as f:
+            with open(vars_path, "r") as f:
                 content = f.read()
 
             # Check if content is vault encrypted (whole-file vault)
-            if content.startswith('$ANSIBLE_VAULT'):
+            if content.startswith("$ANSIBLE_VAULT"):
                 import tempfile
                 from cli.vault_keys import (
                     DEFAULT_DATA_KEY_PATH,
                     PERSONAL_DATA_KEY_PATH,
                     SHARED_DATA_KEY_PATH,
                 )
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as tmp:
+
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as tmp:
                     tmp.write(content)
                     tmp_path = tmp.name
 
                 try:
-                    vault_cmd = ['ansible-vault', 'view', tmp_path]
+                    vault_cmd = ["ansible-vault", "view", tmp_path]
                     vault_ids = []
                     for label, path in (
                         ("personal", PERSONAL_DATA_KEY_PATH),
@@ -4590,18 +4559,12 @@ class ProjectConfig:
                     if vault_ids:
                         vault_cmd[2:2] = vault_ids
                     elif self.vault_password:
-                        vault_cmd[2:2] = ['--vault-password', self.vault_password]
+                        vault_cmd[2:2] = ["--vault-password", self.vault_password]
                     else:
                         raise ValueError(
-                            "Vault encrypted file requires data keys under /tmp/.rig "
-                            "or .rig/.vault_password."
+                            "Vault encrypted file requires data keys under /tmp/.rig or .rig/.vault_password."
                         )
-                    result = subprocess.run(
-                        vault_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=30
-                    )
+                    result = subprocess.run(vault_cmd, capture_output=True, text=True, timeout=30)
                     if result.returncode == 0:
                         return yaml.safe_load(result.stdout) or {}
                     else:
@@ -4611,6 +4574,7 @@ class ProjectConfig:
             else:
                 # Regular YAML (may contain inline !vault scalars). Strip key wraps.
                 from cli.vault_keys import filter_wrap_fields_from_yaml_text
+
                 cleaned = filter_wrap_fields_from_yaml_text(content)
                 return yaml.load(cleaned, Loader=_VarsLoader) or {}
         except Exception as e:
@@ -4779,24 +4743,19 @@ class ProjectConfig:
                     created.append(f"{self.RIG_YAML} (updated)")
 
             from cli.agents import resolve_configured_agents
+
             if agent_types is not None or agent_type is not None:
                 selected_agents = self._set_agent_selection(
                     agent_types if agent_types is not None else agent_type,
                     default=agent_type,
                 )
             else:
-                selected_agents, primary = resolve_configured_agents(
-                    self.config.get("agent") or {}
-                )
-                selected_agents = self._set_agent_selection(
-                    selected_agents, default=primary
-                )
+                selected_agents, primary = resolve_configured_agents(self.config.get("agent") or {})
+                selected_agents = self._set_agent_selection(selected_agents, default=primary)
 
             enabled_editors, chosen_editor = resolve_configured_editors(self.config)
             if enabled_editors:
-                apply_editor_selection(
-                    self.config, enabled_editors, default=chosen_editor
-                )
+                apply_editor_selection(self.config, enabled_editors, default=chosen_editor)
 
             if not self.requirements:
                 self.requirements = [
@@ -4848,10 +4807,9 @@ class ProjectConfig:
                 return False
 
             from cli.agents import ensure_agent_scaffold
+
             for scaffold_agent in selected_agents:
-                for path in ensure_agent_scaffold(
-                    self.rig_dir, agent_type=scaffold_agent
-                ):
+                for path in ensure_agent_scaffold(self.rig_dir, agent_type=scaffold_agent):
                     created.append(path)
             # Keep vars in sync for provision.yml conditionals.
             if self.vars_config is not None:
@@ -4869,9 +4827,7 @@ class ProjectConfig:
 
             for stage, was_missing in missing.items():
                 if was_missing and os.path.exists(stage_paths[stage]):
-                    created.append(
-                        f"{self.RIG_DIR}/{os.path.basename(stage_paths[stage])}"
-                    )
+                    created.append(f"{self.RIG_DIR}/{os.path.basename(stage_paths[stage])}")
 
             # Drop obsolete nested copies if present
             for obsolete in (
@@ -4968,7 +4924,7 @@ class ProjectConfig:
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value with dot notation support"""
-        keys = key.split('.')
+        keys = key.split(".")
         value = self.config
         for k in keys:
             if isinstance(value, dict) and k in value:
@@ -4979,7 +4935,7 @@ class ProjectConfig:
 
     def set(self, key: str, value: Any) -> bool:
         """Set configuration value with dot notation support"""
-        keys = key.split('.')
+        keys = key.split(".")
         config = self.config
         for k in keys[:-1]:
             if k not in config:
@@ -4991,7 +4947,7 @@ class ProjectConfig:
     def get_vars(self, key: Optional[str] = None, default: Any = None) -> Any:
         """Get variables value"""
         if key:
-            keys = key.split('.')
+            keys = key.split(".")
             value = self.vars_config
             for k in keys:
                 if isinstance(value, dict) and k in value:
@@ -5013,7 +4969,7 @@ class ProjectConfig:
                 self.vars_config = merged
             elif not self.vars_config:
                 self.vars_config = {}
-        keys = key.split('.')
+        keys = key.split(".")
         vars_config = self.vars_config
         for k in keys[:-1]:
             if k not in vars_config:
@@ -5042,10 +4998,12 @@ class ProjectConfig:
                 return False
 
             # Encrypt the file
-            result = subprocess.run([
-                'ansible-vault', 'encrypt', vars_path,
-                '--vault-password', self.vault_password
-            ], capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                ["ansible-vault", "encrypt", vars_path, "--vault-password", self.vault_password],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
             if result.returncode == 0:
                 print(f"✓ vars.yml encrypted successfully")
@@ -5152,10 +5110,7 @@ def resolve_init_context(start: Optional[str] = None) -> Dict[str, Any]:
     git_root = _git_root(start)
     if git_root:
         parent = os.path.dirname(git_root)
-        siblings = [
-            project for project in discover_git_projects(parent)
-            if project["path"] != parent
-        ]
+        siblings = [project for project in discover_git_projects(parent) if project["path"] != parent]
         projects = siblings or discover_git_projects(git_root)
         return {
             "root": start,
@@ -5239,9 +5194,10 @@ class Workspace:
         selected = repos or []
         password_vars = password_vars or {}
         from cli.agents import coerce_agent_types, normalize_agent_type
-        chosen_agents = coerce_agent_types(
-            agent_types if agent_types is not None else (agent_type or "opencode")
-        ) or ["opencode"]
+
+        chosen_agents = coerce_agent_types(agent_types if agent_types is not None else (agent_type or "opencode")) or [
+            "opencode"
+        ]
         chosen_agent = chosen_agents[0]
         if isinstance(agent_type, str) and agent_type.strip():
             try:
@@ -5282,13 +5238,13 @@ class Workspace:
         project.set_vars("coding_agent_types", list(chosen_agents))
 
         existing_repos = [
-            repo for repo in (project.config.get("repos") or [])
-            if isinstance(repo, dict) and repo.get("name")
+            repo for repo in (project.config.get("repos") or []) if isinstance(repo, dict) and repo.get("name")
         ]
         existing_by_name = {repo["name"]: dict(repo) for repo in existing_repos}
         by_name: Dict[str, Dict[str, Any]] = {}
 
         from cli.git import GitManager
+
         git_manager = GitManager(project)
         # Avoid wiping vaulted vars.yml on re-init when clone list already exists.
         if project.get_vars("git.clone_repos") is None:
@@ -5308,9 +5264,7 @@ class Workspace:
             relative = None
             if local_path:
                 relative = os.path.relpath(local_path, self.path)
-            entry: Dict[str, Any] = dict(
-                existing_by_name.get(repo_name) or {"name": repo_name}
-            )
+            entry: Dict[str, Any] = dict(existing_by_name.get(repo_name) or {"name": repo_name})
             if relative and relative not in (".", ""):
                 entry["path"] = relative.replace(os.sep, "/")
             if url:
@@ -5323,9 +5277,7 @@ class Workspace:
                 if password_var:
                     entry["password_var"] = password_var
                 existing_urls = {
-                    item.get("repo")
-                    for item in (project.get_vars("git.clone_repos") or [])
-                    if isinstance(item, dict)
+                    item.get("repo") for item in (project.get_vars("git.clone_repos") or []) if isinstance(item, dict)
                 }
                 # Match either original SSH or converted HTTPS already on disk.
                 already = https_url in existing_urls or url in existing_urls
@@ -5380,6 +5332,7 @@ class Workspace:
         git_manager.normalize_workspace_dests()
 
         from cli.encrypt import git_providers_from_repos
+
         providers = git_providers_from_repos(list(by_name.values()))
         project.set_vars("git_providers", providers)
         project.config["repos"] = list(by_name.values())
@@ -5406,19 +5359,11 @@ class Workspace:
         if len(chosen_agents) == 1:
             print(f"Coding agent: {chosen_agent}")
         else:
-            print(
-                "Coding agents: "
-                + ", ".join(chosen_agents)
-                + f" (attach default: {chosen_agent})"
-            )
+            print("Coding agents: " + ", ".join(chosen_agents) + f" (attach default: {chosen_agent})")
         if len(chosen_editors) == 1:
             print(f"Editor: {chosen_editor}")
         else:
-            print(
-                "Editors: "
-                + ", ".join(chosen_editors)
-                + f" (dev default: {chosen_editor})"
-            )
+            print("Editors: " + ", ".join(chosen_editors) + f" (dev default: {chosen_editor})")
         return True
 
 
@@ -5547,24 +5492,19 @@ def interactive_env_init(
             print("Error: environment name is required")
             return False
 
-    existing_agents, existing_default = resolve_configured_agents(
-        existing.get("agent") or {}
-    )
+    existing_agents, existing_default = resolve_configured_agents(existing.get("agent") or {})
     try:
-        agent_types = prompt_coding_agents(
-            default=existing_agents, input_fn=input_fn
-        )
+        agent_types = prompt_coding_agents(default=existing_agents, input_fn=input_fn)
     except ValueError as exc:
         print(f"Error: {exc}")
         return False
     if isinstance(agent_types, str):
         from cli.agents import coerce_agent_types
+
         agent_types = coerce_agent_types(agent_types) or ["opencode"]
     try:
         preferred = existing_default if existing_default in agent_types else agent_types[0]
-        agent_type = prompt_default_agent(
-            agent_types, default=preferred, input_fn=input_fn
-        )
+        agent_type = prompt_default_agent(agent_types, default=preferred, input_fn=input_fn)
     except ValueError as exc:
         print(f"Error: {exc}")
         return False
@@ -5584,12 +5524,8 @@ def interactive_env_init(
         except ValueError:
             editors = [DEFAULT_EDITOR]
     try:
-        preferred_editor = (
-            existing_editor if existing_editor in editors else editors[0]
-        )
-        editor = prompt_default_editor(
-            editors, default=preferred_editor, input_fn=input_fn
-        )
+        preferred_editor = existing_editor if existing_editor in editors else editors[0]
+        editor = prompt_default_editor(editors, default=preferred_editor, input_fn=input_fn)
     except ValueError as exc:
         print(f"Error: {exc}")
         return False
@@ -5658,6 +5594,7 @@ def interactive_env_init(
             VSCODE_BROWSER_PASSWORD_VAR,
             ensure_vscode_browser_password,
         )
+
         if ensure_vscode_browser_password(
             project_dir=root,
             data_key_path=data_key_path,
@@ -5673,6 +5610,7 @@ def interactive_env_init(
     # OpenCode: free Zen models by default; switch to keyed config when a key exists.
     try:
         from cli.agents import sync_opencode_config
+
         if "opencode" in agent_types:
             has_opencode_key = bool(stored_by_agent.get("opencode"))
             written = sync_opencode_config(
@@ -5681,17 +5619,10 @@ def interactive_env_init(
                 force=has_opencode_key,
             )
             if has_opencode_key and written:
-                key_name = (
-                    "opencode_api_key"
-                    if len(agent_types) > 1
-                    else "coding_agent_api_key"
-                )
+                key_name = "opencode_api_key" if len(agent_types) > 1 else "coding_agent_api_key"
                 print(f"OpenCode config set to use {key_name}")
             elif not has_opencode_key:
-                print(
-                    "OpenCode config uses free models "
-                    "(set an OpenCode API key to use a paid provider)"
-                )
+                print("OpenCode config uses free models (set an OpenCode API key to use a paid provider)")
     except ValueError:
         pass
     return True
@@ -5702,9 +5633,7 @@ def interactive_env_init(
 # =============================================================================
 
 _PLAYBOOK_SECTION_RE = re.compile(r"^(?:PLAY RECAP|PLAY|TASK)\b")
-_PLAYBOOK_FAILURE_RE = re.compile(
-    r"^(?:fatal:|failed:|unreachable:)|FAILED!|UNREACHABLE!"
-)
+_PLAYBOOK_FAILURE_RE = re.compile(r"^(?:fatal:|failed:|unreachable:)|FAILED!|UNREACHABLE!")
 
 
 def ansible_verbosity_args() -> List[str]:
@@ -5808,12 +5737,8 @@ class AnsibleManager:
                         return playbooks[key]
                 return f".rig/{filename}"
 
-            provision_rel = _stage_rel(
-                "provision", ProjectConfig.PROVISION_YAML, "system", "bootstrap"
-            )
-            configure_rel = _stage_rel(
-                "configure", ProjectConfig.CONFIGURE_YAML, "services", "customize"
-            )
+            provision_rel = _stage_rel("provision", ProjectConfig.PROVISION_YAML, "system", "bootstrap")
+            configure_rel = _stage_rel("configure", ProjectConfig.CONFIGURE_YAML, "services", "customize")
             authorize_rel = _stage_rel(
                 "authorize",
                 ProjectConfig.AUTHORIZE_YAML,
@@ -5827,16 +5752,9 @@ class AnsibleManager:
                 "workspace",
                 "populate",
             )
-            finalize_rel = _stage_rel(
-                "finalize", ProjectConfig.FINALIZE_YAML, "finalizers", "cleanup"
-            )
-            destroy_rel = _stage_rel(
-                "destroy", ProjectConfig.DESTROY_YAML, "teardown"
-            )
-            inventory_rel = (
-                self.project_config.config.get("inventory")
-                or f".rig/inventory.yml"
-            )
+            finalize_rel = _stage_rel("finalize", ProjectConfig.FINALIZE_YAML, "finalizers", "cleanup")
+            destroy_rel = _stage_rel("destroy", ProjectConfig.DESTROY_YAML, "teardown")
+            inventory_rel = self.project_config.config.get("inventory") or f".rig/inventory.yml"
 
             def _resolve(rel: str) -> str:
                 return rel if os.path.isabs(rel) else os.path.join(project_dir, rel)
@@ -5855,24 +5773,24 @@ class AnsibleManager:
             print(f"Error configuring Ansible manager: {e}")
             return False
 
-    def setup_inventory(self, vm_ip: str, ssh_key_path: str, username: str = 'root') -> bool:
+    def setup_inventory(self, vm_ip: str, ssh_key_path: str, username: str = "root") -> bool:
         """Create Ansible inventory for the VM"""
         try:
             if self.project_config is None:
                 print("Error: project_config is not set")
                 return False
             rig_dir = self.project_config.rig_dir
-            self.inventory_path = os.path.join(rig_dir, 'inventory.yml')
+            self.inventory_path = os.path.join(rig_dir, "inventory.yml")
 
             inventory = {
-                'all': {
-                    'hosts': {
-                        'remote_vm': {
-                            'ansible_host': vm_ip,
-                            'ansible_user': username,
-                            'ansible_ssh_private_key_file': ssh_key_path,
-                            'ansible_connection': 'ssh',
-                            'ansible_python_interpreter': '/usr/bin/python3'
+                "all": {
+                    "hosts": {
+                        "remote_vm": {
+                            "ansible_host": vm_ip,
+                            "ansible_user": username,
+                            "ansible_ssh_private_key_file": ssh_key_path,
+                            "ansible_connection": "ssh",
+                            "ansible_python_interpreter": "/usr/bin/python3",
                         }
                     }
                 }
@@ -5880,7 +5798,7 @@ class AnsibleManager:
 
             # Keep inventory connection-only. Vaulted secrets live in vars.yml and
             # are passed via ``ansible-playbook -e @vars.yml`` (Ansible !vault tags).
-            with open(self.inventory_path, 'w', encoding='utf-8') as handle:
+            with open(self.inventory_path, "w", encoding="utf-8") as handle:
                 yaml.dump(inventory, handle, Dumper=_VarsDumper, default_flow_style=False, sort_keys=False)
 
             log.debug("Inventory created at %s", self.inventory_path)
@@ -5895,9 +5813,7 @@ class AnsibleManager:
             if self.project_config is None:
                 print("Error: project_config is not set")
                 return False
-            requirements_path = os.path.join(
-                self.project_config.rig_dir, ProjectConfig.REQUIREMENTS_YML
-            )
+            requirements_path = os.path.join(self.project_config.rig_dir, ProjectConfig.REQUIREMENTS_YML)
             legacy_txt = os.path.join(self.project_config.rig_dir, "requirements.txt")
 
             if os.path.exists(requirements_path):
@@ -5917,7 +5833,22 @@ class AnsibleManager:
                     continue
                 # Galaxy collections use a dotted namespace; classic roles are typically author.name
                 parts = name.split(".")
-                if len(parts) == 2 and parts[0] in {"community", "ansible", "google", "amazon", "azure", "cisco", "fortinet", "hetzner", "openstack", "ovirt", "purestorage", "sensu", "theforeman", "vyos"}:
+                if len(parts) == 2 and parts[0] in {
+                    "community",
+                    "ansible",
+                    "google",
+                    "amazon",
+                    "azure",
+                    "cisco",
+                    "fortinet",
+                    "hetzner",
+                    "openstack",
+                    "ovirt",
+                    "purestorage",
+                    "sensu",
+                    "theforeman",
+                    "vyos",
+                }:
                     collections.append({"name": name})
                 elif name.startswith("geerlingguy.") or (len(parts) == 2 and parts[0] not in {"community", "ansible"}):
                     roles.append({"name": name})
@@ -5988,14 +5919,16 @@ class AnsibleManager:
                 materialize_path = self.materialize_playbook_path
                 if not materialize_path:
                     return False
-                playbook = [{
-                    'name': 'Materialize workspace',
-                    'hosts': 'remote_vm',
-                    'gather_facts': False,
-                    'remote_user': 'root',
-                    'tasks': custom_tasks,
-                }]
-                with open(materialize_path, 'w', encoding='utf-8') as handle:
+                playbook = [
+                    {
+                        "name": "Materialize workspace",
+                        "hosts": "remote_vm",
+                        "gather_facts": False,
+                        "remote_user": "root",
+                        "tasks": custom_tasks,
+                    }
+                ]
+                with open(materialize_path, "w", encoding="utf-8") as handle:
                     yaml.dump(playbook, handle, default_flow_style=False, sort_keys=False)
                 # One-off / test runs execute the materialize playbook directly.
                 self.playbook_path = materialize_path
@@ -6026,33 +5959,62 @@ class AnsibleManager:
 
             rig_dir = self.project_config.rig_dir
             roles_path = os.path.join(rig_dir, ROLES_DIRNAME)
-            collections_path = os.path.join(rig_dir, 'collections')
+            collections_path = os.path.join(rig_dir, "collections")
             os.makedirs(roles_path, exist_ok=True)
             os.makedirs(collections_path, exist_ok=True)
             migrate_galaxy_roles_dir(rig_dir)
-            self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_search_path(rig_dir)
-            self.ansible_env['ANSIBLE_COLLECTIONS_PATH'] = collections_path
+            self.ansible_env["ANSIBLE_ROLES_PATH"] = roles_search_path(rig_dir)
+            self.ansible_env["ANSIBLE_COLLECTIONS_PATH"] = collections_path
 
             # Install collections (and roles if listed) from the requirements file.
-            result = subprocess.run([
-                'ansible-galaxy', 'collection', 'install',
-                '-r', requirements_path,
-                '-p', collections_path,
-            ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(
+                [
+                    "ansible-galaxy",
+                    "collection",
+                    "install",
+                    "-r",
+                    requirements_path,
+                    "-p",
+                    collections_path,
+                ],
+                env=self.ansible_env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
             if result.returncode != 0:
                 # Older ansible or roles-only file — fall back to generic install.
-                result = subprocess.run([
-                    'ansible-galaxy', 'install',
-                    '-r', requirements_path,
-                    '-p', roles_path,
-                ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
+                result = subprocess.run(
+                    [
+                        "ansible-galaxy",
+                        "install",
+                        "-r",
+                        requirements_path,
+                        "-p",
+                        roles_path,
+                    ],
+                    env=self.ansible_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
 
             # Also install any classic roles section explicitly.
-            role_result = subprocess.run([
-                'ansible-galaxy', 'role', 'install',
-                '-r', requirements_path,
-                '-p', roles_path,
-            ], env=self.ansible_env, capture_output=True, text=True, timeout=300)
+            role_result = subprocess.run(
+                [
+                    "ansible-galaxy",
+                    "role",
+                    "install",
+                    "-r",
+                    requirements_path,
+                    "-p",
+                    roles_path,
+                ],
+                env=self.ansible_env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
 
             if result.returncode == 0 or role_result.returncode == 0:
                 log.debug("Ansible Galaxy requirements installed")
@@ -6067,10 +6029,10 @@ class AnsibleManager:
             return True
 
     def _redact_secrets(self, text: str) -> str:
-        redacted = text or ''
+        redacted = text or ""
         for value in self.extra_vars.values():
             if isinstance(value, str) and len(value) >= 8:
-                redacted = redacted.replace(value, '***')
+                redacted = redacted.replace(value, "***")
         return redacted
 
     def run_playbook(
@@ -6178,14 +6140,16 @@ class AnsibleManager:
             return False
 
         cmd = [
-            'ansible-playbook', playbook_path,
-            '-i', self.inventory_path,
-            '--ssh-common-args',
+            "ansible-playbook",
+            playbook_path,
+            "-i",
+            self.inventory_path,
+            "--ssh-common-args",
             (
                 "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
                 "-o IdentitiesOnly=yes "
                 f"-o LogLevel={ssh_option_log_level()}"
-            )
+            ),
         ]
 
         if self.project_config is None:
@@ -6245,15 +6209,13 @@ class AnsibleManager:
         if self.extra_vars:
             runtime_vars.update(self.extra_vars)
         if runtime_vars:
-            cmd.extend(['-e', json.dumps(runtime_vars, default=str)])
+            cmd.extend(["-e", json.dumps(runtime_vars, default=str)])
 
         if os.path.exists(SHARED_DATA_KEY_PATH):
             cmd.extend(["--vault-id", f"shared@{SHARED_DATA_KEY_PATH}"])
         if os.path.exists(PERSONAL_DATA_KEY_PATH):
             cmd.extend(["--vault-id", f"personal@{PERSONAL_DATA_KEY_PATH}"])
-        if vault_password and not (
-            os.path.exists(SHARED_DATA_KEY_PATH) or os.path.exists(PERSONAL_DATA_KEY_PATH)
-        ):
+        if vault_password and not (os.path.exists(SHARED_DATA_KEY_PATH) or os.path.exists(PERSONAL_DATA_KEY_PATH)):
             cmd.extend(["--vault-password", vault_password])
         elif self.vault_password and not (
             os.path.exists(SHARED_DATA_KEY_PATH) or os.path.exists(PERSONAL_DATA_KEY_PATH)
@@ -6261,11 +6223,11 @@ class AnsibleManager:
             cmd.extend(["--vault-password", self.vault_password])
 
         rig_dir = self.project_config.rig_dir
-        collections_path = os.path.join(rig_dir, 'collections')
-        self.ansible_env['ANSIBLE_ROLES_PATH'] = roles_search_path(rig_dir)
-        self.ansible_env['ANSIBLE_COLLECTIONS_PATH'] = collections_path
-        self.ansible_env['ANSIBLE_FILTER_PLUGINS'] = rig_filter_plugins_path(
-            self.ansible_env.get('ANSIBLE_FILTER_PLUGINS')
+        collections_path = os.path.join(rig_dir, "collections")
+        self.ansible_env["ANSIBLE_ROLES_PATH"] = roles_search_path(rig_dir)
+        self.ansible_env["ANSIBLE_COLLECTIONS_PATH"] = collections_path
+        self.ansible_env["ANSIBLE_FILTER_PLUGINS"] = rig_filter_plugins_path(
+            self.ansible_env.get("ANSIBLE_FILTER_PLUGINS")
         )
         # A fresh VM can be slow to answer the SSH banner while cloud-init is busy.
         # Ansible's 10s default fails the first task as UNREACHABLE, so allow longer
@@ -6292,7 +6254,8 @@ class AnsibleManager:
             return (
                 "skipping: no hosts matched" in lowered
                 or "could not match supplied host pattern" in lowered
-                or "unable to parse" in lowered and "inventory" in lowered
+                or "unable to parse" in lowered
+                and "inventory" in lowered
             )
 
         def _failure_detail(text: str) -> str:
@@ -6367,9 +6330,7 @@ class AnsibleManager:
 
             # Install roles if requirements exist
             if self.project_config is not None:
-                requirements_path = os.path.join(
-                    self.project_config.rig_dir, ProjectConfig.REQUIREMENTS_YML
-                )
+                requirements_path = os.path.join(self.project_config.rig_dir, ProjectConfig.REQUIREMENTS_YML)
                 if os.path.exists(requirements_path):
                     self.install_roles(requirements_path)
 
@@ -6379,5 +6340,5 @@ class AnsibleManager:
             return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("Use the CLI interface: python3 -m cli.remote_dev_cli")

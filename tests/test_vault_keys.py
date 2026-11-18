@@ -91,10 +91,7 @@ def test_write_filtered_vars_copy_skips_wraps_only(tmp_path):
     from cli.vault_keys import write_filtered_vars_copy
 
     src = tmp_path / "vars.mlewk.yml"
-    src.write_text(
-        'rig_identity_data_key: "rig1$aaa$bbb$ccc"\n'
-        'rig_shared_data_key: "rig1$ddd$eee$fff"\n'
-    )
+    src.write_text('rig_identity_data_key: "rig1$aaa$bbb$ccc"\nrig_shared_data_key: "rig1$ddd$eee$fff"\n')
     assert write_filtered_vars_copy(str(src), str(tmp_path / "out.yml")) is None
 
     src.write_text(

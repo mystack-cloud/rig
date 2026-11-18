@@ -42,9 +42,7 @@ def test_load_and_generate_clone_tasks(tmp_path):
     assert any("ssh-keyscan" in (t.get("shell") or "") for t in tasks)
     assert any(t.get("git", {}).get("repo") == "https://github.com/org/api.git" for t in tasks)
     assert any(
-        t.get("git", {}).get("repo") == "git@github.com:org/web.git"
-        and t.get("git", {}).get("ssh_key")
-        for t in tasks
+        t.get("git", {}).get("repo") == "git@github.com:org/web.git" and t.get("git", {}).get("ssh_key") for t in tasks
     )
 
 

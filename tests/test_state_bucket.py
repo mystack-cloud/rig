@@ -47,9 +47,7 @@ def _no_env_bucket(monkeypatch):
 
 
 def make(tmp_path, storage=None, profile="default", **kw):
-    return RemoteDevManager(
-        "tok", storage or FakeStorage(), workspace_dir=str(tmp_path), profile=profile, **kw
-    )
+    return RemoteDevManager("tok", storage or FakeStorage(), workspace_dir=str(tmp_path), profile=profile, **kw)
 
 
 def test_new_state_bucket_format_and_uniqueness():
@@ -296,9 +294,7 @@ def test_load_state_swallows_errors(tmp_path):
         def list_objects(self, *a, **k):
             raise RuntimeError("nope")
 
-    assert make(tmp_path, Storage(existing=["rig-aaaaaaaa"]))._load_state() == {
-        "environments": []
-    }
+    assert make(tmp_path, Storage(existing=["rig-aaaaaaaa"]))._load_state() == {"environments": []}
 
 
 def test_save_state_propagates_state_bucket_errors(tmp_path):
@@ -336,11 +332,13 @@ def test_save_state_merges_into_existing_record(tmp_path):
     )
     manager = make(tmp_path, storage)
     # Another identity adds agent info; unset fields must not erase data.
-    assert manager._save_state(
-        {"name": "dev-x", "owner": "bob", "ip": None, "agent_installed": True, "created_at": "t1"}
-    ) is True
+    assert (
+        manager._save_state({"name": "dev-x", "owner": "bob", "ip": None, "agent_installed": True, "created_at": "t1"})
+        is True
+    )
     assert [k for k in storage.objects if "dev-x" in k] == [key]  # no duplicate under bob
     import yaml
+
     rec = yaml.safe_load(storage.objects[key])
     assert rec["owner"] == "alice" and rec["created_at"] == "t0"
     assert rec["ip"] == "1.1.1.1" and rec["agent_installed"] is True
@@ -353,10 +351,7 @@ def test_concurrent_saves_do_not_clobber(tmp_path):
     storage = ObjStorage(existing=["rig-aaaaaaaa"])
     manager = make(tmp_path, storage)
     threads = [
-        threading.Thread(
-            target=manager._save_state, args=({"name": f"dev-{i}", "owner": f"u{i}"},)
-        )
-        for i in range(8)
+        threading.Thread(target=manager._save_state, args=({"name": f"dev-{i}", "owner": f"u{i}"},)) for i in range(8)
     ]
     [t.start() for t in threads]
     [t.join() for t in threads]
@@ -449,9 +444,7 @@ def test_load_state_skips_non_yaml_and_nameless(tmp_path):
 
 def test_temp_file_cleanup_tolerates_unlink_errors(tmp_path, monkeypatch):
     write_state_bucket(str(tmp_path), "default", "rig-aaaaaaaa")
-    storage = ObjStorage(
-        {f"{P}/state.yml": "environments:\n- name: dev-a\n"}, existing=["rig-aaaaaaaa"]
-    )
+    storage = ObjStorage({f"{P}/state.yml": "environments:\n- name: dev-a\n"}, existing=["rig-aaaaaaaa"])
     m = make(tmp_path, storage)
 
     def bad_unlink(path):

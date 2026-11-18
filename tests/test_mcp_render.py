@@ -15,6 +15,7 @@ CFG = {"mcpServers": {"awx": STDIO, "ctx": REMOTE}}
 
 # ---- validation -----------------------------------------------------------
 
+
 @pytest.mark.parametrize("raw", [None, "", "  \n"])
 def test_empty_config_has_no_servers(raw):
     assert m.parse_config(raw) == {"mcpServers": {}}
@@ -50,6 +51,7 @@ def test_valid_config_round_trips_from_json_text():
 
 
 # ---- variables ------------------------------------------------------------
+
 
 def test_variables_in_marks_required_only_without_default():
     assert m.variables_in(STDIO) == {"AWX_MCP_API_KEY": True, "AWX_MCP_URL": False}
@@ -97,9 +99,7 @@ def test_render_claude():
         "args": ["-u", "/opt/awx.py"],
         "env": {"AWX_MCP_API_KEY": "S", "URL": "https://d/mcp"},
     }
-    assert out["claude"]["ctx"] == {
-        "type": "http", "url": "https://c.example/mcp", "headers": {"X-Key": "C"}
-    }
+    assert out["claude"]["ctx"] == {"type": "http", "url": "https://c.example/mcp", "headers": {"X-Key": "C"}}
 
 
 def test_render_cursor_has_no_type_field():
@@ -116,8 +116,10 @@ def test_render_opencode_uses_its_own_shape():
         "environment": {"AWX_MCP_API_KEY": "S", "URL": "https://d/mcp"},
     }
     assert out["ctx"] == {
-        "type": "remote", "url": "https://c.example/mcp",
-        "headers": {"X-Key": "C"}, "oauth": False,
+        "type": "remote",
+        "url": "https://c.example/mcp",
+        "headers": {"X-Key": "C"},
+        "oauth": False,
     }
 
 
@@ -139,10 +141,7 @@ def test_server_with_a_missing_variable_is_skipped_everywhere_with_a_warning():
     assert skipped == {"awx": ["AWX_MCP_API_KEY"]}
     assert "awx" not in out["claude"] and "awx" not in out["opencode"]
     assert "ctx" in out["claude"]
-    assert warnings == [
-        "MCP server 'awx' skipped: no value for AWX_MCP_API_KEY "
-        "(store it with `rig vars encrypt`)"
-    ]
+    assert warnings == ["MCP server 'awx' skipped: no value for AWX_MCP_API_KEY (store it with `rig vars encrypt`)"]
     assert "S" not in warnings[0]
 
 
@@ -166,6 +165,7 @@ def test_invalid_config_fails_the_render():
 
 # ---- merge ----------------------------------------------------------------
 
+
 def test_merge_replaces_same_name_whole_and_keeps_other_servers():
     existing = {
         "numStartups": 3,
@@ -186,6 +186,7 @@ def test_merge_creates_the_key_when_missing_or_malformed(existing):
 
 
 # ---- filter wiring ----------------------------------------------------------
+
 
 def test_filter_module_exposes_both_filters():
     filters = m.FilterModule().filters()

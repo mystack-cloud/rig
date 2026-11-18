@@ -113,9 +113,7 @@ class TestRemoteDevManagerCoverage:
 
         monkeypatch.setattr(
             "cli.remote_dev.requests.get",
-            lambda *a, **k: _mock_response(
-                200, {"ssh_keys": [{"name": "a", "id": 1}, {"name": "want", "id": 2}]}
-            ),
+            lambda *a, **k: _mock_response(200, {"ssh_keys": [{"name": "a", "id": 1}, {"name": "want", "id": 2}]}),
         )
         assert mgr.get_ssh_key_by_name("want")["id"] == 2
         assert mgr.get_ssh_key_by_name("missing") is None
@@ -135,9 +133,7 @@ class TestRemoteDevManagerCoverage:
         out = mgr.create_firewall("fw", ["203.0.113.1/32"])
         assert out["firewall"]["id"] == "fw1"
 
-        monkeypatch.setattr(
-            "cli.remote_dev.requests.get", lambda *a, **k: _mock_response(200, {"firewall": {}})
-        )
+        monkeypatch.setattr("cli.remote_dev.requests.get", lambda *a, **k: _mock_response(200, {"firewall": {}}))
         assert mgr.get_firewall("99") == {"firewall": {}}
 
         monkeypatch.setattr(
@@ -152,9 +148,7 @@ class TestRemoteDevManagerCoverage:
             "cli.remote_dev.requests.post",
             lambda *a, **k: _mock_response(200, {"server": {"id": "s1"}}),
         )
-        assert mgr.create_vm("vm", "cax11", "hel1", "img", ssh_key_id="sk", firewall_id="fw")[
-            "server"
-        ]["id"] == "s1"
+        assert mgr.create_vm("vm", "cax11", "hel1", "img", ssh_key_id="sk", firewall_id="fw")["server"]["id"] == "s1"
 
         monkeypatch.setattr(
             "cli.remote_dev.requests.get",
@@ -164,9 +158,7 @@ class TestRemoteDevManagerCoverage:
 
         monkeypatch.setattr(
             "cli.remote_dev.requests.get",
-            lambda *a, **k: _mock_response(
-                200, {"servers": [{"name": "findme", "id": 3}, {"name": "x", "id": 4}]}
-            ),
+            lambda *a, **k: _mock_response(200, {"servers": [{"name": "findme", "id": 3}, {"name": "x", "id": 4}]}),
         )
         assert mgr.get_vm_by_name("findme")["id"] == 3
 
@@ -215,9 +207,7 @@ class TestRemoteDevManagerCoverage:
             calls.append(url)
             if "status=available" in url:
                 return _mock_response(200, {"images": [{"id": 1, "status": "available"}]})
-            return _mock_response(
-                200, {"images": [{"id": 1}, {"id": 2, "status": "creating"}]}
-            )
+            return _mock_response(200, {"images": [{"id": 1}, {"id": 2, "status": "creating"}]})
 
         monkeypatch.setattr("cli.remote_dev.requests.get", fake_get)
         imgs = mgr.list_snapshots()
@@ -252,9 +242,7 @@ class TestRemoteDevManagerCoverage:
         import requests as _requests
 
         mgr = RemoteDevManager("tok", None)
-        resp = _mock_response(
-            422, {"error": {"code": "invalid_input", "message": "image has wrong architecture"}}
-        )
+        resp = _mock_response(422, {"error": {"code": "invalid_input", "message": "image has wrong architecture"}})
         resp.raise_for_status.side_effect = _requests.HTTPError("422 Client Error")
         monkeypatch.setattr("cli.remote_dev.requests.post", lambda *a, **k: resp)
         with pytest.raises(_requests.HTTPError, match="wrong architecture"):
@@ -283,9 +271,7 @@ class TestRemoteDevManagerCoverage:
         mgr = RemoteDevManager("tok", None)
         monkeypatch.setattr(
             "cli.remote_dev.requests.get",
-            lambda *a, **k: _mock_response(
-                200, {"server_types": [{"name": "cpx22", "architecture": "x86"}]}
-            ),
+            lambda *a, **k: _mock_response(200, {"server_types": [{"name": "cpx22", "architecture": "x86"}]}),
         )
         assert mgr.get_server_type_architecture("cpx22") == "x86"
 
@@ -743,9 +729,11 @@ class TestRemoteDevEnvironmentCoverage:
         def fake_run_one(self, path, stream=False, **kwargs):
             return True
 
-        with patch.object(AnsibleManager, "setup_bootstrap", fake_bootstrap), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run_one
-        ), patch.object(RemoteDevEnvironment, "_snapshot_after_playbook", return_value=False):
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", fake_bootstrap),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
+            patch.object(RemoteDevEnvironment, "_snapshot_after_playbook", return_value=False),
+        ):
             assert (
                 env.apply_playbooks(
                     project_dir=str(project_dir),
@@ -760,8 +748,9 @@ class TestRemoteDevEnvironmentCoverage:
         def fail_materialize(self, path, stream=False, **kwargs):
             return not str(path).endswith("materialize.yml")
 
-        with patch.object(AnsibleManager, "setup_bootstrap", fake_bootstrap), patch.object(
-            AnsibleManager, "_run_one_playbook", fail_materialize
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", fake_bootstrap),
+            patch.object(AnsibleManager, "_run_one_playbook", fail_materialize),
         ):
             assert (
                 env.apply_playbooks(
@@ -1115,9 +1104,7 @@ class TestRemoteDevEnvironmentMore:
         ]
         monkeypatch.setattr("cli.snapshots.package_version", lambda: "1.0")
         monkeypatch.setattr("cli.snapshots.workspace_content_hash", lambda *a, **k: "w")
-        monkeypatch.setattr(
-            "cli.snapshots.system_hash_inputs_from_project", lambda p: {"var_map": {}}
-        )
+        monkeypatch.setattr("cli.snapshots.system_hash_inputs_from_project", lambda p: {"var_map": {}})
         monkeypatch.setattr("cli.snapshots.system_content_hash", lambda **k: "s")
         seen = {}
 
@@ -1147,15 +1134,18 @@ class TestRemoteDevEnvironmentMore:
         cfg.set("agent.default", "claude")
         cfg.save()
 
-        with patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0), patch(
-            "cli.last_session.extract_session_from_agent_args",
-            return_value=None,
-        ), patch(
-            "cli.last_session.parse_session_id",
-            return_value="sess-1",
-        ), patch(
-            "cli.last_session.remember_last_session"
-        ) as rem:
+        with (
+            patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0),
+            patch(
+                "cli.last_session.extract_session_from_agent_args",
+                return_value=None,
+            ),
+            patch(
+                "cli.last_session.parse_session_id",
+                return_value="sess-1",
+            ),
+            patch("cli.last_session.remember_last_session") as rem,
+        ):
             assert env.attach_to_agent(project_dir=str(tmp_path)) == 0
             rem.assert_called_once()
 
@@ -1169,15 +1159,13 @@ class TestRemoteDevEnvironmentMore:
         ):
             assert env.attach_to_agent(project_dir=str(tmp_path)) == 130
 
-        with patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0), patch(
-            "cli.last_session.remember_last_session",
-        ) as rem2:
-            assert (
-                env.attach_to_agent(
-                    agent_type="opencode", agent_args=["--session", "from-arg"]
-                )
-                == 0
-            )
+        with (
+            patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0),
+            patch(
+                "cli.last_session.remember_last_session",
+            ) as rem2,
+        ):
+            assert env.attach_to_agent(agent_type="opencode", agent_args=["--session", "from-arg"]) == 0
             rem2.assert_called_once_with("att", "from-arg", agent_type="opencode")
 
     def test_run_attach_ssh_script_linux(self, monkeypatch):
@@ -1219,10 +1207,14 @@ class TestWorkspaceAndInteractive:
             def set_repo_password_var(self, *a, **k):
                 return False
 
-        with patch("cli.git.GitManager", GM), patch(
-            "cli.encrypt.git_providers_from_repos",
-            return_value=["github"],
-        ), patch("cli.encrypt.to_https_git_url", lambda u: u):
+        with (
+            patch("cli.git.GitManager", GM),
+            patch(
+                "cli.encrypt.git_providers_from_repos",
+                return_value=["github"],
+            ),
+            patch("cli.encrypt.to_https_git_url", lambda u: u),
+        ):
             assert ws.init(
                 name="ws",
                 repos=[{"name": "svc", "url": "https://github.com/o/r.git", "path": str(tmp_path / "svc")}],
@@ -1243,6 +1235,7 @@ class TestWorkspaceAndInteractive:
         )
         manifest = ws.manifest_path
         import yaml
+
         data = yaml.safe_load(open(manifest, encoding="utf-8"))
         assert data["agent"]["default"] == "opencode"
         assert data["agent"]["enabled"] == ["opencode", "claude"]
@@ -1255,6 +1248,7 @@ class TestWorkspaceAndInteractive:
             editor="not-an-editor",
         )
         import yaml
+
         data = yaml.safe_load(open(ws.manifest_path, encoding="utf-8"))
         assert data["editor"]["default"] == "code"
         assert data["editor"]["enabled"] == ["code", "cursor"]
@@ -1265,6 +1259,7 @@ class TestWorkspaceAndInteractive:
         ws = Workspace(str(root))
         assert ws.init(name="ws", editors=["not-an-editor"])
         import yaml
+
         data = yaml.safe_load(open(ws.manifest_path, encoding="utf-8"))
         assert data["editor"]["default"] == "code"
         assert data["editor"]["enabled"] == ["code"]
@@ -1295,34 +1290,46 @@ class TestWorkspaceAndInteractive:
         def fake_input(prompt=""):
             return next(inputs)
 
-        with patch("cli.remote_dev.discover_git_projects", fake_discover), patch(
-            "cli.remote_dev.resolve_init_context",
-            lambda start=None: {
-                "root": str(root),
-                "projects": fake_discover(str(root)),
-                "current": str(root / "svc"),
-                "in_git_repo": True,
-            },
-        ), patch("cli.config.ensure_credentials"), patch(
-            "cli.vault_keys.bootstrap_identity_keys"
-        ), patch("cli.vault_keys.read_wrap_fields", return_value={}), patch(
-            "cli.agents.prompt_coding_agents",
-            return_value=["opencode"],
-        ), patch("cli.remote_dev.prompt_editors", return_value=["code"]), patch(
-            "cli.encrypt.collect_repo_pats",
-            return_value=({}, {}),
-        ), patch(
-            "cli.encrypt.resolve_repo_pat_var_names",
-            return_value=({}, {}),
-        ), patch("cli.encrypt.store_repo_pats"), patch(
-            "cli.encrypt.prompt_and_store_coding_agent_credentials",
-            return_value=False,
-        ), patch(
-            "cli.encrypt.ensure_vscode_browser_password",
-            return_value=False,
-        ), patch(
-            "cli.agents.sync_opencode_config",
-            return_value=False,
+        with (
+            patch("cli.remote_dev.discover_git_projects", fake_discover),
+            patch(
+                "cli.remote_dev.resolve_init_context",
+                lambda start=None: {
+                    "root": str(root),
+                    "projects": fake_discover(str(root)),
+                    "current": str(root / "svc"),
+                    "in_git_repo": True,
+                },
+            ),
+            patch("cli.config.ensure_credentials"),
+            patch("cli.vault_keys.bootstrap_identity_keys"),
+            patch("cli.vault_keys.read_wrap_fields", return_value={}),
+            patch(
+                "cli.agents.prompt_coding_agents",
+                return_value=["opencode"],
+            ),
+            patch("cli.remote_dev.prompt_editors", return_value=["code"]),
+            patch(
+                "cli.encrypt.collect_repo_pats",
+                return_value=({}, {}),
+            ),
+            patch(
+                "cli.encrypt.resolve_repo_pat_var_names",
+                return_value=({}, {}),
+            ),
+            patch("cli.encrypt.store_repo_pats"),
+            patch(
+                "cli.encrypt.prompt_and_store_coding_agent_credentials",
+                return_value=False,
+            ),
+            patch(
+                "cli.encrypt.ensure_vscode_browser_password",
+                return_value=False,
+            ),
+            patch(
+                "cli.agents.sync_opencode_config",
+                return_value=False,
+            ),
         ):
             # Do not patch RigConfig — init writes a real ~/.rig-style config path via ProjectConfig.
             assert interactive_env_init(start=str(root), input_fn=fake_input, secret_fn=fake_input)
@@ -1411,17 +1418,20 @@ class TestRemoteDevCleanupAndDestroy:
         finalize.write_text("---\n", encoding="utf-8")
         destroy.write_text("---\n", encoding="utf-8")
 
-        with patch.object(AnsibleManager, "configure", return_value=True), patch.object(
-            AnsibleManager, "setup_bootstrap", return_value=False
+        with (
+            patch.object(AnsibleManager, "configure", return_value=True),
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=False),
         ):
             assert env.run_destroy_playbooks(project_dir=str(tmp_path), stream=False) is False
 
         def fake_run_one(self, path, stream=False, **kwargs):
             return "destroy" not in str(path)
 
-        with patch.object(AnsibleManager, "configure", return_value=True), patch.object(
-            AnsibleManager, "setup_bootstrap", return_value=True
-        ), patch.object(AnsibleManager, "_run_one_playbook", fake_run_one):
+        with (
+            patch.object(AnsibleManager, "configure", return_value=True),
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run_one),
+        ):
             # Soft-fail path still reports overall success when the VM is unreachable mid-run.
             assert env.run_destroy_playbooks(project_dir=str(tmp_path), stream=False) in (True, False)
 
@@ -1447,7 +1457,9 @@ class TestRemoteDevCleanupAndDestroy:
         monkeypatch.setattr(RemoteDevEnvironment, "resolve_resources", lambda self: None)
         monkeypatch.setattr(RemoteDevEnvironment, "ensure_firewall_access", lambda self, **k: True)
         monkeypatch.setattr(RemoteDevEnvironment, "run_destroy_playbooks", lambda self, **k: True)
-        monkeypatch.setattr(RemoteDevEnvironment, "remove_ssh_config_host", lambda self, **k: (_ for _ in ()).throw(OSError))
+        monkeypatch.setattr(
+            RemoteDevEnvironment, "remove_ssh_config_host", lambda self, **k: (_ for _ in ()).throw(OSError)
+        )
 
         env.cleanup(project_dir=str(tmp_path))
         env.manager._delete_state.assert_called_with("clean-me")
@@ -1475,12 +1487,17 @@ class TestRemoteDevAttachAndEditors:
         env.ssh_key_name = "att2-key"
         Path(f"/tmp/{env.ssh_key_name}").write_text("k", encoding="utf-8")
         rem = MagicMock()
-        with patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0), patch(
-            "cli.last_session.extract_session_from_agent_args",
-            return_value="from-args",
-        ), patch("cli.last_session.parse_session_id", return_value=None), patch(
-            "cli.last_session.remember_last_session",
-            rem,
+        with (
+            patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0),
+            patch(
+                "cli.last_session.extract_session_from_agent_args",
+                return_value="from-args",
+            ),
+            patch("cli.last_session.parse_session_id", return_value=None),
+            patch(
+                "cli.last_session.remember_last_session",
+                rem,
+            ),
         ):
             env.attach_to_agent(agent_type="cursor", agent_args=["--session", "x"])
         rem.assert_called_once()
@@ -1500,17 +1517,21 @@ class TestRemoteDevAttachAndEditors:
                 raise OSError("bad")
             return real_open(path, *a, **k)
 
-        with patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0), patch(
-            "builtins.open", selective_open
-        ), patch(
-            "cli.last_session.extract_session_from_agent_args",
-            return_value=None,
-        ), patch(
-            "cli.last_session.parse_session_id",
-            return_value="parsed",
-        ), patch(
-            "cli.last_session.remember_last_session",
-            rem,
+        with (
+            patch.object(RemoteDevEnvironment, "_run_attach_ssh", return_value=0),
+            patch("builtins.open", selective_open),
+            patch(
+                "cli.last_session.extract_session_from_agent_args",
+                return_value=None,
+            ),
+            patch(
+                "cli.last_session.parse_session_id",
+                return_value="parsed",
+            ),
+            patch(
+                "cli.last_session.remember_last_session",
+                rem,
+            ),
         ):
             assert env.attach_to_agent(agent_type="opencode", agent_args=[]) == 0
         rem.assert_not_called()
@@ -1759,9 +1780,10 @@ class TestAnsibleManagerMore:
 
     def test_configure_init_on_failed_load(self, tmp_path):
         m = AnsibleManager()
-        with patch.object(ProjectConfig, "load", return_value=False), patch.object(
-            ProjectConfig, "init", return_value=True
-        ) as ini:
+        with (
+            patch.object(ProjectConfig, "load", return_value=False),
+            patch.object(ProjectConfig, "init", return_value=True) as ini,
+        ):
             assert m.configure(str(tmp_path))
         ini.assert_called()
 
@@ -1819,12 +1841,13 @@ class TestAnsibleManagerMore:
             assert m2.setup_playbook() is False
 
         m2.configure(str(tmp_path))
-        with patch.object(ProjectConfig, "write_provision_playbook", return_value=True), patch.object(
-            ProjectConfig, "write_configure_playbook", return_value=True
-        ), patch.object(ProjectConfig, "write_authorize_playbook", return_value=True), patch.object(
-            ProjectConfig, "write_destroy_playbook", return_value=True
-        ), patch.object(ProjectConfig, "write_materialize_playbook", return_value=True), patch.object(
-            AnsibleManager, "configure", return_value=True
+        with (
+            patch.object(ProjectConfig, "write_provision_playbook", return_value=True),
+            patch.object(ProjectConfig, "write_configure_playbook", return_value=True),
+            patch.object(ProjectConfig, "write_authorize_playbook", return_value=True),
+            patch.object(ProjectConfig, "write_destroy_playbook", return_value=True),
+            patch.object(ProjectConfig, "write_materialize_playbook", return_value=True),
+            patch.object(AnsibleManager, "configure", return_value=True),
         ):
             assert m2.setup_playbook(custom_tasks=[{"debug": {"msg": "hi"}}]) is True
 
@@ -2028,9 +2051,7 @@ class TestModuleLevelHelpers:
         import logging
 
         caplog.set_level(logging.WARNING)
-        out = normalize_firewall_ports(
-            [{"port": None}, 8080, {"port": 53, "protocol": "icmp"}]
-        )
+        out = normalize_firewall_ports([{"port": None}, 8080, {"port": 53, "protocol": "icmp"}])
         ports = {d["port"] for d in out}
         assert "8080" in ports
         assert caplog.records
@@ -2213,6 +2234,7 @@ class TestInteractiveEnvInitBranches:
             is True
         )
         import yaml
+
         manifest = yaml.safe_load((root / "rig.yml").read_text())
         assert manifest["agent"]["default"] == "claude"
 
@@ -2239,6 +2261,7 @@ class TestInteractiveEnvInitBranches:
             is True
         )
         import yaml
+
         manifest = yaml.safe_load((root / "rig.yml").read_text())
         assert manifest["editor"]["default"] == "cursor"
         assert manifest["editor"]["enabled"] == ["cursor"]
@@ -2266,6 +2289,7 @@ class TestInteractiveEnvInitBranches:
             is True
         )
         import yaml
+
         manifest = yaml.safe_load((root / "rig.yml").read_text())
         assert manifest["editor"]["default"] == "code"
         assert manifest["editor"]["enabled"] == ["code"]

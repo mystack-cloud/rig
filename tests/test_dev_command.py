@@ -73,9 +73,10 @@ def test_open_vscode_launches_code_with_folder_uri(tmp_path):
     with open(key_path, "w", encoding="utf-8") as handle:
         handle.write("fake-key\n")
     try:
-        with patch.object(
-            RemoteDevEnvironment, "resolve_editor_command", return_value="/usr/bin/code"
-        ), patch("cli.remote_dev.subprocess.run", side_effect=fake_run):
+        with (
+            patch.object(RemoteDevEnvironment, "resolve_editor_command", return_value="/usr/bin/code"),
+            patch("cli.remote_dev.subprocess.run", side_effect=fake_run),
+        ):
             code = env.open_vscode(
                 remote_path="/workspace/app",
                 ssh_config_path=config_path,
@@ -123,9 +124,10 @@ def test_open_vscode_errors_when_no_editor_without_browser(tmp_path, capsys):
         handle.write("fake\n")
     try:
         rig_log.configure_logging()
-        with patch.object(
-            RemoteDevEnvironment, "resolve_editor_command", return_value=None
-        ), patch("cli.remote_dev.webbrowser.open") as opened:
+        with (
+            patch.object(RemoteDevEnvironment, "resolve_editor_command", return_value=None),
+            patch("cli.remote_dev.webbrowser.open") as opened,
+        ):
             code = env.open_vscode(browser=False)
         err = capsys.readouterr().err
     finally:
@@ -139,13 +141,14 @@ def test_open_vscode_errors_when_no_editor_without_browser(tmp_path, capsys):
 
 
 def test_dev_cli_uses_last_env_and_opens_vscode():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ) as remember:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env") as remember,
+    ):
         instance = MagicMock()
         instance.name = "dev-last"
         instance.vm_ip = "10.0.0.8"
@@ -233,16 +236,18 @@ def test_reinit_renames_legacy_editor_and_agent_type(tmp_path):
 
 
 def test_dev_cli_prefers_flag_over_rig_yml(tmp_path):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-ed"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch(
-        "cli.remote_dev.configured_editors",
-        return_value=(["cursor", "codium"], "cursor"),
-    ) as pref:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-ed"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch(
+            "cli.remote_dev.configured_editors",
+            return_value=(["cursor", "codium"], "cursor"),
+        ) as pref,
+    ):
         instance = MagicMock()
         instance.name = "dev-ed"
         instance.vm_ip = "10.0.0.9"
@@ -289,9 +294,7 @@ def test_editor_selection_edges():
     assert coerce_editor_types(_Label("  ")) == []
 
     assert resolve_configured_editors({}) == ([], None)
-    enabled, default = resolve_configured_editors(
-        {"editor": {"enabled": ["nope"], "default": "cursor"}}
-    )
+    enabled, default = resolve_configured_editors({"editor": {"enabled": ["nope"], "default": "cursor"}})
     assert enabled == ["cursor"]
     assert default == "cursor"
     assert resolve_configured_editors({"editor": "cursor"}) == (["cursor"], "cursor")
@@ -300,9 +303,7 @@ def test_editor_selection_edges():
         "cursor",
     )
     assert resolve_configured_editors({"editor": "also-nope"}) == ([], None)
-    enabled, default = resolve_configured_editors(
-        {"editor": {"enabled": ["code", "cursor"], "default": "codium"}}
-    )
+    enabled, default = resolve_configured_editors({"editor": {"enabled": ["code", "cursor"], "default": "codium"}})
     assert enabled == ["code", "cursor"]
     assert default == "code"
     enabled, default = resolve_configured_editors(
@@ -347,29 +348,19 @@ def test_editor_selection_edges():
 
     assert parse_editor_selection("", default=["not-an-editor"]) == ["code"]
     answers = iter(["", "1,3", "2"])
-    assert prompt_editors(default="not-an-editor", input_fn=lambda _: next(answers)) == [
-        "code"
-    ]
+    assert prompt_editors(default="not-an-editor", input_fn=lambda _: next(answers)) == ["code"]
     selected = prompt_editors(default=["code"], input_fn=lambda _: next(answers))
     assert selected == ["code", "cursor"]
     with pytest.raises(ValueError):
         prompt_default_editor(selected, default="code", input_fn=lambda _: next(answers))
     assert prompt_default_editor(["nope"], input_fn=lambda _: "unused") == "code"
     assert prompt_default_editor(["cursor"], input_fn=lambda _: "unused") == "cursor"
-    assert prompt_default_editor(
-        ["code", "cursor"], default="cursor", input_fn=lambda _: ""
-    ) == "cursor"
-    assert prompt_default_editor(
-        ["code", "cursor"], default="not-an-editor", input_fn=lambda _: ""
-    ) == "code"
+    assert prompt_default_editor(["code", "cursor"], default="cursor", input_fn=lambda _: "") == "cursor"
+    assert prompt_default_editor(["code", "cursor"], default="not-an-editor", input_fn=lambda _: "") == "code"
     with pytest.raises(ValueError):
         prompt_default_editor(["code", "cursor"], input_fn=lambda _: "codium")
-    assert prompt_default_editor(
-        ["code", "cursor"], input_fn=lambda _: "3"
-    ) == "cursor"
-    assert prompt_default_editor(
-        ["code", "cursor"], input_fn=lambda _: "cursor"
-    ) == "cursor"
+    assert prompt_default_editor(["code", "cursor"], input_fn=lambda _: "3") == "cursor"
+    assert prompt_default_editor(["code", "cursor"], input_fn=lambda _: "cursor") == "cursor"
     assert configured_editors(None) == ([], None)
 
 
@@ -385,10 +376,7 @@ def test_resolve_editor_command_can_require_one_binary(monkeypatch):
     monkeypatch.setattr("cli.remote_dev.shutil.which", fake_which)
     assert RemoteDevEnvironment.resolve_editor_command(prefer="code", fallbacks=[]) is None
     assert seen == ["code"]
-    assert (
-        RemoteDevEnvironment.resolve_editor_command(prefer="code", fallbacks=["cursor"])
-        == "/usr/bin/cursor"
-    )
+    assert RemoteDevEnvironment.resolve_editor_command(prefer="code", fallbacks=["cursor"]) == "/usr/bin/cursor"
 
 
 def test_open_vscode_names_a_missing_strict_editor(capsys):
@@ -402,9 +390,7 @@ def test_open_vscode_names_a_missing_strict_editor(capsys):
         handle.write("fake\n")
     try:
         rig_log.configure_logging()
-        with patch.object(
-            RemoteDevEnvironment, "resolve_editor_command", return_value=None
-        ):
+        with patch.object(RemoteDevEnvironment, "resolve_editor_command", return_value=None):
             code = env.open_vscode(editor="cursor", editor_fallbacks=[])
         err = capsys.readouterr().err
     finally:
@@ -417,15 +403,17 @@ def test_open_vscode_names_a_missing_strict_editor(capsys):
 
 
 def test_dev_rejects_editor_outside_the_configured_set(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-ed"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch(
-        "cli.remote_dev.configured_editors",
-        return_value=(["code", "cursor"], "code"),
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-ed"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch(
+            "cli.remote_dev.configured_editors",
+            return_value=(["code", "cursor"], "code"),
+        ),
     ):
         instance = MagicMock()
         instance.name = "dev-ed"
@@ -438,12 +426,13 @@ def test_dev_rejects_editor_outside_the_configured_set(capsys):
 
 
 def test_dev_rejects_unknown_editor_name(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-ed"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-ed"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
     ):
         instance = MagicMock()
         instance.resolve_resources.return_value = True
@@ -454,8 +443,10 @@ def test_dev_rejects_unknown_editor_name(capsys):
 
 
 def test_dev_requires_name_when_no_last_env(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.resolve_env_name", return_value=None):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.resolve_env_name", return_value=None),
+    ):
         assert main(["dev"]) == 1
     assert "Environment name is required" in capsys.readouterr().err

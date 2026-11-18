@@ -97,9 +97,8 @@ OPENCODE_CONFIG = OPENCODE_CONFIG_FREE
 def opencode_config(has_api_key: bool = False) -> Dict[str, Any]:
     """Return OpenCode config for free models or a keyed Anthropic provider."""
     import copy
-    return copy.deepcopy(
-        OPENCODE_CONFIG_WITH_API_KEY if has_api_key else OPENCODE_CONFIG_FREE
-    )
+
+    return copy.deepcopy(OPENCODE_CONFIG_WITH_API_KEY if has_api_key else OPENCODE_CONFIG_FREE)
 
 
 def sync_opencode_config(
@@ -119,6 +118,7 @@ def sync_opencode_config(
         return None
     _write_json(config_path, opencode_config(has_api_key=has_api_key))
     return ".rig/.opencode/opencode.json"
+
 
 CLAUDE_SETTINGS = {
     # Bare tool names allow every path; "Tool(*)" warns on recent Claude Code.
@@ -149,6 +149,7 @@ CURSOR_CLI_CONFIG: Dict[str, Any] = {
     },
 }
 
+
 def normalize_agent_type(value: Optional[str]) -> str:
     raw = (value or "").strip().lower().replace(" ", "-").replace("_", "-")
     aliases = {
@@ -163,10 +164,7 @@ def normalize_agent_type(value: Optional[str]) -> str:
     }
     agent = aliases.get(raw, raw)
     if agent not in SUPPORTED_AGENTS:
-        raise ValueError(
-            f"Unsupported coding agent {value!r}. "
-            f"Choose one of: {', '.join(SUPPORTED_AGENTS)}"
-        )
+        raise ValueError(f"Unsupported coding agent {value!r}. Choose one of: {', '.join(SUPPORTED_AGENTS)}")
     return agent
 
 
@@ -243,9 +241,7 @@ def ensure_agent_scaffold(
         created.append(os.path.join(".rig", "AGENTS.md"))
 
     if agent == "opencode":
-        written = sync_opencode_config(
-            rig_dir, has_api_key=has_api_key, force=force
-        )
+        written = sync_opencode_config(rig_dir, has_api_key=has_api_key, force=force)
         if written:
             created.append(written)
     elif agent == "cursor":
@@ -414,9 +410,7 @@ def apply_agent_selection(
         agent_cfg["credentials_var"] = LEGACY_CODING_AGENT_API_KEY
         agent_cfg.pop("credentials", None)
     else:
-        agent_cfg["credentials"] = {
-            agent: AGENT_API_KEY_VARS[agent] for agent in selected
-        }
+        agent_cfg["credentials"] = {agent: AGENT_API_KEY_VARS[agent] for agent in selected}
         agent_cfg["credentials_var"] = AGENT_API_KEY_VARS[primary]
     return selected
 
@@ -447,8 +441,7 @@ def parse_agent_selection(
             index = int(token) - 1
             if not 0 <= index < len(SUPPORTED_AGENTS):
                 raise ValueError(
-                    f"Coding agent number {token} is out of range. "
-                    f"Choose 1-{len(SUPPORTED_AGENTS)}, names, or all."
+                    f"Coding agent number {token} is out of range. Choose 1-{len(SUPPORTED_AGENTS)}, names, or all."
                 )
             agent = SUPPORTED_AGENTS[index]
         else:
@@ -478,10 +471,7 @@ def prompt_coding_agents(
     for index, agent in enumerate(SUPPORTED_AGENTS, start=1):
         print(f"  {index}. {agent} ({AGENT_LABELS[agent]})")
     default_label = ",".join(defaults)
-    answer = ask(
-        "Coding agents to include (numbers, names, or all) "
-        f"[{default_label}]: "
-    )
+    answer = ask(f"Coding agents to include (numbers, names, or all) [{default_label}]: ")
     return parse_agent_selection(answer, default=defaults)
 
 
@@ -507,11 +497,7 @@ def prompt_default_agent(
             candidate = None
         if candidate in agents:
             preferred = candidate
-    by_number = {
-        str(index): agent
-        for index, agent in enumerate(SUPPORTED_AGENTS, start=1)
-        if agent in agents
-    }
+    by_number = {str(index): agent for index, agent in enumerate(SUPPORTED_AGENTS, start=1) if agent in agents}
     print("Default agent for rig attach:")
     for number, agent in by_number.items():
         print(f"  {number}. {agent} ({AGENT_LABELS[agent]})")
@@ -522,15 +508,9 @@ def prompt_default_agent(
     if answer.isdigit():
         numbered = by_number.get(answer)
         if not numbered:
-            raise ValueError(
-                f"Default agent number {answer} is not one of the selected agents "
-                f"({', '.join(agents)})"
-            )
+            raise ValueError(f"Default agent number {answer} is not one of the selected agents ({', '.join(agents)})")
         return numbered
     chosen = normalize_agent_type(answer)
     if chosen not in agents:
-        raise ValueError(
-            f"Default agent {chosen!r} was not selected. "
-            f"Choose one of: {', '.join(agents)}"
-        )
+        raise ValueError(f"Default agent {chosen!r} was not selected. Choose one of: {', '.join(agents)}")
     return chosen

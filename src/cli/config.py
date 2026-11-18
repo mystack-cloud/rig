@@ -48,7 +48,7 @@ def _profile_from_section(section: str) -> str:
     if section == DEFAULT_PROFILE:
         return DEFAULT_PROFILE
     if section.startswith("profile "):
-        return section[len("profile "):]
+        return section[len("profile ") :]
     return section
 
 
@@ -94,11 +94,7 @@ class RigConfig:
                 section = name
             else:
                 return {}
-        return {
-            key: value
-            for key, value in self._parser.items(section)
-            if key in PROFILE_KEYS and value
-        }
+        return {key: value for key, value in self._parser.items(section) if key in PROFILE_KEYS and value}
 
     def set_profile(self, values: Dict[str, str], profile: Optional[str] = None) -> None:
         name = profile or self.profile or DEFAULT_PROFILE
@@ -133,11 +129,7 @@ class RigConfig:
                 or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY")
                 or stored.get("hetzner_s3_secret_key", "")
             ),
-            "s3_endpoint_url": (
-                os.getenv("S3_ENDPOINT_URL")
-                or stored.get("s3_endpoint_url")
-                or DEFAULT_S3_ENDPOINT
-            ),
+            "s3_endpoint_url": (os.getenv("S3_ENDPOINT_URL") or stored.get("s3_endpoint_url") or DEFAULT_S3_ENDPOINT),
         }
 
     def apply_to_environ(self, profile: Optional[str] = None) -> Dict[str, str]:
@@ -208,9 +200,7 @@ def ensure_credentials(
     config = config or RigConfig()
     resolved = config.resolve()
     missing_token = not resolved.get("hetzner_cloud_api_token")
-    missing_s3 = not (
-        resolved.get("hetzner_s3_access_key") and resolved.get("hetzner_s3_secret_key")
-    )
+    missing_s3 = not (resolved.get("hetzner_s3_access_key") and resolved.get("hetzner_s3_secret_key"))
 
     if not force_prompt and not missing_token and not missing_s3:
         config.apply_to_environ()

@@ -33,13 +33,15 @@ def test_merge_agent_args_continue_session_resume_and_remainder():
 
 
 def test_ssh_uses_last_env_and_forwards_a_command():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-ssh"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ) as remember, patch("cli.main.os.path.exists", return_value=True):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-ssh"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env") as remember,
+        patch("cli.main.os.path.exists", return_value=True),
+    ):
         instance = MagicMock()
         instance.name = "dev-ssh"
         instance.vm_ip = "203.0.113.9"
@@ -55,12 +57,13 @@ def test_ssh_uses_last_env_and_forwards_a_command():
 
 
 def test_ssh_uses_named_env_and_a_command():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env"), patch(
-        "cli.main.os.path.exists", return_value=True
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.os.path.exists", return_value=True),
     ):
         instance = MagicMock()
         instance.name = "dev-named"
@@ -76,19 +79,22 @@ def test_ssh_uses_named_env_and_a_command():
 
 
 def test_ssh_fails_without_token(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "", "HZ_TOKEN": ""}, clear=False
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "", "HZ_TOKEN": ""}, clear=False),
     ):
         assert main(["ssh"]) == 1
     assert "credentials" in capsys.readouterr().err.lower()
 
 
 def test_ssh_fails_when_vm_or_key_missing(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.resolve_env_name", return_value="dev-ssh"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.resolve_env_name", return_value="dev-ssh"),
+    ):
         missing = MagicMock()
         missing.resolve_resources.return_value = False
         missing.vm_ip = None
@@ -106,41 +112,48 @@ def test_ssh_fails_when_vm_or_key_missing(capsys):
 
 
 def test_ssh_reports_connection_errors(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment", side_effect=RuntimeError("boom")
-    ), patch("cli.main.resolve_env_name", return_value="dev-ssh"):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment", side_effect=RuntimeError("boom")),
+        patch("cli.main.resolve_env_name", return_value="dev-ssh"),
+    ):
         assert main(["ssh"]) == 1
     assert "Error connecting to environment: boom" in capsys.readouterr().err
 
 
 def test_ssh_requires_name_when_no_last_env(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.resolve_env_name", return_value=None):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.resolve_env_name", return_value=None),
+    ):
         assert main(["ssh"]) == 1
     assert "Environment name is required" in capsys.readouterr().err
 
 
 def test_attach_requires_name_when_no_last_env(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.resolve_env_name", return_value=None):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.resolve_env_name", return_value=None),
+    ):
         assert main(["attach"]) == 1
     assert "Environment name is required" in capsys.readouterr().err
 
 
 def test_attach_uses_positional_name_and_remembers():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.remember_last_env") as remember, patch(
-        "cli.main.read_last_session", return_value=None
-    ), patch("cli.main.os.path.exists", return_value=True), patch(
-        "cli.main.ProjectConfig"
-    ) as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env") as remember,
+        patch("cli.main.read_last_session", return_value=None),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project = MagicMock()
         project.config = {"agent": {"type": "opencode"}}
         project.get_vars.return_value = None
@@ -162,18 +175,20 @@ def test_attach_uses_positional_name_and_remembers():
 
 
 def test_attach_auto_resumes_remembered_session():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch(
-        "cli.main.read_last_session",
-        return_value=("7b0ada27-f52d-4e43-b746-2ebf2074a462", "claude"),
-    ), patch("cli.main.os.path.exists", return_value=True), patch(
-        "cli.main.ProjectConfig"
-    ) as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch(
+            "cli.main.read_last_session",
+            return_value=("7b0ada27-f52d-4e43-b746-2ebf2074a462", "claude"),
+        ),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project = MagicMock()
         project.config = {"agent": {"type": "claude"}}
         project.get_vars.return_value = None
@@ -194,18 +209,20 @@ def test_attach_auto_resumes_remembered_session():
 
 
 def test_attach_explicit_continue_skips_auto_resume():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch(
-        "cli.main.read_last_session",
-        return_value=("ses_old", "opencode"),
-    ) as read_session, patch("cli.main.os.path.exists", return_value=True), patch(
-        "cli.main.ProjectConfig"
-    ) as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch(
+            "cli.main.read_last_session",
+            return_value=("ses_old", "opencode"),
+        ) as read_session,
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project = MagicMock()
         project.config = {"agent": {"type": "opencode"}}
         project.get_vars.return_value = None
@@ -220,21 +237,20 @@ def test_attach_explicit_continue_skips_auto_resume():
 
         assert main(["attach", "-c"]) == 0
         read_session.assert_not_called()
-        assert instance.attach_to_agent.call_args.kwargs.get("agent_args") == [
-            "--continue"
-        ]
+        assert instance.attach_to_agent.call_args.kwargs.get("agent_args") == ["--continue"]
 
 
 def test_attach_forwards_continue_flag():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch("cli.main.os.path.exists", return_value=True), patch(
-        "cli.main.ProjectConfig"
-    ) as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project = MagicMock()
         project.config = {"agent": {"type": "opencode"}}
         project.get_vars.return_value = None
@@ -248,21 +264,21 @@ def test_attach_forwards_continue_flag():
         env_cls.return_value = instance
 
         assert main(["attach", "-c"]) == 0
-        assert instance.attach_to_agent.call_args.kwargs.get("agent_args") == [
-            "--continue"
-        ]
+        assert instance.attach_to_agent.call_args.kwargs.get("agent_args") == ["--continue"]
 
 
 def test_attach_forwards_remainder_after_dashdash():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch("cli.main.read_last_session", return_value=None), patch(
-        "cli.main.os.path.exists", return_value=True
-    ), patch("cli.main.ProjectConfig") as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.read_last_session", return_value=None),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project = MagicMock()
         project.config = {"agent": {"type": "opencode"}}
         project.get_vars.return_value = None
@@ -283,15 +299,17 @@ def test_attach_forwards_remainder_after_dashdash():
 
 
 def test_attach_falls_back_to_last_env():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-last"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch("cli.main.read_last_session", return_value=None), patch(
-        "cli.main.os.path.exists", return_value=True
-    ), patch("cli.main.ProjectConfig") as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-last"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.read_last_session", return_value=None),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project = MagicMock()
         project.config = {"agent": {"type": "opencode"}}
         project.get_vars.return_value = None
@@ -309,11 +327,13 @@ def test_attach_falls_back_to_last_env():
 
 
 def test_attach_fails_when_ssh_key_missing(capsys):
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.os.path.exists", return_value=False):
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.os.path.exists", return_value=False),
+    ):
         instance = MagicMock()
         instance.name = "dev-nokey"
         instance.vm_ip = "1.2.3.4"
@@ -330,15 +350,17 @@ def _run_attach(argv, agent, *, session=None):
     project = MagicMock()
     project.config = {"agent": agent}
     project.get_vars.return_value = None
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.resolve_env_name", return_value="dev-agents"
-    ), patch("cli.main.RemoteDevEnvironment") as env_cls, patch(
-        "cli.main.remember_last_env"
-    ), patch("cli.main.read_last_session", return_value=session), patch(
-        "cli.main.os.path.exists", return_value=True
-    ), patch("cli.main.ProjectConfig") as project_cls:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-agents"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.read_last_session", return_value=session),
+        patch("cli.main.os.path.exists", return_value=True),
+        patch("cli.main.ProjectConfig") as project_cls,
+    ):
         project_cls.return_value = project
         instance = MagicMock()
         instance.name = "dev-agents"
@@ -442,13 +464,14 @@ def test_attach_ignores_remembered_session_for_an_agent_that_is_not_enabled():
 
 
 def test_destroy_clears_matching_last_env():
-    with patch("cli.main._load_credentials"), patch.dict(
-        os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False
-    ), patch("cli.main.StorageManager", side_effect=ValueError("no storage")), patch(
-        "cli.main.RemoteDevEnvironment"
-    ) as env_cls, patch("cli.main.clear_last_env") as clear, patch(
-        "cli.main.clear_last_session"
-    ) as clear_session:
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.clear_last_env") as clear,
+        patch("cli.main.clear_last_session") as clear_session,
+    ):
         instance = MagicMock()
         env_cls.return_value = instance
         assert main(["delete", "dev-gone"]) == 0

@@ -9,17 +9,17 @@ import sys
 from unittest.mock import patch, MagicMock
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 @pytest.fixture
 def s3_credentials():
     """Setup S3 credentials for StorageManager"""
-    os.environ['HETZNER_S3_ACCESS_KEY'] = 'test-access-key'
-    os.environ['HETZNER_S3_SECRET_KEY'] = 'test-secret-key'
+    os.environ["HETZNER_S3_ACCESS_KEY"] = "test-access-key"
+    os.environ["HETZNER_S3_SECRET_KEY"] = "test-secret-key"
     yield
-    os.environ.pop('HETZNER_S3_ACCESS_KEY', None)
-    os.environ.pop('HETZNER_S3_SECRET_KEY', None)
+    os.environ.pop("HETZNER_S3_ACCESS_KEY", None)
+    os.environ.pop("HETZNER_S3_SECRET_KEY", None)
 
 
 class TestBasicStorageOperations:
@@ -29,26 +29,24 @@ class TestBasicStorageOperations:
         """Test list buckets command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
-            mock_s3.list_buckets.return_value = {
-                'Buckets': [{'Name': 'test-bucket-1'}, {'Name': 'test-bucket-2'}]
-            }
+            mock_s3.list_buckets.return_value = {"Buckets": [{"Name": "test-bucket-1"}, {"Name": "test-bucket-2"}]}
 
             storage = StorageManager()
             buckets = storage.list_buckets()
 
             assert isinstance(buckets, list)
             assert len(buckets) == 2
-            assert 'test-bucket-1' in buckets
-            assert 'test-bucket-2' in buckets
+            assert "test-bucket-1" in buckets
+            assert "test-bucket-2" in buckets
 
     def test_create_bucket_command(self, hetzner_token, test_bucket_name):
         """Test create bucket command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.create_bucket.return_value = True
@@ -70,47 +68,42 @@ class TestBasicStorageOperations:
         """Test upload file command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.upload_file.return_value = True
             mock_s3.head_object.return_value = {}
 
             storage = StorageManager()
-            result = storage.upload_file(test_bucket_name, test_file, 'test_object.txt')
+            result = storage.upload_file(test_bucket_name, test_file, "test_object.txt")
 
             assert result is True
             mock_s3.upload_file.assert_called_once()
-            mock_s3.head_object.assert_called_with(
-                Bucket=test_bucket_name, Key='test_object.txt'
-            )
+            mock_s3.head_object.assert_called_with(Bucket=test_bucket_name, Key="test_object.txt")
 
     def test_list_objects_command(self, hetzner_token, s3_credentials, test_bucket_name):
         """Test list objects command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.list_objects_v2.return_value = {
-                'Contents': [
-                    {'Key': 'file1.txt', 'Size': 100},
-                    {'Key': 'file2.txt', 'Size': 200}
-                ]
+                "Contents": [{"Key": "file1.txt", "Size": 100}, {"Key": "file2.txt", "Size": 200}]
             }
 
             storage = StorageManager()
-            objects = storage.list_objects(test_bucket_name, '')
+            objects = storage.list_objects(test_bucket_name, "")
 
             assert isinstance(objects, list)
             assert len(objects) == 2
-            assert objects[0] == 'file1.txt'
+            assert objects[0] == "file1.txt"
 
     def test_download_file_command(self, hetzner_token, s3_credentials, test_bucket_name, tmp_path):
         """Test download file command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
 
@@ -119,16 +112,16 @@ class TestBasicStorageOperations:
 
             # Mock the download_file method
             def mock_download_file(Bucket, Key, Filename):
-                with open(Filename, 'w') as f:
+                with open(Filename, "w") as f:
                     f.write("Downloaded content")
 
             mock_s3.download_file = mock_download_file
 
             storage = StorageManager()
-            result = storage.download_file(test_bucket_name, 'test_object.txt', download_path)
+            result = storage.download_file(test_bucket_name, "test_object.txt", download_path)
 
             assert os.path.exists(download_path)
-            with open(download_path, 'r') as f:
+            with open(download_path, "r") as f:
                 content = f.read()
             assert content == "Downloaded content"
 
@@ -136,24 +129,22 @@ class TestBasicStorageOperations:
         """Test delete object command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.delete_object.return_value = True
 
             storage = StorageManager()
-            result = storage.delete_object(test_bucket_name, 'test_object.txt')
+            result = storage.delete_object(test_bucket_name, "test_object.txt")
 
             assert result is True
-            mock_s3.delete_object.assert_called_once_with(
-                Bucket=test_bucket_name, Key='test_object.txt'
-            )
+            mock_s3.delete_object.assert_called_once_with(Bucket=test_bucket_name, Key="test_object.txt")
 
     def test_delete_bucket_command(self, hetzner_token, s3_credentials, test_bucket_name):
         """Test delete bucket command"""
         from cli.storage import StorageManager
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.delete_bucket.return_value = True
@@ -173,12 +164,12 @@ class TestStorageErrorHandling:
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.list_buckets.side_effect = ClientError(
-                error_response={'Error': {'Code': 'AccessDenied', 'Message': 'Access Denied'}},
-                operation_name='ListBuckets'
+                error_response={"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},
+                operation_name="ListBuckets",
             )
 
             storage = StorageManager()
@@ -192,12 +183,12 @@ class TestStorageErrorHandling:
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
-        with patch('boto3.client') as mock_boto:
+        with patch("boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.create_bucket.side_effect = ClientError(
-                error_response={'Error': {'Code': 'BucketAlreadyOwnedByYou', 'Message': 'Bucket already exists'}},
-                operation_name='CreateBucket'
+                error_response={"Error": {"Code": "BucketAlreadyOwnedByYou", "Message": "Bucket already exists"}},
+                operation_name="CreateBucket",
             )
 
             storage = StorageManager()
@@ -207,9 +198,7 @@ class TestStorageErrorHandling:
             assert result is True  # Or handle as appropriate
             mock_s3.head_bucket.assert_called_with(Bucket=test_bucket_name)
 
-    def test_create_bucket_waits_through_eventual_consistency(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_create_bucket_waits_through_eventual_consistency(self, hetzner_token, s3_credentials, test_bucket_name):
         """HeadBucket 404s briefly after CreateBucket before the bucket is ready."""
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
@@ -233,9 +222,7 @@ class TestStorageErrorHandling:
             assert mock_s3.head_bucket.call_count == 3
             assert mock_sleep.call_count == 2
 
-    def test_create_bucket_retries_location_constraint(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_create_bucket_retries_location_constraint(self, hetzner_token, s3_credentials, test_bucket_name):
         """Retry CreateBucket once when Hetzner reports LocationConstraintConflict."""
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
@@ -260,14 +247,13 @@ class TestStorageErrorHandling:
             assert storage.create_bucket(test_bucket_name) is True
             assert mock_s3.create_bucket.call_count == 2
 
-    def test_create_bucket_returns_false_when_wait_times_out(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_create_bucket_returns_false_when_wait_times_out(self, hetzner_token, s3_credentials, test_bucket_name):
         """create_bucket fails closed if the bucket never becomes visible."""
         from cli.storage import StorageManager
 
-        with patch("boto3.client") as mock_boto, patch(
-            "cli.storage.StorageManager._wait_for_bucket", return_value=False
+        with (
+            patch("boto3.client") as mock_boto,
+            patch("cli.storage.StorageManager._wait_for_bucket", return_value=False),
         ):
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
@@ -276,9 +262,7 @@ class TestStorageErrorHandling:
             storage = StorageManager()
             assert storage.create_bucket(test_bucket_name) is False
 
-    def test_delete_object_missing_key_is_ok(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_delete_object_missing_key_is_ok(self, hetzner_token, s3_credentials, test_bucket_name):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -377,9 +361,7 @@ class TestStorageErrorHandling:
             client.head_bucket.side_effect = RuntimeError("network down")
             assert storage.bucket_exists(test_bucket_name) is False
 
-    def test_wait_for_bucket_hard_error_and_timeout(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_wait_for_bucket_hard_error_and_timeout(self, hetzner_token, s3_credentials, test_bucket_name):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -463,9 +445,7 @@ class TestStorageErrorHandling:
             )
             assert StorageManager().create_bucket(test_bucket_name) is False
 
-    def test_upload_missing_file_and_retries(
-        self, hetzner_token, s3_credentials, test_bucket_name, tmp_path
-    ):
+    def test_upload_missing_file_and_retries(self, hetzner_token, s3_credentials, test_bucket_name, tmp_path):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -502,17 +482,18 @@ class TestStorageErrorHandling:
             except StopIteration:
                 return 999.0
 
-        with patch("boto3.client") as mock_boto, patch(
-            "cli.storage.StorageManager._wait_for_object", return_value=False
-        ), patch("cli.storage.time.sleep"), patch("cli.storage.time.time", side_effect=fake_time):
+        with (
+            patch("boto3.client") as mock_boto,
+            patch("cli.storage.StorageManager._wait_for_object", return_value=False),
+            patch("cli.storage.time.sleep"),
+            patch("cli.storage.time.time", side_effect=fake_time),
+        ):
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.upload_file.return_value = None
             assert storage.upload_file(test_bucket_name, str(path), "ok.txt") is False
 
-    def test_download_retries_and_errors(
-        self, hetzner_token, s3_credentials, test_bucket_name, tmp_path
-    ):
+    def test_download_retries_and_errors(self, hetzner_token, s3_credentials, test_bucket_name, tmp_path):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -553,17 +534,17 @@ class TestStorageErrorHandling:
             except StopIteration:
                 return 999.0
 
-        with patch("boto3.client") as mock_boto, patch("cli.storage.time.sleep"), patch(
-            "cli.storage.time.time", side_effect=fake_time
+        with (
+            patch("boto3.client") as mock_boto,
+            patch("cli.storage.time.sleep"),
+            patch("cli.storage.time.time", side_effect=fake_time),
         ):
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
             mock_s3.download_file.side_effect = not_found
             assert StorageManager().download_file(test_bucket_name, "k", out) is False
 
-    def test_list_objects_retries_missing_bucket(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_list_objects_retries_missing_bucket(self, hetzner_token, s3_credentials, test_bucket_name):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -584,9 +565,7 @@ class TestStorageErrorHandling:
             assert StorageManager().list_objects(test_bucket_name) == ["lifecycle.txt"]
             assert mock_s3.list_objects_v2.call_count == 2
 
-    def test_delete_retries_missing_bucket(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_delete_retries_missing_bucket(self, hetzner_token, s3_credentials, test_bucket_name):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -618,9 +597,7 @@ class TestStorageErrorHandling:
             mock_s3.head_bucket.side_effect = gone
             assert StorageManager().delete_bucket(test_bucket_name) is True
 
-    def test_list_objects_and_delete_errors(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_list_objects_and_delete_errors(self, hetzner_token, s3_credentials, test_bucket_name):
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
@@ -650,8 +627,10 @@ class TestStorageErrorHandling:
             except StopIteration:
                 return 999.0
 
-        with patch("boto3.client") as mock_boto, patch("cli.storage.time.sleep"), patch(
-            "cli.storage.time.time", side_effect=fake_time
+        with (
+            patch("boto3.client") as mock_boto,
+            patch("cli.storage.time.sleep"),
+            patch("cli.storage.time.time", side_effect=fake_time),
         ):
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
@@ -670,9 +649,7 @@ class TestStorageErrorHandling:
         info = storage.get_credentials_info()
         assert info["token_used"] == "ab"
 
-    def test_upload_defaults_object_name_to_basename(
-        self, hetzner_token, s3_credentials, test_bucket_name, tmp_path
-    ):
+    def test_upload_defaults_object_name_to_basename(self, hetzner_token, s3_credentials, test_bucket_name, tmp_path):
         from cli.storage import StorageManager
 
         path = tmp_path / "payload.bin"
@@ -683,21 +660,15 @@ class TestStorageErrorHandling:
             mock_s3.upload_file.return_value = None
             mock_s3.head_object.return_value = {}
             assert StorageManager().upload_file(test_bucket_name, str(path)) is True
-            mock_s3.upload_file.assert_called_once_with(
-                str(path), test_bucket_name, "payload.bin"
-            )
+            mock_s3.upload_file.assert_called_once_with(str(path), test_bucket_name, "payload.bin")
 
-    def test_create_bucket_outer_already_owned_after_raise(
-        self, hetzner_token, s3_credentials, test_bucket_name
-    ):
+    def test_create_bucket_outer_already_owned_after_raise(self, hetzner_token, s3_credentials, test_bucket_name):
         """Outer handler covers already-owned when raised past the inner try."""
         from cli.storage import StorageManager
         from botocore.exceptions import ClientError
 
         owned = ClientError(
-            error_response={
-                "Error": {"Code": "BucketAlreadyExists", "Message": "exists"}
-            },
+            error_response={"Error": {"Code": "BucketAlreadyExists", "Message": "exists"}},
             operation_name="CreateBucket",
         )
         with patch("boto3.client") as mock_boto:

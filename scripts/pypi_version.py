@@ -26,13 +26,12 @@ def version_from_tag(tag: str) -> str:
     """
     raw = tag.strip()
     if raw.startswith("refs/tags/"):
-        raw = raw[len("refs/tags/"):]
+        raw = raw[len("refs/tags/") :]
     if raw[:1] in ("v", "V"):
         raw = raw[1:]
     if not _VERSION.fullmatch(raw):
         raise ValueError(
-            f"release tag {tag!r} is not a public PEP 440 version "
-            "(expected vX.Y.Z, optional a/b/rc/post/dev suffix)"
+            f"release tag {tag!r} is not a public PEP 440 version (expected vX.Y.Z, optional a/b/rc/post/dev suffix)"
         )
     return raw
 
@@ -55,17 +54,11 @@ def archive_metadata(path: Path) -> tuple[str, str]:
     """Return ``(name, version)`` from a wheel or sdist."""
     if path.name.endswith(".whl"):
         with zipfile.ZipFile(path) as archive:
-            name = next(
-                item for item in archive.namelist()
-                if item.endswith(".dist-info/METADATA")
-            )
+            name = next(item for item in archive.namelist() if item.endswith(".dist-info/METADATA"))
             text = archive.read(name).decode()
     elif path.name.endswith(".tar.gz"):
         with tarfile.open(path) as archive:
-            member = next(
-                item for item in archive.getmembers()
-                if item.name.endswith("/PKG-INFO")
-            )
+            member = next(item for item in archive.getmembers() if item.name.endswith("/PKG-INFO"))
             extracted = archive.extractfile(member)
             if extracted is None:
                 raise ValueError(f"{path} is missing PKG-INFO")
@@ -78,8 +71,7 @@ def archive_metadata(path: Path) -> tuple[str, str]:
 def check_dist(dist_dir: Path, expected_version: str, expected_name: str = "mystack-rig") -> None:
     """Fail unless dist contains one sdist and one wheel at the tag version."""
     archives = [
-        path for path in sorted(dist_dir.iterdir())
-        if path.name.endswith(".whl") or path.name.endswith(".tar.gz")
+        path for path in sorted(dist_dir.iterdir()) if path.name.endswith(".whl") or path.name.endswith(".tar.gz")
     ]
     wheels = [path for path in archives if path.name.endswith(".whl")]
     sdists = [path for path in archives if path.name.endswith(".tar.gz")]
@@ -89,9 +81,7 @@ def check_dist(dist_dir: Path, expected_version: str, expected_name: str = "myst
     for path in archives:
         name, version = archive_metadata(path)
         if name != expected_name or version != expected_version:
-            raise ValueError(
-                f"{path.name} is {name} {version}, expected {expected_name} {expected_version}"
-            )
+            raise ValueError(f"{path.name} is {name} {version}, expected {expected_name} {expected_version}")
 
 
 def main(argv: list[str] | None = None) -> int:

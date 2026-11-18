@@ -125,10 +125,7 @@ def ensure_data_key(
 def validate_var_name(name: str) -> str:
     name = name.strip()
     if not name or not _VAR_NAME_RE.match(name):
-        raise ValueError(
-            "Variable name must match [A-Za-z_][A-Za-z0-9_]* "
-            f"(got {name!r})"
-        )
+        raise ValueError(f"Variable name must match [A-Za-z_][A-Za-z0-9_]* (got {name!r})")
     return name
 
 
@@ -257,9 +254,7 @@ def encrypt_named_value(
             check=False,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            "ansible-vault not found. Install Ansible to use rig vars encrypt."
-        ) from exc
+        raise RuntimeError("ansible-vault not found. Install Ansible to use rig vars encrypt.") from exc
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "unknown error").strip()
@@ -317,9 +312,7 @@ def encrypt_stdin(
         plaintext = source.read()
     if plaintext == "":
         raise ValueError("Value to encrypt is required")
-    return encrypt_named_value(
-        plaintext, name, vault_password_file, vault_id=vault_id
-    )
+    return encrypt_named_value(plaintext, name, vault_password_file, vault_id=vault_id)
 
 
 def read_variable_name(
@@ -530,16 +523,11 @@ def collect_repo_pats(
             continue
         if _is_ssh_git_url(url):
             print(
-                f"Note: '{name}' uses SSH remote; "
-                f"will clone via {to_https_git_url(url)} and use PAT for {provider} CLI"
+                f"Note: '{name}' uses SSH remote; will clone via {to_https_git_url(url)} and use PAT for {provider} CLI"
             )
 
         if provider in provider_shared:
-            shared_label = (
-                f"default {provider}_pat"
-                if provider in default_pats
-                else f"shared {provider} PAT"
-            )
+            shared_label = f"default {provider}_pat" if provider in default_pats else f"shared {provider} PAT"
             label = f"PAT for '{name}' ({provider}) [Enter reuses {shared_label}]"
             try:
                 value = ask_secret(f"{label}: ").strip()
@@ -662,14 +650,10 @@ def store_repo_pats(
     if not to_store:
         return False
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     if personal is None:
         personal = prompt_store_as_personal("git PAT(s)", input_fn=input_fn)
-    key_path = data_key_path or (
-        PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH
-    )
+    key_path = data_key_path or (PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH)
     for var_name, plaintext in to_store.items():
         store_encrypted_var(
             var_name,
@@ -697,9 +681,7 @@ def prompt_and_store_git_pat(
     prompt (legacy). Returns ``{repo_name: var_name}`` for assigned PATs.
     """
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     key_path = data_key_path or PERSONAL_DATA_KEY_PATH
     if not repos:
         pat = _prompt_secret_with_env_fallback(
@@ -720,12 +702,8 @@ def prompt_and_store_git_pat(
         )
         return {}
 
-    assignments, default_pats = collect_repo_pats(
-        repos, input_fn=input_fn, secret_fn=secret_fn
-    )
-    password_vars, to_store = resolve_repo_pat_var_names(
-        assignments, repos, default_pats=default_pats
-    )
+    assignments, default_pats = collect_repo_pats(repos, input_fn=input_fn, secret_fn=secret_fn)
+    password_vars, to_store = resolve_repo_pat_var_names(assignments, repos, default_pats=default_pats)
     store_repo_pats(
         to_store,
         project_dir=root,
@@ -776,9 +754,7 @@ def prompt_and_store_coding_agent_credentials(
     else:
         env_var = "RIG_CODING_AGENT_API_KEY"
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     if agent_normalized == "opencode":
         skip_hint = " [Enter = OpenCode free models]"
     elif agent_normalized == "cursor":
@@ -795,26 +771,16 @@ def prompt_and_store_coding_agent_credentials(
     )
     if not api_key:
         if agent_normalized == "opencode":
-            print(
-                f"Skipping {stored_name} (no key provided); "
-                "OpenCode will use free models"
-            )
+            print(f"Skipping {stored_name} (no key provided); OpenCode will use free models")
         elif agent_normalized == "cursor":
-            print(
-                f"Skipping {stored_name} (no key provided); "
-                "set a Cursor user API key before rig attach"
-            )
+            print(f"Skipping {stored_name} (no key provided); set a Cursor user API key before rig attach")
         else:
             print(f"Skipping {stored_name} (no key provided)")
         return False
 
     if personal is None:
-        personal = prompt_store_as_personal(
-            "coding agent API key", input_fn=input_fn
-        )
-    key_path = data_key_path or (
-        PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH
-    )
+        personal = prompt_store_as_personal("coding agent API key", input_fn=input_fn)
+    key_path = data_key_path or (PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH)
     store_encrypted_var(
         stored_name,
         api_key,
@@ -851,9 +817,7 @@ def prompt_and_store_coding_agents_credentials(
 
     selected = coerce_agent_types(agent_types)
     root = resolve_project_dir(project_dir)
-    unlock_data_keys(
-        root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False
-    )
+    unlock_data_keys(root, input_fn=input_fn, secret_fn=secret_fn, require_wraps=False)
     collected: dict = {}
     for agent in selected:
         label = f"{AGENT_LABELS.get(agent, agent)} API key"
@@ -871,10 +835,7 @@ def prompt_and_store_coding_agents_credentials(
         )
         if not api_key:
             if agent == "opencode":
-                print(
-                    f"Skipping {AGENT_API_KEY_VARS[agent]} (no key provided); "
-                    "OpenCode will use free models"
-                )
+                print(f"Skipping {AGENT_API_KEY_VARS[agent]} (no key provided); OpenCode will use free models")
             elif agent == "cursor":
                 print(
                     f"Skipping {AGENT_API_KEY_VARS[agent]} (no key provided); "
@@ -886,13 +847,9 @@ def prompt_and_store_coding_agents_credentials(
         collected[agent] = api_key
 
     if collected and personal is None:
-        personal = prompt_store_as_personal(
-            "coding agent API keys", input_fn=input_fn
-        )
+        personal = prompt_store_as_personal("coding agent API keys", input_fn=input_fn)
     if collected:
-        key_path = data_key_path or (
-            PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH
-        )
+        key_path = data_key_path or (PERSONAL_DATA_KEY_PATH if personal else SHARED_DATA_KEY_PATH)
         scope = "personal" if personal else "shared"
         for agent, api_key in collected.items():
             var_name = AGENT_API_KEY_VARS[agent]
@@ -1025,10 +982,7 @@ def interactive_encrypt(
 def require_data_key_file(path: str = DEFAULT_DATA_KEY_PATH) -> str:
     """Return the data key path, or raise if the temporary key is missing."""
     if not os.path.exists(path):
-        raise ValueError(
-            f"Temporary data key not found at {path}. "
-            "Run 'rig vars encrypt' first to create it."
-        )
+        raise ValueError(f"Temporary data key not found at {path}. Run 'rig vars encrypt' first to create it.")
     return path
 
 
@@ -1059,11 +1013,7 @@ def decrypt_vault_blob(
     vault_password_file: Optional[str] = None,
 ) -> str:
     """Decrypt ansible-vault ciphertext using personal and/or shared data keys."""
-    body = (
-        extract_vault_ciphertext(ciphertext)
-        if "$ANSIBLE_VAULT" in ciphertext
-        else ciphertext
-    )
+    body = extract_vault_ciphertext(ciphertext) if "$ANSIBLE_VAULT" in ciphertext else ciphertext
 
     import tempfile
 
@@ -1081,9 +1031,7 @@ def decrypt_vault_blob(
         if pair not in " ".join(vault_ids):
             vault_ids.extend(["--vault-id", pair])
     if not vault_ids:
-        raise ValueError(
-            "No data keys under /tmp/.rig. Unlock with your personal master key first."
-        )
+        raise ValueError("No data keys under /tmp/.rig. Unlock with your personal master key first.")
 
     fd, temp_path = tempfile.mkstemp(prefix="rig-vault-", suffix=".txt")
     try:
@@ -1099,9 +1047,7 @@ def decrypt_vault_blob(
                 check=False,
             )
         except FileNotFoundError as exc:
-            raise RuntimeError(
-                "ansible-vault not found. Install Ansible to use rig vars decrypt."
-            ) from exc
+            raise RuntimeError("ansible-vault not found. Install Ansible to use rig vars decrypt.") from exc
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "unknown error").strip()
             raise RuntimeError(f"ansible-vault decrypt failed: {detail}")
@@ -1126,8 +1072,7 @@ def decrypt_var(
         path = vars_path
         key_file = vault_password_file or (
             PERSONAL_DATA_KEY_PATH
-            if os.path.basename(path).startswith("vars.")
-            and os.path.basename(path) != "vars.yml"
+            if os.path.basename(path).startswith("vars.") and os.path.basename(path) != "vars.yml"
             else SHARED_DATA_KEY_PATH
         )
         if not os.path.exists(path):

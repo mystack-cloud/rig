@@ -113,8 +113,9 @@ def test_apply_playbooks_sets_rig_vars(tmp_path):
         return True
 
     try:
-        with patch.object(AnsibleManager, "setup_bootstrap", return_value=True), patch.object(
-            AnsibleManager, "_run_one_playbook", fake_run
+        with (
+            patch.object(AnsibleManager, "setup_bootstrap", return_value=True),
+            patch.object(AnsibleManager, "_run_one_playbook", fake_run),
         ):
             assert env.apply_playbooks(
                 project_dir=str(tmp_path),
@@ -162,8 +163,6 @@ def test_playbooks_tolerate_a_slow_ssh_banner_on_a_fresh_vm(tmp_path, monkeypatc
 
 
 def test_user_set_ansible_ssh_settings_are_not_overridden(tmp_path, monkeypatch):
-    env = _run_and_capture_env(
-        tmp_path, monkeypatch, ANSIBLE_TIMEOUT="15", ANSIBLE_SSH_RETRIES="0"
-    )
+    env = _run_and_capture_env(tmp_path, monkeypatch, ANSIBLE_TIMEOUT="15", ANSIBLE_SSH_RETRIES="0")
     assert env["ANSIBLE_TIMEOUT"] == "15"
     assert env["ANSIBLE_SSH_RETRIES"] == "0"

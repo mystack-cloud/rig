@@ -97,11 +97,7 @@ def test_encrypt_named_value_uses_stdin_name(tmp_path):
 
     with patch("cli.encrypt.subprocess.run") as run:
         run.return_value.returncode = 0
-        run.return_value.stdout = (
-            "db_password: !vault |\n"
-            "          $ANSIBLE_VAULT;1.1;AES256\n"
-            "          deadbeef\n"
-        )
+        run.return_value.stdout = "db_password: !vault |\n          $ANSIBLE_VAULT;1.1;AES256\n          deadbeef\n"
         run.return_value.stderr = ""
         out = encrypt_named_value(
             "secret-value",
@@ -246,16 +242,22 @@ def test_decrypt_uses_default_data_key_without_flag(tmp_path):
     vars_path = project / ".rig" / "vars.yml"
     upsert_vault_var(str(vars_path), "greeting", block)
 
-    assert decrypt_var(
-        "greeting",
-        vars_path=str(vars_path),
-        vault_password_file=str(key_path),
-    ) == "hello-secret"
-    assert interactive_decrypt(
-        path=str(key_path),
-        name="greeting",
-        project_dir=str(project),
-    ) == "hello-secret"
+    assert (
+        decrypt_var(
+            "greeting",
+            vars_path=str(vars_path),
+            vault_password_file=str(key_path),
+        )
+        == "hello-secret"
+    )
+    assert (
+        interactive_decrypt(
+            path=str(key_path),
+            name="greeting",
+            project_dir=str(project),
+        )
+        == "hello-secret"
+    )
 
 
 def test_decrypt_requires_data_key(tmp_path):
@@ -316,9 +318,7 @@ def test_collect_repo_pats_asks_for_ssh_remotes():
     )
     assert assignments == {"api": "ghp_ssh_pat", "web": "ghp_ssh_pat"}
     assert defaults == {"github": "ghp_ssh_pat"}
-    password_vars, to_store = resolve_repo_pat_var_names(
-        assignments, repos, default_pats=defaults
-    )
+    password_vars, to_store = resolve_repo_pat_var_names(assignments, repos, default_pats=defaults)
     assert password_vars == {"api": "github_pat", "web": "github_pat"}
     assert to_store == {"github_pat": "ghp_ssh_pat"}
 
@@ -340,14 +340,20 @@ def test_ensure_vscode_browser_password_generates_once(tmp_path, monkeypatch):
         return "block"
 
     with patch("cli.encrypt.store_encrypted_var", side_effect=fake_store):
-        assert ensure_vscode_browser_password(
-            project_dir=str(tmp_path),
-            data_key_path=str(data_key),
-        ) is True
-        assert ensure_vscode_browser_password(
-            project_dir=str(tmp_path),
-            data_key_path=str(data_key),
-        ) is False
+        assert (
+            ensure_vscode_browser_password(
+                project_dir=str(tmp_path),
+                data_key_path=str(data_key),
+            )
+            is True
+        )
+        assert (
+            ensure_vscode_browser_password(
+                project_dir=str(tmp_path),
+                data_key_path=str(data_key),
+            )
+            is False
+        )
 
     assert len(created) == 1
     assert created[0][0] == VSCODE_BROWSER_PASSWORD_VAR

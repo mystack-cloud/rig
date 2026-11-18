@@ -8,6 +8,7 @@ Layout in ``vars.yml``::
 
 See docs/adr/0001-per-profile-generated-state-bucket.md.
 """
+
 from __future__ import annotations
 
 import os
@@ -58,9 +59,7 @@ class _VaultTolerantLoader(yaml.SafeLoader):
     """Safe loader that reads ``!vault`` scalars as plain strings."""
 
 
-_VaultTolerantLoader.add_constructor(
-    "!vault", lambda loader, node: loader.construct_scalar(node)
-)
+_VaultTolerantLoader.add_constructor("!vault", lambda loader, node: loader.construct_scalar(node))
 
 
 def read_state_bucket(workspace_dir: str, profile: str) -> Optional[str]:
@@ -103,7 +102,7 @@ def write_state_bucket(workspace_dir: str, profile: str, bucket: str) -> str:
                 body = line_re.sub(entry, body, count=1)
             else:
                 body = (body if body.endswith("\n") or not body else body + "\n") + entry
-            updated = existing[: block.start(1)] + body + existing[block.end(1):]
+            updated = existing[: block.start(1)] + body + existing[block.end(1) :]
         else:
             prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
             updated = f"{prefix}{STATE_BUCKETS_VAR}:\n{entry}"
@@ -112,7 +111,6 @@ def write_state_bucket(workspace_dir: str, profile: str, bucket: str) -> str:
             handle.write(updated)
     except OSError as exc:
         raise StateBucketError(
-            f"Could not record the state bucket in {path}: {exc}. "
-            "Fix the permissions or set STATE_BUCKET."
+            f"Could not record the state bucket in {path}: {exc}. Fix the permissions or set STATE_BUCKET."
         ) from exc
     return path

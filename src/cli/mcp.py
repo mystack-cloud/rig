@@ -94,17 +94,13 @@ def legacy_files_with_servers(project_dir: Optional[str] = None) -> List[str]:
 
 
 def legacy_warning(files: Sequence[str]) -> str:
-    return (
-        f"Ignoring MCP servers in {', '.join(files)}: move them to .rig/{MCP_FILENAME} "
-        "(see `rig mcp add`)"
-    )
+    return f"Ignoring MCP servers in {', '.join(files)}: move them to .rig/{MCP_FILENAME} (see `rig mcp add`)"
 
 
 # ------------------------------------------------------------ building
 
 
-def parse_assignments(items: Optional[Sequence[str]], *, allow_bare: bool
-                      ) -> Dict[str, str]:
+def parse_assignments(items: Optional[Sequence[str]], *, allow_bare: bool) -> Dict[str, str]:
     """``K=V`` -> {K: V}; bare ``K`` (env only) -> {K: '${K}'}."""
     out: Dict[str, str] = {}
     for item in items or []:
@@ -119,8 +115,9 @@ def parse_assignments(items: Optional[Sequence[str]], *, allow_bare: bool
     return out
 
 
-def build_server(*, url: Optional[str], command: Sequence[str], env: Sequence[str],
-                 headers: Sequence[str], kind: Optional[str]) -> Dict[str, Any]:
+def build_server(
+    *, url: Optional[str], command: Sequence[str], env: Sequence[str], headers: Sequence[str], kind: Optional[str]
+) -> Dict[str, Any]:
     command = list(command)
     if command and command[0] == "--":
         command = command[1:]
@@ -162,11 +159,20 @@ def _secret_prompt(label: str, env_name: str) -> str:
     return _prompt_secret_with_env_fallback(label, env_name)
 
 
-def cmd_add(name: str, *, url: Optional[str] = None, command: Sequence[str] = (),
-            env: Sequence[str] = (), headers: Sequence[str] = (),
-            kind: Optional[str] = None, personal: bool = False, force: bool = False,
-            project_dir: Optional[str] = None, interactive: Optional[bool] = None,
-            prompt: Callable[[str, str], str] = _secret_prompt) -> int:
+def cmd_add(
+    name: str,
+    *,
+    url: Optional[str] = None,
+    command: Sequence[str] = (),
+    env: Sequence[str] = (),
+    headers: Sequence[str] = (),
+    kind: Optional[str] = None,
+    personal: bool = False,
+    force: bool = False,
+    project_dir: Optional[str] = None,
+    interactive: Optional[bool] = None,
+    prompt: Callable[[str, str], str] = _secret_prompt,
+) -> int:
     from cli.encrypt import store_encrypted_var
 
     try:
@@ -178,8 +184,7 @@ def cmd_add(name: str, *, url: Optional[str] = None, command: Sequence[str] = ()
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     if name in config["mcpServers"] and not force:
-        print(f"Error: MCP server '{name}' already exists (use --force to replace)",
-              file=sys.stderr)
+        print(f"Error: MCP server '{name}' already exists (use --force to replace)", file=sys.stderr)
         return 1
     config["mcpServers"][name] = server
     path = save_config(config, project_dir)
@@ -193,8 +198,10 @@ def cmd_add(name: str, *, url: Optional[str] = None, command: Sequence[str] = ()
             continue
         value = prompt(f"Value for MCP variable {var}", var)
         if not value:
-            print(f"  {var}: skipped. The server stays disabled until a value is stored "
-                  f"as '{var_name}' (rig vars encrypt).")
+            print(
+                f"  {var}: skipped. The server stays disabled until a value is stored "
+                f"as '{var_name}' (rig vars encrypt)."
+            )
             continue
         store_encrypted_var(var_name, value, project_dir, personal=personal)
     print("Run `rig apply --authorize` to push this to a running Environment.")

@@ -126,9 +126,11 @@ def test_terminal_echo_is_restored_afterwards():
 
 # ---- injection points and the non-terminal paths -----------------------------
 
+
 def test_single_line_value_defaults_to_getpass_not_input():
-    with patch("cli.encrypt.getpass.getpass", return_value="v") as hidden, patch(
-        "builtins.input", side_effect=AssertionError("input() would echo")
+    with (
+        patch("cli.encrypt.getpass.getpass", return_value="v") as hidden,
+        patch("builtins.input", side_effect=AssertionError("input() would echo")),
     ):
         assert enc.read_single_line_value() == "v"
     assert "hidden" in hidden.call_args.args[0]
@@ -158,6 +160,7 @@ def test_piped_stdin_still_reads_everything_without_a_terminal(tmp_path):
 
 
 # ---- in-process terminal tests (so coverage traces the code under test) ------------
+
 
 def _tty_pair():
     """A real terminal pair inside this process: (master fd, slave as a text stream)."""
@@ -204,7 +207,7 @@ def _feed_when_echo_is_off(master, tty, payload, *, per_char=False):
         deadline = time.time() + 10
         while time.time() < deadline and _echo_on(tty):
             time.sleep(0.01)
-        for chunk in (payload if per_char else [payload]):
+        for chunk in payload if per_char else [payload]:
             os.write(master, chunk.encode())
             time.sleep(0.005)
 
