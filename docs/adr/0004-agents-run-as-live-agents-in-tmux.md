@@ -13,6 +13,7 @@
 
 ## Consequences
 
+- Claude Code refuses its bypass mode as root, so `rig exec` launches it with `IS_SANDBOX=1`, and authorize pre-accepts its first-use warning dialog. Both were found by running against a real VM, and both would otherwise stop an unattended run silently.
 - An unattended agent can run any command on the Environment, which has internet access, tokens and root. Prompt injection from repository content is a real risk, and `rig exec` says so every time it skips approvals.
 - A live agent keeps the credentials and MCP config it started with; `rig attach --restart` picks up changes. `rig apply` and `rig delete` warn about running live agents but do not stop.
 - tmux is part of the provisioned image, and Claude Code's settings carry rig-owned hooks (merged with the user's, identified by their command path).

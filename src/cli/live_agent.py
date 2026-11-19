@@ -34,6 +34,17 @@ AUTO_APPROVE_FLAGS: dict[str, list[str]] = {
     "opencode": ["--auto"],
 }
 
+# Claude Code refuses its bypass mode as root ("cannot be used with root/sudo privileges")
+# unless it is told it runs in a sandbox. Verified on a real VM: with IS_SANDBOX=1 it works.
+# Environments are disposable VMs, and `rig exec` skips approvals by default.
+AUTO_APPROVE_ENV: dict[str, dict[str, str]] = {"claude": {"IS_SANDBOX": "1"}}
+
+
+def auto_approve_exports(agent: str) -> str:
+    """Shell that exports what an agent needs to skip approvals when run as root."""
+    return "".join(f"export {k}={shlex.quote(v)}; " for k, v in AUTO_APPROVE_ENV.get(agent, {}).items())
+
+
 # Exit status of rig-agent-queue -> why a prompt could not be queued.
 QUEUE_RESULTS = {
     0: "queued",

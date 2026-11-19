@@ -588,3 +588,27 @@ def test_ctrl_c_goes_to_the_agent_and_does_not_detach(tm):
         _wait_exit(pid)
     finally:
         os.close(master)
+
+
+def test_claude_is_seeded_to_skip_the_bypass_mode_warning_dialog():
+    """Verified on a real VM: without this an unattended `rig exec` stops at a dialog whose default is "exit"."""
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    seed = next(
+        t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if t.get("name", "").startswith("Seed Claude Code")
+    )
+    assert seed["vars"]["_settings_seed"]["skipDangerousModePermissionPrompt"] is True
+
+
+def test_claude_as_root_needs_is_sandbox_to_use_bypass_mode():
+    """Verified on a real VM: Claude refuses bypass mode as root unless IS_SANDBOX=1."""
+    assert la.auto_approve_exports("claude") == "export IS_SANDBOX=1; "
+    assert la.auto_approve_exports("cursor") == "" and la.auto_approve_exports("opencode") == ""
+    unattended = RemoteDevEnvironment.agent_remote_command("claude", prompt_file="/tmp/x", auto_approve=True)
+    assert "export IS_SANDBOX=1; " in unattended
+    supervised = RemoteDevEnvironment.agent_remote_command("claude", prompt_file="/tmp/x", auto_approve=False)
+    assert "IS_SANDBOX" not in supervised
+    only_flag = RemoteDevEnvironment.agent_remote_command("claude", auto_approve=True)
+    assert "export IS_SANDBOX=1; " in only_flag and "IS_SANDBOX" not in RemoteDevEnvironment.agent_remote_command(
+        "claude"
+    )

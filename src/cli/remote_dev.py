@@ -3035,6 +3035,10 @@ echo "Agent installation complete!"
             from cli.live_agent import AUTO_APPROVE_FLAGS
 
             flags = " " + " ".join(shlex.quote(f) for f in AUTO_APPROVE_FLAGS[agent])
+        if auto_approve:
+            from cli.live_agent import auto_approve_exports
+
+            lead = auto_approve_exports(agent) + lead
 
         if agent == "claude":
             return (
@@ -4105,6 +4109,9 @@ AUTHORIZE_PLAYBOOK = r"""---
           projects: "{{ {_ws: {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
         _settings_seed:
           theme: dark
+          # `rig exec` runs Claude in bypass mode; without this it stops at a first-use
+          # warning dialog (default answer: exit) that nobody is there to answer.
+          skipDangerousModePermissionPrompt: true
         _merged: "{{ (_existing[item.path] | default({})) | combine(item.seed, recursive=True) }}"
         # "Tool(*)" allow rules warn on current Claude Code; bare "Tool" is equivalent.
         _final: >-
