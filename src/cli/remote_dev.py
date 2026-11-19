@@ -19,6 +19,7 @@ from typing import Any, Optional
 import requests
 
 from cli import log as log
+from cli.live_agent import ASSETS_DIR, LiveAgent
 from cli.state_bucket import StateBucketError
 
 # YAML support
@@ -621,6 +622,7 @@ def build_rig_ansible_vars(
         "rig_agent_type": default_agent,
         "rig_agent_types": list(installed_agents),
         "rig_workspace_root": REMOTE_WORKSPACE_ROOT,
+        "rig_assets_dir": ASSETS_DIR,
         "rig_version": version,
         "rig_boot_source": (env.boot_source if env else None) or "base",
         "rig_project_dir": (project.project_dir if project else os.getcwd()),
@@ -2043,6 +2045,11 @@ class RemoteDevEnvironment:
             "user": "root",
             "ssh_key_path": f"/tmp/{self.ssh_key_name}",
         }
+        if details.get("status") == "running":
+            live = self.live_agents(connect_timeout=5)
+            if live is not None:
+                now = int(time.time())
+                details["live_agents"] = [agent.describe(now) for agent in live]
         return details
 
     def name_available(self) -> bool:
@@ -2998,8 +3005,16 @@ echo "Agent installation complete!"
     def agent_remote_command(
         agent_type: str = "opencode",
         extra_args: list[str] | None = None,
+        *,
+        prompt_file: str | None = None,
+        auto_approve: bool = False,
     ) -> str:
-        """Shell command run on the VM inside an interactive SSH TTY."""
+        """Shell command that starts the agent on the VM.
+
+        ``prompt_file`` (a path on the VM) is read and deleted, and its text is
+        passed as the agent's initial prompt. ``auto_approve`` adds the flag that
+        makes the agent skip approval prompts.
+        """
         try:
             from cli.agents import normalize_agent_type
 
@@ -3011,6 +3026,16 @@ echo "Agent installation complete!"
         if extra_args:
             suffix = " " + " ".join(shlex.quote(str(arg)) for arg in extra_args if arg is not None)
 
+        lead, flags, trailer = "", "", ""
+        if prompt_file:
+            from cli.live_agent import prompt_launch_fragments
+
+            lead, flags, trailer = prompt_launch_fragments(agent, prompt_file, auto_approve)
+        elif auto_approve:
+            from cli.live_agent import AUTO_APPROVE_FLAGS
+
+            flags = " " + " ".join(shlex.quote(f) for f in AUTO_APPROVE_FLAGS[agent])
+
         if agent == "claude":
             return (
                 'export PATH="$HOME/.local/bin:$PATH"; '
@@ -3018,8 +3043,9 @@ echo "Agent installation complete!"
                 "[ -f /root/.claude/credentials.env ] && . /root/.claude/credentials.env; "
                 f"{SOURCE_PROVIDER_TOKENS}"
                 "set +a; "
+                f"{lead}"
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
-                f"cd {REMOTE_WORKSPACE_ROOT} && exec claude{suffix}"
+                f"cd {REMOTE_WORKSPACE_ROOT} && exec claude{flags}{suffix}{trailer}"
             )
         if agent == "cursor":
             return (
@@ -3028,8 +3054,9 @@ echo "Agent installation complete!"
                 "[ -f /root/.cursor/credentials.env ] && . /root/.cursor/credentials.env; "
                 f"{SOURCE_PROVIDER_TOKENS}"
                 "set +a; "
+                f"{lead}"
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
-                f"cd {REMOTE_WORKSPACE_ROOT} && exec agent --approve-mcps{suffix}"
+                f"cd {REMOTE_WORKSPACE_ROOT} && exec agent --approve-mcps{flags}{suffix}{trailer}"
             )
         return (
             'export PATH="$HOME/.opencode/bin:/usr/local/bin:$PATH"; '
@@ -3038,8 +3065,9 @@ echo "Agent installation complete!"
             ". /root/.config/opencode/credentials.env; "
             f"{SOURCE_PROVIDER_TOKENS}"
             "set +a; "
+            f"{lead}"
             f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
-            f"cd {REMOTE_WORKSPACE_ROOT} && exec opencode{suffix}"
+            f"cd {REMOTE_WORKSPACE_ROOT} && exec opencode{flags}{suffix}{trailer}"
         )
 
     def attach_to_agent(
@@ -3047,9 +3075,16 @@ echo "Agent installation complete!"
         agent_type: str | None = None,
         project_dir: str | None = None,
         agent_args: list[str] | None = None,
+        persist: bool = True,
+        restart: bool = False,
     ) -> int:
         """
         Open an interactive SSH TTY to the coding agent on the remote VM.
+
+        With ``persist`` (the default) the agent runs as a live agent: it keeps
+        running when this terminal goes away, and a later attach joins it.
+        ``restart`` replaces a running live agent; ``persist=False`` runs the
+        agent as this SSH session's own process, as older rig versions did.
 
         ``agent_args`` are appended to the remote ``opencode`` / ``claude`` /
         ``agent`` (Cursor) invocation (e.g. ``--continue`` to resume).
@@ -3071,6 +3106,11 @@ echo "Agent installation complete!"
 
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
         remote_cmd = self.agent_remote_command(agent_type, extra_args=agent_args)
+        if persist:
+            from cli.agents import normalize_agent_type
+            from cli.live_agent import attach_script
+
+            remote_cmd = attach_script(normalize_agent_type(agent_type), remote_cmd, restart=restart)
         ssh_cmd = self._interactive_ssh_command(remote_cmd)
 
         log.info("Attaching to %s on %s", agent_type, self.name)
@@ -3112,12 +3152,13 @@ echo "Agent installation complete!"
             log.debug("Resume later with: rig attach  (or --resume/--session %s)", session_id)
         return int(exit_code)
 
-    def _interactive_ssh_command(self, remote_cmd: str) -> list[str]:
-        """SSH argv for an interactive session as root."""
+    def _ssh_command(self, remote_cmd: str, *, tty: bool, connect_timeout: int | None = None) -> list[str]:
+        """SSH argv as root. ``tty`` allocates a terminal; otherwise the call is batch-mode."""
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
-        return [
-            "ssh",
-            "-tt",
+        cmd = ["ssh"]
+        if tty:
+            cmd.append("-tt")
+        cmd += [
             "-i",
             ssh_key_path,
             "-o",
@@ -3128,9 +3169,95 @@ echo "Agent installation complete!"
             "IdentitiesOnly=yes",
             "-o",
             f"LogLevel={ssh_option_log_level()}",
-            f"root@{self.vm_ip}",
-            remote_cmd,
         ]
+        if not tty:
+            cmd += ["-o", "BatchMode=yes"]
+        if connect_timeout:
+            cmd += ["-o", f"ConnectTimeout={int(connect_timeout)}"]
+        cmd += [f"root@{self.vm_ip}", remote_cmd]
+        return cmd
+
+    def _interactive_ssh_command(self, remote_cmd: str) -> list[str]:
+        """SSH argv for an interactive session as root."""
+        return self._ssh_command(remote_cmd, tty=True)
+
+    def run_remote(
+        self,
+        command: str,
+        *,
+        input_text: str | None = None,
+        timeout: int = 30,
+        connect_timeout: int = 10,
+    ) -> subprocess.CompletedProcess:
+        """Run one non-interactive command on the VM (stdin from ``input_text``)."""
+        return subprocess.run(
+            self._ssh_command(command, tty=False, connect_timeout=connect_timeout),
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    # --- live agents -------------------------------------------------------
+
+    def live_agents(self, *, connect_timeout: int = 10) -> list[LiveAgent] | None:
+        """Live agents on the VM, or None when the VM cannot be reached."""
+        from cli.live_agent import list_script, parse_live_agents
+
+        if not self.vm_ip or not self.ssh_key_name or not os.path.exists(f"/tmp/{self.ssh_key_name}"):
+            return None
+        try:
+            result = self.run_remote(list_script(), timeout=connect_timeout + 15, connect_timeout=connect_timeout)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.debug("Could not list live agents on %s: %s", self.name, exc)
+            return None
+        if result.returncode != 0:
+            log.debug("Listing live agents on %s failed: %s", self.name, (result.stderr or "").strip())
+            return None
+        return parse_live_agents(result.stdout)
+
+    def recover_session_id(self, agent: str) -> str | None:
+        """The resume id the agent's recorded output last printed (e.g. after an unattended exit)."""
+        from cli.last_session import parse_session_id
+        from cli.live_agent import recent_log_script
+
+        try:
+            result = self.run_remote(recent_log_script(agent), timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        return parse_session_id(result.stdout)
+
+    def start_live_agent(self, agent: str, prompt: str, *, auto_approve: bool = True, restart: bool = False) -> int:
+        """Start a live agent with ``prompt`` and return without attaching (``rig exec``)."""
+        from cli.live_agent import ensure_session_script, upload_prompt_script, verify_started_script
+
+        uploaded = self.run_remote(upload_prompt_script(), input_text=prompt, timeout=30)
+        prompt_file = (uploaded.stdout or "").strip()
+        if uploaded.returncode != 0 or not prompt_file:
+            log.error("Could not upload the prompt: %s", (uploaded.stderr or "").strip() or "ssh failed")
+            return 1
+        launch = self.agent_remote_command(agent, prompt_file=prompt_file, auto_approve=auto_approve)
+        started = self.run_remote(ensure_session_script(agent, launch, restart=restart), timeout=60)
+        if started.returncode != 0:
+            self.run_remote(f"rm -f {shlex.quote(prompt_file)}", timeout=15)
+            log.error("Could not start the live agent: %s", (started.stderr or "").strip() or "tmux failed")
+            return int(started.returncode)
+        checked = self.run_remote(verify_started_script(agent), timeout=30)
+        if checked.returncode == 3:
+            log.error("The %s agent exited right after starting:\n%s", agent, (checked.stdout or "").rstrip())
+            return 1
+        return 0
+
+    def queue_prompt(self, agent: str, prompt: str) -> int:
+        """Queue ``prompt`` into the running live agent; returns rig-agent-queue's status."""
+        from cli.live_agent import queue_script
+
+        try:
+            return int(self.run_remote(queue_script(agent), input_text=prompt, timeout=30).returncode)
+        except (OSError, subprocess.SubprocessError):
+            return 255
 
     def open_ssh(self, remote_command: str | None = None) -> int:
         """Open an SSH shell on the VM, or run one remote command."""
@@ -3561,6 +3688,7 @@ PROVISION_PLAYBOOK = r"""---
           - python3-pip
           - vim
           - htop
+          - tmux
           - build-essential
         state: present
 
@@ -4073,6 +4201,56 @@ AUTHORIZE_PLAYBOOK = r"""---
       loop_control:
         label: "{{ item.agent }}"
         extended: true
+
+    # --- Live agents: tmux, its config, helper scripts and Claude's state hooks ---
+    # Agents run in a tmux session of their own (`tmux -L rig`) so they keep working
+    # when the terminal goes away. tmux is also in provision; this covers Environments
+    # created before that. Everything here is secret-free but lives in authorize so
+    # editing it never discards the cached image.
+    - name: Ensure tmux is installed
+      apt:
+        name: tmux
+        state: present
+        cache_valid_time: 3600
+
+    - name: Create the live-agent directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /etc/rig
+        - /run/rig/agents
+        - /var/log/rig
+
+    - name: Install the live-agent tmux configuration
+      copy:
+        src: "{{ rig_assets_dir }}/tmux.conf"
+        dest: /etc/rig/tmux.conf
+        mode: "0644"
+
+    - name: Install the live-agent helper scripts
+      copy:
+        src: "{{ rig_assets_dir }}/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: "0755"
+      loop:
+        - rig-agent-state
+        - rig-agent-queue
+
+    - name: Read Claude settings for the live-agent hooks
+      slurp:
+        src: /root/.claude/settings.json
+      register: _rig_claude_settings
+      failed_when: false
+      when: "'claude' in _rig_agent_types"
+
+    - name: Record Claude's state for live agents (hooks)
+      copy:
+        dest: /root/.claude/settings.json
+        mode: "0600"
+        content: "{{ (_rig_claude_settings.content | default('', true) | b64decode or '{}') | from_json | rig_claude_hooks | to_nice_json }}\n"
+      when: "'claude' in _rig_agent_types"
 
     - name: Write Claude credentials env file
       copy:

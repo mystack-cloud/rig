@@ -1,0 +1,12 @@
+#!/bin/sh
+# Record what a coding agent is doing, for `rig exec` to read before it queues a prompt.
+# Called by the agent's hooks (see authorize.yml): rig-agent-state AGENT STATE
+# STATE is one of: idle working waiting ended. Writes "STATE EPOCH" to the state file.
+set -eu
+agent="${1:?usage: rig-agent-state AGENT STATE}"
+state="${2:?usage: rig-agent-state AGENT STATE}"
+dir="${RIG_STATE_DIR:-/run/rig/agents}"
+mkdir -p "$dir"
+tmp="$dir/.$agent.$$"
+printf '%s %s\n' "$state" "$(date +%s)" > "$tmp"
+mv -f "$tmp" "$dir/$agent.state"

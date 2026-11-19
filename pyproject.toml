@@ -37,6 +37,9 @@ rig = "cli.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+cli = ["assets/*"]
+
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
 
