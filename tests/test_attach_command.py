@@ -164,6 +164,7 @@ def test_attach_uses_positional_name_and_remembers():
         instance.ssh_key_name = "dev-pos-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
 
         assert main(["attach", "dev-pos"]) == 0
@@ -199,6 +200,7 @@ def test_attach_auto_resumes_remembered_session():
         instance.ssh_key_name = "dev-last-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
 
         assert main(["attach"]) == 0
@@ -233,6 +235,7 @@ def test_attach_explicit_continue_skips_auto_resume():
         instance.ssh_key_name = "dev-last-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
 
         assert main(["attach", "-c"]) == 0
@@ -261,6 +264,7 @@ def test_attach_forwards_continue_flag():
         instance.ssh_key_name = "dev-last-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
 
         assert main(["attach", "-c"]) == 0
@@ -289,6 +293,7 @@ def test_attach_forwards_remainder_after_dashdash():
         instance.ssh_key_name = "dev-last-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
 
         assert main(["attach", "--", "--prompt", "hello world"]) == 0
@@ -320,6 +325,7 @@ def test_attach_falls_back_to_last_env():
         instance.ssh_key_name = "dev-last-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
 
         assert main(["attach"]) == 0
@@ -368,6 +374,7 @@ def _run_attach(argv, agent, *, session=None):
         instance.ssh_key_name = "dev-agents-key"
         instance.resolve_resources.return_value = True
         instance.attach_to_agent.return_value = 0
+        instance.live_agents.return_value = None  # live-agent SSH check unavailable: attach as before
         env_cls.return_value = instance
         code = main(argv)
     return code, instance
