@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from typing import Optional
 
 # Add the src directory to the path so we can import our modules
@@ -21,8 +22,10 @@ from cli.last_session import (
     agent_args_request_session,
     clear_last_session,
     read_last_session,
+    remember_last_session,
     resume_args_for_agent,
 )
+from cli.live_agent import QUEUE_REFUSALS, running_agents
 from cli.remote_dev import (
     IMPLEMENTED_CLOUD_PROVIDERS,
     REMOTE_WORKSPACE_ROOT,
@@ -238,10 +241,39 @@ def _cmd_attach(args: argparse.Namespace) -> int:
         else:
             agent_type = default_agent
 
+        persist = not getattr(args, "no_persist", False)
+        restart = bool(getattr(args, "restart", False))
+        if restart and not persist:
+            log.error("--restart needs a live agent; it cannot be combined with --no-persist")
+            return 1
+
+        # A live agent that is already running is joined, not started again.
+        env.ensure_firewall_access(project_dir=os.getcwd())
+        live = env.live_agents() if persist else None
+        running = running_agents(live) if live else []
+        if persist and not restart and running and not requested and agent_type not in running:
+            agent_type = running[0]
+            log.info("Joining the running %s agent", agent_type)
+        joining = persist and not restart and agent_type in running
+        if joining:
+            if agent_args:
+                log.warning(
+                    "Joining the running %s agent; ignoring %s (use --restart to start over)",
+                    agent_type,
+                    " ".join(agent_args),
+                )
+            agent_args = []
+        elif persist and live is not None and not agent_args_request_session(agent_args):
+            # An agent that finished while nobody was attached never printed its
+            # resume id to this terminal; recover it from the recorded output.
+            recovered = env.recover_session_id(str(agent_type))
+            if recovered:
+                remember_last_session(env.name, recovered, agent_type=str(agent_type))
+
         # Bare ``rig attach`` reopens the last remembered session when present.
         # With several agents installed, resume the one that owns that session
         # unless --agent picked a different one.
-        if not agent_args_request_session(agent_args):
+        if not joining and not agent_args_request_session(agent_args):
             stored = read_last_session(env.name)
             if stored:
                 session_id, stored_agent = stored
@@ -268,17 +300,119 @@ def _cmd_attach(args: argparse.Namespace) -> int:
                 agent_type,
             )
 
-        env.ensure_firewall_access(project_dir=os.getcwd())
         remember_last_env(env.name)
         if agent_args:
             log.debug("Agent args: %s", " ".join(agent_args))
+        if persist:
+            log.info("The agent keeps running when you leave: detach with Ctrl+b d, or just close the terminal")
         return env.attach_to_agent(
             project_dir=os.getcwd(),
             agent_type=str(agent_type),
             agent_args=agent_args,
+            persist=persist,
+            restart=restart,
         )
     except Exception as e:
         log.error("Error attaching to environment: %s", e)
+        return 1
+
+
+def _cmd_exec(args: argparse.Namespace) -> int:
+    """Start (or queue a prompt for) a live agent without attaching to it."""
+    from cli.agents import normalize_agent_type
+    from cli.live_agent import read_prompt
+    from cli.remote_dev import configured_agents
+
+    _load_credentials()
+    if not os.getenv("HETZNER_CLOUD_API_TOKEN"):
+        log.error("Hetzner credentials missing. Run 'rig init' or set HETZNER_CLOUD_API_TOKEN")
+        return 1
+    name = resolve_env_name(None, getattr(args, "name_flag", None))
+    if not name:
+        log.error("Environment name is required (no last environment remembered)")
+        log.info('Usage: rig exec [--name NAME] [--agent AGENT] "PROMPT" | @FILE | -')
+        return 1
+    try:
+        prompt = read_prompt(args.prompt, stdin_text=sys.stdin.read() if args.prompt == "-" else None)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 1
+
+    storage_manager = None
+    try:
+        storage_manager = StorageManager()
+    except ValueError:
+        log.debug("Storage manager not available; resolving resources via Hetzner API")
+    try:
+        env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
+        if not env.resolve_resources() or not env.vm_ip:
+            log.error("Could not resolve environment '%s' (no VM IP found)", name)
+            return 1
+        if not os.path.exists(f"/tmp/{env.ssh_key_name}"):
+            log.error("SSH private key not found at /tmp/%s", env.ssh_key_name)
+            log.error("Re-run create on this machine, or restore the key before using exec")
+            return 1
+
+        project = ProjectConfig(os.getcwd())
+        project.load()
+        configured, default_agent = configured_agents(project)
+        requested = getattr(args, "agent", None)
+        if requested:
+            try:
+                agent_type = normalize_agent_type(requested)
+            except ValueError as exc:
+                log.error("%s", exc)
+                return 1
+            if agent_type not in configured:
+                log.error(
+                    "Coding agent '%s' is not enabled for this workspace (enabled: %s)",
+                    agent_type,
+                    ", ".join(configured),
+                )
+                return 1
+        else:
+            agent_type = default_agent
+        agent_type = str(agent_type)
+
+        env.ensure_firewall_access(project_dir=os.getcwd())
+        live = env.live_agents()
+        if live is None:
+            log.error("Could not reach '%s' over SSH", name)
+            return 1
+        remember_last_env(env.name)
+
+        if agent_type in running_agents(live) and not args.restart:
+            if agent_type != "claude":
+                log.error(
+                    "A %s live agent is already running and queueing prompts is only supported for Claude Code. "
+                    "Attach to it (rig attach), or replace it with: rig exec --restart ...",
+                    agent_type,
+                )
+                return 1
+            status = env.queue_prompt(agent_type, prompt)
+            if status == 0:
+                log.info("Queued the prompt for the running %s agent. Follow it with: rig attach %s", agent_type, name)
+                return 0
+            log.error(
+                "Could not queue the prompt: %s. Attach to it (rig attach), or replace it with: rig exec --restart ...",
+                QUEUE_REFUSALS.get(status, f"exit status {status}"),
+            )
+            return 1
+
+        auto_approve = not args.no_auto_approve
+        if auto_approve:
+            log.warning(
+                "Approvals are skipped for this run: the agent can run any command on '%s'. "
+                "Use --no-auto-approve to supervise it.",
+                name,
+            )
+        status = env.start_live_agent(agent_type, prompt, auto_approve=auto_approve, restart=args.restart)
+        if status != 0:
+            return status
+        log.info("Started a %s live agent on '%s'. Join it with: rig attach %s", agent_type, name, name)
+        return 0
+    except Exception as e:
+        log.error("Error running exec: %s", e)
         return 1
 
 
@@ -425,6 +559,17 @@ def _cmd_describe(args: argparse.Namespace) -> int:
         return 1
 
 
+def _live_agent_summary(env: RemoteDevEnvironment) -> list[str]:
+    """Descriptions of the live agents on an Environment; empty when none or unreachable."""
+    try:
+        live = env.live_agents(connect_timeout=5)
+    except Exception as exc:
+        log.debug("Could not check live agents: %s", exc)
+        return []
+    now = int(time.time())
+    return [agent.describe(now) for agent in live or []]
+
+
 def _cmd_apply(args: argparse.Namespace) -> int:
     """Re-run lifecycle playbooks on an existing environment."""
     _load_credentials()
@@ -508,6 +653,14 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             return 1
 
         env.ensure_firewall_access(project_dir=os.getcwd())
+        running = _live_agent_summary(env)
+        if running:
+            log.warning(
+                "Live agents on '%s': %s. They keep the credentials and MCP config they started with; "
+                "restart one with `rig attach --restart` to pick up changes.",
+                name,
+                ", ".join(running),
+            )
         remember_last_env(env.name)
         ok = env.apply_playbooks(
             project_dir=os.getcwd(),
@@ -665,6 +818,18 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     for name in names:
         try:
             env = RemoteDevEnvironment(name=name, storage_manager=storage_manager)
+            try:
+                if env.resolve_resources() and env.vm_ip:
+                    env.ensure_firewall_access(project_dir=os.getcwd())
+                    running = _live_agent_summary(env)
+                    if running:
+                        log.warning(
+                            "'%s' has live agents: %s. Deleting it ends them; unsaved work on the VM is lost.",
+                            name,
+                            ", ".join(running),
+                        )
+            except Exception as exc:
+                log.debug("Skipping the live-agent check for '%s': %s", name, exc)
             env.cleanup(
                 project_dir=os.getcwd(),
                 ansible_tags=getattr(args, "tags", None),
@@ -1144,9 +1309,55 @@ def main(argv=None):
         ),
     )
     attach_parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Stop the running live agent and start a fresh one (to pick up new credentials or MCP servers)",
+    )
+    attach_parser.add_argument(
+        "--no-persist",
+        dest="no_persist",
+        action="store_true",
+        help="Run the agent as this SSH session's own process: it ends when the terminal closes",
+    )
+    attach_parser.add_argument(
         "agent_args",
         nargs=argparse.REMAINDER,
         help="Extra args forwarded to opencode/claude/agent (put -- before flags)",
+    )
+
+    exec_parser = subparsers.add_parser(
+        "exec",
+        help="Start a coding agent on an Environment with a prompt and return (unattended)",
+        description=(
+            "Start a live agent with PROMPT and return without attaching; join it later with `rig attach`.\n"
+            "PROMPT is text, @FILE to read a file, or - to read stdin.\n"
+            "Approvals are skipped by default (--no-auto-approve to supervise the run).\n"
+            "If a Claude Code live agent is already running, the prompt is queued into it when that is safe."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    exec_parser.add_argument("prompt", help="The task: text, @FILE, or - for stdin")
+    exec_parser.add_argument(
+        "--name",
+        dest="name_flag",
+        metavar="NAME",
+        help="Environment name (defaults to last handled env in /tmp/.rig/last-env)",
+    )
+    exec_parser.add_argument(
+        "--agent",
+        dest="agent",
+        help="Coding agent to run (opencode, claude, or cursor). Defaults to agent.default",
+    )
+    exec_parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Replace a running live agent with a fresh one started with this prompt",
+    )
+    exec_parser.add_argument(
+        "--no-auto-approve",
+        dest="no_auto_approve",
+        action="store_true",
+        help="Do not skip the agent's approval prompts (the run pauses at each one until you attach)",
     )
 
     ssh_parser = subparsers.add_parser(
@@ -1407,6 +1618,8 @@ def main(argv=None):
         return _cmd_apply(args)
     if args.command == "attach":
         return _cmd_attach(args)
+    if args.command == "exec":
+        return _cmd_exec(args)
     if args.command == "ssh":
         return _cmd_ssh(args)
     if args.command == "dev":

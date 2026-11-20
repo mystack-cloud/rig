@@ -41,6 +41,7 @@ def test_build_rig_ansible_vars_includes_core_fields(tmp_path):
     assert vars_out["rig_vm_id"] == "42"
     assert vars_out["rig_agent_type"] == "opencode"
     assert vars_out["rig_workspace_root"] == "/workspace"
+    assert os.path.isfile(os.path.join(vars_out["rig_assets_dir"], "tmux.conf"))  # live-agent assets for authorize
     assert vars_out["rig_action"] == "create"
     assert vars_out["rig_boot_source"] == "provision"
     assert vars_out["rig_project_dir"] == str(tmp_path)

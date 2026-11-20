@@ -80,6 +80,48 @@ rig mcp remove awx
 - Support files for a server (for example a stdio wrapper script) are not managed by rig: install them from your own playbook (provision, configure or authorize) and point `command` at that path.
 - The per-agent `.rig/.claude|.cursor|.opencode/mcp.json` files from earlier versions are no longer deployed. If one still declares servers, `rig apply`/`create` and `rig mcp check` warn; move them to `.rig/mcp.json`.
 
+## Live agents
+
+`rig attach` runs the agent as a **live agent**: a process kept running on the Environment inside its own tmux session (`tmux -L rig`, with a config rig ships, so it never touches a tmux you use yourself). Closing the terminal or losing the connection only detaches; the agent keeps working, and the next `rig attach` joins it.
+
+```bash
+rig attach                       # start the live agent, or join the running one
+#   leave: close the terminal, or detach with Ctrl+b d. Ctrl+C still goes to the agent.
+rig attach --restart             # replace it with a fresh process (resumes the same conversation)
+rig attach --no-persist          # old behaviour: the agent ends with the SSH session
+```
+
+- One live agent per Agent type per Environment. A second `rig attach` joins the first (both terminals see the same screen). Resume flags (`-c`, `--resume`, `--session`) apply only when a live agent is *started*; joining ignores them with a warning.
+- A bare `rig attach` joins whichever live agent is running. `--agent` picks another.
+- `rig inspect` lists live agents. `rig apply` and `rig delete` warn when there are any: a live agent keeps the credentials and MCP config it started with until `rig attach --restart`, and deleting the Environment ends it.
+- If the agent exits while nobody is attached, tmux has logged its output on the VM, and the next `rig attach` recovers the resume id from that log.
+
+### `rig exec`
+
+Start an agent on a task and leave:
+
+```bash
+rig exec "fix the failing tests in /workspace/api"
+rig exec @task.md                        # prompt from a file
+echo "review the diff" | rig exec -      # prompt from stdin
+rig exec --name dev-ab12cd34 --agent claude "..."
+```
+
+`rig exec` starts the live agent with the prompt, prints how to attach, and returns. It never creates an Environment and never waits.
+
+- **Approvals are skipped by default** (`--permission-mode bypassPermissions` for Claude Code, `--force` for Cursor, `--auto` for OpenCode), because an unattended agent that stops at a prompt just sits there. Claude Code refuses bypass mode as root unless it is told it runs in a sandbox, so rig sets `IS_SANDBOX=1` for that run, and authorize pre-accepts Claude's first-use warning dialog (`skipDangerousModePermissionPrompt`), whose default answer is "exit". The Environment has internet access, your tokens and root, so an agent reading untrusted text could be talked into acting on it. Use `--no-auto-approve` to supervise the run; it then pauses at each approval until you attach.
+- **If a live agent is already running**, `rig exec` queues the prompt into it for Claude Code, which runs it after the current turn. rig does this only when Claude's hooks report it idle or working, never while it waits at an approval dialog (typing there would answer the dialog). If it is waiting, the state is unknown, or the agent is OpenCode or Cursor (queue behaviour not yet verified), `rig exec` refuses with the reason; `--restart` replaces the live agent instead. A queued prompt runs under the existing agent's permission mode.
+- The agent's startup is checked: if it exits within a couple of seconds (for example no credentials), `rig exec` prints its output and fails.
+
+The prompt reaches the VM on stdin and a private temporary file that is deleted when the agent starts, never on a command line.
+
+### How it works
+
+- tmux is installed at provision. The tmux config, two small helper scripts (`rig-agent-state`, `rig-agent-queue`) and Claude Code's state hooks are deployed by `authorize.yml`, so changing them never rebuilds the cached image. The hooks are merged into `~/.claude/settings.json` next to any hooks you added.
+- The hooks record `idle`, `working`, `waiting` or `ended` in `/run/rig/agents/claude.state`; `rig-agent-queue` reads it before pasting.
+- A failed agent leaves its (dead) pane so the error stays readable; the next `rig attach` or `rig exec` replaces it.
+- Agent output is logged to `/var/log/rig/rig-<agent>.log` (the previous run's log is kept as `.prev`).
+
 ## IDEs
 
 `rig dev` opens the remote `/workspace`. Default is local editor + Remote-SSH; `--browser` uses code-server on the VM.
@@ -199,7 +241,8 @@ destroy playbooks:
 | **init** | Scaffold `rig.yml` + `.rig/`. Collect Hetzner creds, repo PATs, agent choices and a key per agent. |
 | **create** | Boot VM (base/system snapshot). Run provision → configure → authorize → materialize. Snapshot after **configure** only. |
 | **apply** | Default: authorize → materialize. Flags: `--provision` / `--configure` / `--authorize` / `--materialize` / `--finalize` / `--destroy` (playbooks only; the VM stays). `--tags` is passed to every playbook in the run. |
-| **attach** | SSH TTY into `opencode` / `claude` / Cursor `agent` on `/workspace`. `--agent` picks among installed agents. |
+| **attach** | SSH TTY into the agent's [live agent](#live-agents) on `/workspace` (started if needed, joined if running). `--agent` picks among installed agents. |
+| **exec** | Start a live agent with a prompt and return; the work continues unattended. See [Live agents](#live-agents). |
 | **dev** | Open VS Code/Cursor via Remote-SSH on `/workspace` (or `--browser` for code-server). |
 | **delete** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. `--tags` is passed to both playbooks. |
 
@@ -241,11 +284,12 @@ Global: `-v` playbook tasks and debug · `-vv`/`-vvv`/`-vvvv` ansible verbosity 
 | `init` | | Interactive scaffold |
 | `create` | `[--name]` `[--provider]` `[--type]` `[--availability-zone]` `[--image]` `[--no-attach]` `[--force-playbooks\|--force-system\|--force-workspace]` | Host defaults from `rig.yml`. `--provider` defaults to `hetzner`. `--type` sets `host.server_type`. `host.type` defaults to `vm`. `--region` aliases `--availability-zone`. |
 | `apply` | `[name]` `[--provision\|--configure\|--authorize\|--materialize\|--finalize\|--destroy]` `[--tags TAGS]` | Default: authorize then materialize. Each flag runs that playbook (`--provision` also runs configure and authorize; `--materialize` also runs authorize). `--finalize` and `--destroy` do not delete the VM. `--tags` limits every playbook in the run |
-| `attach` | `[name]` `[-c\|--continue]` `[-s\|--session ID]` `[--resume [ID]]` `[--agent opencode\|claude\|cursor]` `[-- …agent args]` | Reopens last remembered session by default; `--agent` picks which installed agent |
+| `attach` | `[name]` `[-c\|--continue]` `[-s\|--session ID]` `[--resume [ID]]` `[--agent opencode\|claude\|cursor]` `[--restart]` `[--no-persist]` `[-- …agent args]` | Joins the running live agent, or starts one (reopening the last remembered session). `--restart` replaces it; `--no-persist` runs the agent as the SSH session's own process |
+| `exec` | `PROMPT\|@FILE\|-` `[--name]` `[--agent opencode\|claude\|cursor]` `[--restart]` `[--no-auto-approve]` | Start a live agent with the prompt and return; approvals are skipped unless `--no-auto-approve`. Queues into a running Claude Code when that is safe |
 | `ssh` | `[name]` `[-- command]` | Shell on the VM in `/workspace`. A command after `--` runs instead of a login shell |
 | `dev` | `[name]` `[--path /workspace]` `[--browser]` `[--editor code\|cursor\|…]` | Remote-SSH by default; `--editor` opens another IDE from `editor.enabled`. Defaults to `editor.default` |
 | `list` | | Lists envs, or `No remote environments` |
-| `inspect` | `[name]` `[--json]` | Technical details of one env: stored record plus live Hetzner status. Falls back to stored data (flagged stale) if the API is unreachable. Data goes to stdout |
+| `inspect` | `[name]` `[--json]` | Technical details of one env: stored record plus live Hetzner status, and its live agents when the VM is running. Falls back to stored data (flagged stale) if the API is unreachable. Data goes to stdout |
 | `describe` | `[name]` `[--json]` `[--show-secrets]` | Outputs published by the env's playbooks (see below). Sensitive values are masked unless `--show-secrets` |
 | `delete` | `[name …]` `[--tags TAGS]` | Runs finalize then destroy playbooks, then deletes the VM; multi-name OK. `--tags` limits both playbooks |
 | `cache` | `list\|clear` `[--system\|--workspace] [--all] [-y]` | List or clear; unused by default, `--all` includes current |

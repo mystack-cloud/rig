@@ -32,6 +32,14 @@ _Avoid_: Dev bucket
 A coding CLI that rig installs on an Environment: OpenCode, Claude Code or Cursor CLI.
 _Avoid_: Coding agent type, CLI, assistant
 
+**Agent session**:
+An Agent's saved conversation, which can be resumed by its id.
+_Avoid_: Chat, thread
+
+**Live agent**:
+An Agent's running process on an Environment, kept alive when no terminal is connected. Attaching joins it; ending the Agent ends it.
+_Avoid_: Background agent, daemon, detached session
+
 **Stage**:
 One of the playbook steps rig runs in order when creating an Environment: provision, configure, authorize, materialize, finalize. Only provision and configure are cached in a snapshot.
 _Avoid_: Phase, step

@@ -1,0 +1,33 @@
+#!/bin/sh
+# Queue a prompt (read from stdin) into a running live agent, but only when that is safe.
+#   rig-agent-queue AGENT
+# The agent's hooks keep a state file (see rig-agent-state). Typing into a TUI that is
+# waiting at an approval dialog would answer the dialog, so the prompt is delivered only
+# when the agent is idle or working. Exit status:
+#   0  queued            10 waiting for approval   11 state unknown (no hooks / no state)
+#   12 no live agent     13 delivery failed
+set -u
+agent="${1:?usage: rig-agent-queue AGENT}"
+socket="${RIG_TMUX_SOCKET:-rig}"
+conf="${RIG_TMUX_CONF:-/etc/rig/tmux.conf}"
+state_dir="${RIG_STATE_DIR:-/run/rig/agents}"
+session="rig-$agent"
+tmux_cmd() { tmux -L "$socket" -f "$conf" "$@"; }
+
+tmux_cmd has-session -t "$session" 2>/dev/null || exit 12
+[ "$(tmux_cmd list-panes -t "$session" -F '#{pane_dead}' 2>/dev/null | head -n 1)" = "0" ] || exit 12
+
+state_file="$state_dir/$agent.state"
+[ -r "$state_file" ] || exit 11
+state="$(cut -d' ' -f1 < "$state_file")"
+case "$state" in
+  idle|working) ;;
+  waiting) exit 10 ;;
+  *) exit 11 ;;
+esac
+
+buffer="rig-queue-$$"
+tmux_cmd load-buffer -b "$buffer" - || exit 13
+# -p: bracketed paste, so newlines stay part of one message; -d: drop the buffer after.
+tmux_cmd paste-buffer -p -d -b "$buffer" -t "$session" || exit 13
+tmux_cmd send-keys -t "$session" Enter || exit 13
