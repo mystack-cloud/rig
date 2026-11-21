@@ -14,9 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from cli.main import main
 from cli.remote_dev import (
     ProjectConfig,
-    derive_config_vars,
     Workspace,
     _VarsLoader,
+    derive_config_vars,
     discover_git_projects,
     interactive_env_init,
     resolve_init_context,
