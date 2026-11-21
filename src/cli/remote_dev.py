@@ -1588,9 +1588,7 @@ class RemoteDevManager:
         fd, tmp = tempfile.mkstemp(suffix=".yml")
         os.close(fd)
         try:
-            if not self.storage_manager.download_file(
-                self.state_bucket, key, tmp, retry_not_found=not may_be_absent
-            ):
+            if not self.storage_manager.download_file(self.state_bucket, key, tmp, retry_not_found=not may_be_absent):
                 return None
             with open(tmp) as f:
                 data = yaml.safe_load(f)
