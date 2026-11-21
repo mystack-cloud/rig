@@ -16,6 +16,7 @@ from cli.remote_dev import (
     ProjectConfig,
     Workspace,
     _VarsLoader,
+    derive_config_vars,
     discover_git_projects,
     interactive_env_init,
     resolve_init_context,
@@ -55,6 +56,13 @@ def _secrets(*items):
     """Secret answers: master key + confirm, then optional PAT/agent secrets."""
     it = iter((_MASTER, _MASTER, *items))
     return lambda _prompt: next(it, "")
+
+
+def _derived(project_dir) -> dict:
+    """Vars the project exposes after load (rig.yml-derived keys included)."""
+    project = ProjectConfig(str(project_dir))
+    assert project.load()
+    return project.vars_config
 
 
 def _git_init(path, remote=None):
@@ -189,11 +197,23 @@ def test_interactive_init_selects_projects(tmp_path):
     assert api_entry["path"] == "../api"
     assert api_entry["url"] == "https://github.com/org/api.git"
 
+    # rig.yml is the single source of truth; vars.yml does not repeat it.
     vars_text = (rig / ".rig" / "vars.yml").read_text()
-    assert "git:" in vars_text
-    assert "https://github.com/org/api.git" in vars_text
-    assert "https://github.com/mystack-cloud/rig.git" in vars_text
+    for key in ("git:", "git_providers:", "coding_agent_type", "clone_repos"):
+        assert key not in vars_text
+    assert "https://github.com/org/api.git" not in vars_text
     assert "git_pat:" not in vars_text
+
+    project = ProjectConfig(str(rig))
+    assert project.load()
+    derived = project.get_vars("git")["clone_repos"]
+    assert {item["repo"] for item in derived} == {
+        "https://github.com/org/api.git",
+        "https://github.com/mystack-cloud/rig.git",
+    }
+    assert {item["dest"] for item in derived} == {"/workspace/api", "/workspace/rig"}
+    assert project.get_vars("git_providers") == ["github"]
+    assert project.get_vars("coding_agent_type") == "opencode"
 
 
 def test_workspace_init_reduces_repos_on_reinit(tmp_path):
@@ -342,7 +362,7 @@ def test_interactive_init_stores_encrypted_git_pat(tmp_path):
     assert "github_pat:" not in personal_text
     assert "coding_agent_api_key: !vault |" in personal_text
     assert "vscode_browser_password: !vault |" in shared_text
-    clone_repos = yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
+    clone_repos = _derived(rig)["git"]["clone_repos"]
     assert clone_repos[0]["password_var"] == "rig_git_pat"
     assert (rig / ".rig" / "provision.yml").is_file()
     assert (rig / ".rig" / "materialize.yml").is_file()
@@ -412,7 +432,7 @@ def test_interactive_init_scaffolds_claude_agent_files(tmp_path):
     assert manifest["agent"]["default"] == "claude"
     assert manifest["editor"]["default"] == "code"
     vars_data = yaml.load((rig / ".rig" / "vars.yml").read_text(), Loader=_VarsLoader)
-    assert vars_data["coding_agent_type"] == "claude"
+    assert _derived(rig)["coding_agent_type"] == "claude"
     assert (rig / ".rig" / "AGENTS.md").is_file()
     assert (rig / ".rig" / ".claude" / "settings.json").is_file()
     assert not (rig / ".rig" / ".claude" / "mcp.json").exists()
@@ -440,7 +460,7 @@ def test_interactive_init_scaffolds_cursor_agent_files(tmp_path):
     assert manifest["agent"]["default"] == "cursor"
     assert manifest["editor"]["default"] == "code"
     vars_data = yaml.load((rig / ".rig" / "vars.yml").read_text(), Loader=_VarsLoader)
-    assert vars_data["coding_agent_type"] == "cursor"
+    assert _derived(rig)["coding_agent_type"] == "cursor"
     assert (rig / ".rig" / ".cursor" / "cli-config.json").is_file()
     assert not (rig / ".rig" / ".cursor" / "mcp.json").exists()
     system = (rig / ".rig" / "provision.yml").read_text()
@@ -479,8 +499,8 @@ def test_interactive_init_selects_multiple_agents(tmp_path):
     assert manifest["editor"]["default"] == "code"
     assert manifest["editor"]["enabled"] == ["code"]
     vars_data = yaml.load((rig / ".rig" / "vars.yml").read_text(), Loader=_VarsLoader)
-    assert vars_data["coding_agent_type"] == "claude"
-    assert vars_data["coding_agent_types"] == ["opencode", "claude"]
+    assert _derived(rig)["coding_agent_type"] == "claude"
+    assert _derived(rig)["coding_agent_types"] == ["opencode", "claude"]
     assert (rig / ".rig" / ".opencode" / "opencode.json").is_file()
     assert (rig / ".rig" / ".claude" / "settings.json").is_file()
     system = (rig / ".rig" / "provision.yml").read_text()
@@ -576,7 +596,7 @@ def test_interactive_init_converts_ssh_remote_to_https_and_stores_pat(tmp_path):
     shared_text = (api / ".rig" / "vars.yml").read_text()
     personal_text = _personal_vars_text(api)
     assert "github_pat: !vault |" in personal_text
-    clone_repos = yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
+    clone_repos = _derived(api)["git"]["clone_repos"]
     assert clone_repos[0]["repo"] == "https://github.com/org/api.git"
     assert clone_repos[0]["password_var"] == "github_pat"
 
@@ -612,7 +632,7 @@ def test_interactive_init_stores_default_provider_pat_when_requested(tmp_path):
     assert "github_pat: !vault |" in personal_text
     assert "rig_git_pat:" not in personal_text
     assert "vscode_browser_password: !vault |" in shared_text
-    clone_repos = yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
+    clone_repos = _derived(rig)["git"]["clone_repos"]
     assert clone_repos[0]["password_var"] == "github_pat"
 
 
@@ -635,7 +655,7 @@ def test_init_records_git_providers_for_system_playbook(tmp_path):
     )
 
     vars_data = yaml.load((root / ".rig" / "vars.yml").read_text(), Loader=_VarsLoader)
-    assert vars_data["git_providers"] == ["github", "gitlab"]
+    assert _derived(root)["git_providers"] == ["github", "gitlab"]
     manifest = yaml.safe_load((root / "rig.yml").read_text())
     assert manifest["git_providers"] == ["github", "gitlab"]
     system = (root / ".rig" / "provision.yml").read_text()
@@ -680,7 +700,7 @@ def test_interactive_init_reuses_provider_pat_across_repos(tmp_path):
     assert "api_git_pat:" not in personal_text
     assert "web_git_pat:" not in personal_text
     assert "vscode_browser_password: !vault |" in shared_text
-    clone_repos = yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
+    clone_repos = _derived(root)["git"]["clone_repos"]
     assert {item["password_var"] for item in clone_repos} == {"github_pat"}
 
 
@@ -719,9 +739,7 @@ def test_interactive_init_stores_repo_specific_pats_when_different(tmp_path):
     assert "vscode_browser_password: !vault |" in shared_text
     assert "github_pat:" not in personal_text
     assert "gitlab_pat:" not in personal_text
-    by_dest = {
-        item["dest"]: item["password_var"] for item in yaml.load(shared_text, Loader=_VarsLoader)["git"]["clone_repos"]
-    }
+    by_dest = {item["dest"]: item["password_var"] for item in _derived(root)["git"]["clone_repos"]}
     assert by_dest["/workspace/api"] == "api_git_pat"
     assert by_dest["/workspace/web"] == "web_git_pat"
 
@@ -897,6 +915,59 @@ def test_save_keeps_personal_vars_out_of_shared_vars_yml(tmp_path, monkeypatch):
     assert shared["x"] == 1
     assert shared["shadowed"] == "shared"
     assert shared["coding_agent_type"] == "opencode"
+
+
+def test_derive_config_vars_from_manifest():
+    derived = derive_config_vars(
+        {
+            "repos": [
+                {"name": "api", "url": "https://gitlab.mystack.cloud/o/api.git", "password_var": "gitlab_pat"},
+                {"name": "web", "url": "git@github.com:o/web.git"},
+            ],
+            "agent": {"default": "claude", "enabled": ["opencode", "claude"]},
+        }
+    )
+    assert derived["git_providers"] == ["gitlab", "github"]
+    assert derived["coding_agent_type"] == "claude"
+    assert derived["coding_agent_types"] == ["opencode", "claude"]
+    assert derived["git"]["clone_repos"] == [
+        {
+            "repo": "https://gitlab.mystack.cloud/o/api.git",
+            "dest": "/workspace/api",
+            "accept_hostkey": True,
+            "password_var": "gitlab_pat",
+        }
+    ]
+    assert [r["repo"] for r in derived["git"]["ssh_repos"]] == ["git@github.com:o/web.git"]
+
+
+def test_derive_config_vars_only_returns_declared_sources():
+    assert derive_config_vars({}) == {}
+    assert derive_config_vars({"name": "x"}) == {}
+
+
+def test_legacy_vars_yml_is_adopted_then_cleaned_on_save(tmp_path):
+    rig = tmp_path / ".rig"
+    rig.mkdir()
+    (tmp_path / "rig.yml").write_text(
+        "name: z\nrepos:\n- name: api\n  url: https://github.com/o/api.git\n", encoding="utf-8"
+    )
+    (rig / "vars.yml").write_text(
+        "x: 1\ngit_providers: [github]\ngit:\n  clone_repos:\n"
+        "  - repo: https://github.com/o/api.git\n    dest: /workspace/api\n    password_var: api_git_pat\n",
+        encoding="utf-8",
+    )
+
+    project = ProjectConfig(str(tmp_path))
+    assert project.load()
+    assert project.config["repos"][0]["password_var"] == "api_git_pat"
+    assert project.get_vars("git")["clone_repos"][0]["password_var"] == "api_git_pat"
+
+    assert project.save()
+    shared = yaml.safe_load((rig / "vars.yml").read_text(encoding="utf-8"))
+    assert shared == {"x": 1}
+    manifest = yaml.safe_load((tmp_path / "rig.yml").read_text(encoding="utf-8"))
+    assert manifest["repos"][0]["password_var"] == "api_git_pat"
 
 
 def test_save_with_unreadable_shared_vars_still_omits_personal_keys(tmp_path, monkeypatch):
