@@ -862,3 +862,15 @@ def test_resolve_init_context_non_git_finds_grandparent_siblings(tmp_path):
     context = resolve_init_context(str(plain))
 
     assert [p["name"] for p in context["projects"]] == ["api"]
+
+
+def test_resolve_init_context_non_git_stops_at_filesystem_root(monkeypatch):
+    import cli.remote_dev as remote_dev
+
+    monkeypatch.setattr(remote_dev, "_git_root", lambda _start: None)
+    monkeypatch.setattr(remote_dev, "discover_git_projects", lambda _path: [])
+
+    context = resolve_init_context("/")
+
+    assert context["projects"] == []
+    assert context["in_git_repo"] is False
