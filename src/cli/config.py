@@ -30,14 +30,7 @@ PROFILE_KEYS = (
     "hetzner_s3_access_key",
     "hetzner_s3_secret_key",
     "s3_endpoint_url",
-    "storage_provider",
-    "r2_account_id",
-    "r2_access_key",
-    "r2_secret_key",
 )
-
-STORAGE_PROVIDERS = ("hetzner", "r2")
-DEFAULT_STORAGE_PROVIDER = "hetzner"
 
 # Developer identity for ``.rig/vars.{identity}.yml`` (not a cloud profile).
 IDENTITY_KEY = "identity"
@@ -137,14 +130,6 @@ class RigConfig:
                 or stored.get("hetzner_s3_secret_key", "")
             ),
             "s3_endpoint_url": (os.getenv("S3_ENDPOINT_URL") or stored.get("s3_endpoint_url") or DEFAULT_S3_ENDPOINT),
-            "storage_provider": (
-                (os.getenv("RIG_STORAGE_PROVIDER") or stored.get("storage_provider") or DEFAULT_STORAGE_PROVIDER)
-                .strip()
-                .lower()
-            ),
-            "r2_account_id": os.getenv("CF_R2_ACCOUNT_ID") or stored.get("r2_account_id", ""),
-            "r2_access_key": os.getenv("CF_R2_ACCESS_KEY") or stored.get("r2_access_key", ""),
-            "r2_secret_key": os.getenv("CF_R2_SECRET_KEY") or stored.get("r2_secret_key", ""),
         }
 
     def apply_to_environ(self, profile: str | None = None) -> dict[str, str]:
@@ -155,10 +140,6 @@ class RigConfig:
             "hetzner_s3_access_key": "HETZNER_S3_ACCESS_KEY",
             "hetzner_s3_secret_key": "HETZNER_S3_SECRET_KEY",
             "s3_endpoint_url": "S3_ENDPOINT_URL",
-            "storage_provider": "RIG_STORAGE_PROVIDER",
-            "r2_account_id": "CF_R2_ACCOUNT_ID",
-            "r2_access_key": "CF_R2_ACCESS_KEY",
-            "r2_secret_key": "CF_R2_SECRET_KEY",
         }
         for key, env_name in mapping.items():
             value = resolved.get(key) or ""
@@ -219,26 +200,11 @@ def ensure_credentials(
     config = config or RigConfig()
     resolved = config.resolve()
     missing_token = not resolved.get("hetzner_cloud_api_token")
-    provider = resolved.get("storage_provider") or DEFAULT_STORAGE_PROVIDER
-    if provider not in STORAGE_PROVIDERS:
-        raise ValueError(f"Unknown storage provider {provider!r} (expected one of: {', '.join(STORAGE_PROVIDERS)})")
-    use_r2 = provider == "r2"
-    if use_r2:
-        # Hetzner S3 keys are not used; state lives in Cloudflare R2.
-        missing_s3 = not (
-            resolved.get("r2_account_id") and resolved.get("r2_access_key") and resolved.get("r2_secret_key")
-        )
-    else:
-        missing_s3 = not (resolved.get("hetzner_s3_access_key") and resolved.get("hetzner_s3_secret_key"))
+    missing_s3 = not (resolved.get("hetzner_s3_access_key") and resolved.get("hetzner_s3_secret_key"))
 
     if not force_prompt and not missing_token and not missing_s3:
         config.apply_to_environ()
         return resolved
-
-    if use_r2:
-        return _ensure_r2_credentials(
-            config, resolved, missing_token, force_prompt, input_fn=input_fn, secret_fn=secret_fn
-        )
 
     print(f"Hetzner credentials ({config.profile} profile in {config.path})")
     token = resolved.get("hetzner_cloud_api_token", "")
@@ -286,45 +252,3 @@ def ensure_credentials(
     config.apply_to_environ()
     print(f"Saved credentials to {config.path} [{config.profile}]")
     return values
-
-
-def _ensure_r2_credentials(
-    config: RigConfig,
-    resolved: dict[str, str],
-    missing_token: bool,
-    force_prompt: bool,
-    input_fn: Callable[..., str] | None = None,
-    secret_fn: Callable[..., str] | None = None,
-) -> dict[str, str]:
-    """Prompt for the Hetzner token plus Cloudflare R2 credentials and save them."""
-    print(f"Hetzner token and Cloudflare R2 credentials ({config.profile} profile in {config.path})")
-    token = resolved.get("hetzner_cloud_api_token", "")
-    account_id = resolved.get("r2_account_id", "")
-    access_key = resolved.get("r2_access_key", "")
-    secret_key = resolved.get("r2_secret_key", "")
-
-    if force_prompt or missing_token:
-        token = _prompt_secret("Hetzner Cloud API token", default=token, input_fn=input_fn, secret_fn=secret_fn)
-    if force_prompt or not (account_id and access_key and secret_key):
-        ask = input_fn or input
-        suffix = f" [{account_id}]" if account_id else ""
-        account_id = ask(f"Cloudflare account ID{suffix}: ").strip() or account_id
-        access_key = _prompt_secret("R2 access key ID", default=access_key, input_fn=input_fn, secret_fn=secret_fn)
-        secret_key = _prompt_secret("R2 secret access key", default=secret_key, input_fn=input_fn, secret_fn=secret_fn)
-
-    if not token:
-        raise ValueError("Hetzner Cloud API token is required")
-    if not (account_id and access_key and secret_key):
-        raise ValueError("Cloudflare account ID and R2 access and secret keys are required")
-
-    values = {
-        "hetzner_cloud_api_token": token,
-        "storage_provider": "r2",
-        "r2_account_id": account_id,
-        "r2_access_key": access_key,
-        "r2_secret_key": secret_key,
-    }
-    config.set_profile(values)
-    config.apply_to_environ()
-    print(f"Saved credentials to {config.path} [{config.profile}]")
-    return {**resolved, **values}
