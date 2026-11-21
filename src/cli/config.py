@@ -5,9 +5,9 @@ Credentials live in ~/.rig/config using AWS-style profiles:
 
     [default]
     hetzner_cloud_api_token = ...
-    hetzner_s3_access_key = ...
-    hetzner_s3_secret_key = ...
-    s3_endpoint_url = https://fsn1.your-objectstorage.com
+    state_access_key = ...
+    state_secret_key = ...
+    state_endpoint_url = https://fsn1.your-objectstorage.com
 
     [profile staging]
     hetzner_cloud_api_token = ...
@@ -27,10 +27,17 @@ DEFAULT_S3_ENDPOINT = "https://fsn1.your-objectstorage.com"
 
 PROFILE_KEYS = (
     "hetzner_cloud_api_token",
-    "hetzner_s3_access_key",
-    "hetzner_s3_secret_key",
-    "s3_endpoint_url",
+    "state_access_key",
+    "state_secret_key",
+    "state_endpoint_url",
 )
+
+# Names used before the RIG_STATE_* rename; still read as fallbacks.
+LEGACY_PROFILE_KEYS = {
+    "state_access_key": "hetzner_s3_access_key",
+    "state_secret_key": "hetzner_s3_secret_key",
+    "state_endpoint_url": "s3_endpoint_url",
+}
 
 # Developer identity for ``.rig/vars.{identity}.yml`` (not a cloud profile).
 IDENTITY_KEY = "identity"
@@ -94,7 +101,12 @@ class RigConfig:
                 section = name
             else:
                 return {}
-        return {key: value for key, value in self._parser.items(section) if key in PROFILE_KEYS and value}
+        raw = {key: value for key, value in self._parser.items(section) if value}
+        values = {key: value for key, value in raw.items() if key in PROFILE_KEYS}
+        for key, legacy in LEGACY_PROFILE_KEYS.items():
+            if key not in values and legacy in raw:
+                values[key] = raw[legacy]
+        return values
 
     def set_profile(self, values: dict[str, str], profile: str | None = None) -> None:
         name = profile or self.profile or DEFAULT_PROFILE
@@ -119,17 +131,24 @@ class RigConfig:
                 or os.getenv("HZ_TOKEN")
                 or stored.get("hetzner_cloud_api_token", "")
             ),
-            "hetzner_s3_access_key": (
-                os.getenv("HETZNER_S3_ACCESS_KEY")
+            "state_access_key": (
+                os.getenv("RIG_STATE_ACCESS_KEY")
+                or os.getenv("HETZNER_S3_ACCESS_KEY")
                 or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY")
-                or stored.get("hetzner_s3_access_key", "")
+                or stored.get("state_access_key", "")
             ),
-            "hetzner_s3_secret_key": (
-                os.getenv("HETZNER_S3_SECRET_KEY")
+            "state_secret_key": (
+                os.getenv("RIG_STATE_SECRET_KEY")
+                or os.getenv("HETZNER_S3_SECRET_KEY")
                 or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY")
-                or stored.get("hetzner_s3_secret_key", "")
+                or stored.get("state_secret_key", "")
             ),
-            "s3_endpoint_url": (os.getenv("S3_ENDPOINT_URL") or stored.get("s3_endpoint_url") or DEFAULT_S3_ENDPOINT),
+            "state_endpoint_url": (
+                os.getenv("RIG_STATE_ENDPOINT_URL")
+                or os.getenv("S3_ENDPOINT_URL")
+                or stored.get("state_endpoint_url")
+                or DEFAULT_S3_ENDPOINT
+            ),
         }
 
     def apply_to_environ(self, profile: str | None = None) -> dict[str, str]:
@@ -137,9 +156,9 @@ class RigConfig:
         resolved = self.resolve(profile)
         mapping = {
             "hetzner_cloud_api_token": "HETZNER_CLOUD_API_TOKEN",
-            "hetzner_s3_access_key": "HETZNER_S3_ACCESS_KEY",
-            "hetzner_s3_secret_key": "HETZNER_S3_SECRET_KEY",
-            "s3_endpoint_url": "S3_ENDPOINT_URL",
+            "state_access_key": "RIG_STATE_ACCESS_KEY",
+            "state_secret_key": "RIG_STATE_SECRET_KEY",
+            "state_endpoint_url": "RIG_STATE_ENDPOINT_URL",
         }
         for key, env_name in mapping.items():
             value = resolved.get(key) or ""
@@ -200,7 +219,7 @@ def ensure_credentials(
     config = config or RigConfig()
     resolved = config.resolve()
     missing_token = not resolved.get("hetzner_cloud_api_token")
-    missing_s3 = not (resolved.get("hetzner_s3_access_key") and resolved.get("hetzner_s3_secret_key"))
+    missing_s3 = not (resolved.get("state_access_key") and resolved.get("state_secret_key"))
 
     if not force_prompt and not missing_token and not missing_s3:
         config.apply_to_environ()
@@ -208,9 +227,9 @@ def ensure_credentials(
 
     print(f"Hetzner credentials ({config.profile} profile in {config.path})")
     token = resolved.get("hetzner_cloud_api_token", "")
-    access_key = resolved.get("hetzner_s3_access_key", "")
-    secret_key = resolved.get("hetzner_s3_secret_key", "")
-    endpoint = resolved.get("s3_endpoint_url", DEFAULT_S3_ENDPOINT)
+    access_key = resolved.get("state_access_key", "")
+    secret_key = resolved.get("state_secret_key", "")
+    endpoint = resolved.get("state_endpoint_url", DEFAULT_S3_ENDPOINT)
 
     if force_prompt or missing_token:
         token = _prompt_secret(
@@ -244,9 +263,9 @@ def ensure_credentials(
 
     values = {
         "hetzner_cloud_api_token": token,
-        "hetzner_s3_access_key": access_key,
-        "hetzner_s3_secret_key": secret_key,
-        "s3_endpoint_url": endpoint or DEFAULT_S3_ENDPOINT,
+        "state_access_key": access_key,
+        "state_secret_key": secret_key,
+        "state_endpoint_url": endpoint or DEFAULT_S3_ENDPOINT,
     }
     config.set_profile(values)
     config.apply_to_environ()

@@ -22,9 +22,9 @@ def test_set_and_resolve_default_profile(tmp_path, monkeypatch):
     config.set_profile(
         {
             "hetzner_cloud_api_token": "token-default",
-            "hetzner_s3_access_key": "ak",
-            "hetzner_s3_secret_key": "sk",
-            "s3_endpoint_url": "https://hel1.your-objectstorage.com",
+            "state_access_key": "ak",
+            "state_secret_key": "sk",
+            "state_endpoint_url": "https://hel1.your-objectstorage.com",
         }
     )
 
@@ -35,8 +35,8 @@ def test_set_and_resolve_default_profile(tmp_path, monkeypatch):
 
     resolved = RigConfig(path=str(path)).resolve()
     assert resolved["hetzner_cloud_api_token"] == "token-default"
-    assert resolved["hetzner_s3_access_key"] == "ak"
-    assert resolved["s3_endpoint_url"] == "https://hel1.your-objectstorage.com"
+    assert resolved["state_access_key"] == "ak"
+    assert resolved["state_endpoint_url"] == "https://hel1.your-objectstorage.com"
 
 
 def test_named_profile_uses_aws_style_section(tmp_path, monkeypatch):
@@ -46,8 +46,8 @@ def test_named_profile_uses_aws_style_section(tmp_path, monkeypatch):
     config.set_profile(
         {
             "hetzner_cloud_api_token": "token-staging",
-            "hetzner_s3_access_key": "ak",
-            "hetzner_s3_secret_key": "sk",
+            "state_access_key": "ak",
+            "state_secret_key": "sk",
         }
     )
     text = path.read_text()
@@ -61,8 +61,8 @@ def test_env_overrides_profile(tmp_path, monkeypatch):
     config.set_profile(
         {
             "hetzner_cloud_api_token": "from-file",
-            "hetzner_s3_access_key": "ak",
-            "hetzner_s3_secret_key": "sk",
+            "state_access_key": "ak",
+            "state_secret_key": "sk",
         }
     )
     monkeypatch.setenv("HETZNER_CLOUD_API_TOKEN", "from-env")
@@ -97,7 +97,7 @@ def test_ensure_credentials_prompts_and_saves(tmp_path, monkeypatch):
     assert os.getenv("HETZNER_CLOUD_API_TOKEN") == "tok-123"
     saved = RigConfig(path=str(path)).get_profile()
     assert saved["hetzner_cloud_api_token"] == "tok-123"
-    assert saved["hetzner_s3_access_key"] == "access-123"
+    assert saved["state_access_key"] == "access-123"
 
 
 def test_ensure_credentials_skips_prompt_when_env_set(tmp_path, monkeypatch):

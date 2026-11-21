@@ -83,12 +83,12 @@ The CLI follows a modular architecture:
 
 ### Environment Variables
 - `HZ_TOKEN`: Hetzner Cloud API token (required)
-- `S3_ENDPOINT_URL`: S3 endpoint URL (defaults to `https://fsn1.yourdomain.com`)
+- `RIG_STATE_ENDPOINT_URL`: S3 endpoint URL (defaults to `https://fsn1.yourdomain.com`)
 
 ### Configuration File (`config.yaml`)
 ```yaml
 hz_token: "your-hetzner-cloud-token"
-s3_endpoint_url: "https://fsn1.yourdomain.com"
+state_endpoint_url: "https://fsn1.yourdomain.com"
 ```
 
 ## How It Works

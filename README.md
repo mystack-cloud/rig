@@ -368,7 +368,7 @@ See `docs/adr/0002-outputs-as-separate-object-via-file-handoff.md`.
 
 ### State backend: Hetzner Object Storage or Cloudflare R2
 
-State (environment records, outputs) lives in an S3-compatible bucket. The endpoint decides the provider: set `s3_endpoint_url` in `~/.rig/config` (or `S3_ENDPOINT_URL`) to your R2 endpoint, `https://<account-id>.r2.cloudflarestorage.com` (or the `.eu.` / `.fedramp.` variant), and use an R2 API token as the S3 access/secret key. rig then signs with region `auto`. The Hetzner Cloud token is still required for the servers.
+State (environment records, outputs) lives in an S3-compatible bucket. The endpoint decides the provider: set `state_endpoint_url` in `~/.rig/config` (or `RIG_STATE_ENDPOINT_URL`) to your R2 endpoint, `https://<account-id>.r2.cloudflarestorage.com` (or the `.eu.` / `.fedramp.` variant), and use an R2 API token as `state_access_key` / `state_secret_key` (`RIG_STATE_ACCESS_KEY` / `RIG_STATE_SECRET_KEY`). The older `HETZNER_S3_*`, `S3_ENDPOINT_URL` and `hetzner_s3_*` / `s3_endpoint_url` names are still read as fallbacks. rig signs R2 requests with region `auto`. The Hetzner Cloud token is still required for the servers.
 
 `RIG_IDENTITY` overrides the configured identity. Teammates joining an existing workspace paste the shared data key once (`rig vars export-shared-key` from an unlocked machine).
 

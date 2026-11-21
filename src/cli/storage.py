@@ -1,6 +1,6 @@
 """
 Storage management for the CLI using S3-compatible object storage
-(Hetzner Object Storage by default; Cloudflare R2 when S3_ENDPOINT_URL points at it).
+(Hetzner Object Storage by default; Cloudflare R2 when RIG_STATE_ENDPOINT_URL points at it).
 """
 
 import os
@@ -20,13 +20,25 @@ class StorageManager:
 
     def __init__(self, hetzner_token: str | None = None, endpoint_url: str | None = None):
         self.hetzner_token = hetzner_token or os.getenv("HZ_TOKEN") or os.getenv("HETZNER_CLOUD_API_TOKEN")
-        self.endpoint_url = endpoint_url or os.getenv("S3_ENDPOINT_URL") or "https://fsn1.your-objectstorage.com"
+        self.endpoint_url = (
+            endpoint_url
+            or os.getenv("RIG_STATE_ENDPOINT_URL")
+            or os.getenv("S3_ENDPOINT_URL")
+            or "https://fsn1.your-objectstorage.com"
+        )
 
-        # Read S3 credentials from environment variables
-        # Hetzner uses HETZNER_S3_ACCESS_KEY and HETZNER_S3_SECRET_KEY
-        # Also supports HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY and HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY
-        self.s3_access_key = os.getenv("HETZNER_S3_ACCESS_KEY") or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY")
-        self.s3_secret_key = os.getenv("HETZNER_S3_SECRET_KEY") or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY")
+        # State storage credentials (Hetzner Object Storage or R2). The
+        # HETZNER_S3_* / HETZNER_CLOUD_OBJECT_STORAGE_* names predate RIG_STATE_*.
+        self.s3_access_key = (
+            os.getenv("RIG_STATE_ACCESS_KEY")
+            or os.getenv("HETZNER_S3_ACCESS_KEY")
+            or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_ACCESS_KEY")
+        )
+        self.s3_secret_key = (
+            os.getenv("RIG_STATE_SECRET_KEY")
+            or os.getenv("HETZNER_S3_SECRET_KEY")
+            or os.getenv("HETZNER_CLOUD_OBJECT_STORAGE_SECRET_KEY")
+        )
 
         if not self.hetzner_token:
             raise ValueError(
@@ -35,7 +47,7 @@ class StorageManager:
 
         if not self.s3_access_key or not self.s3_secret_key:
             raise ValueError(
-                "S3 credentials missing. Please set HETZNER_S3_ACCESS_KEY and HETZNER_S3_SECRET_KEY environment variables"
+                "S3 credentials missing. Please set RIG_STATE_ACCESS_KEY and RIG_STATE_SECRET_KEY environment variables"
             )
 
     @property

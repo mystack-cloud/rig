@@ -76,13 +76,13 @@ The solution provides comprehensive storage management for Hetzner S3-compatible
 #### Environment Variables
 ```bash
 export HZ_TOKEN="your-hetzner-cloud-token"
-export S3_ENDPOINT_URL="https://fsn1.yourdomain.com"  # Optional override
+export RIG_STATE_ENDPOINT_URL="https://fsn1.yourdomain.com"  # Optional override
 ```
 
 #### Configuration File (`config.yaml`)
 ```yaml
 hz_token: "your-hetzner-cloud-token"
-s3_endpoint_url: "https://fsn1.yourdomain.com"
+state_endpoint_url: "https://fsn1.yourdomain.com"
 ```
 
 ### 5. Usage Examples
