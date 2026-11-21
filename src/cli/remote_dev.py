@@ -4523,6 +4523,7 @@ class ProjectConfig:
         self.rig_dir = os.path.join(self.project_dir, self.RIG_DIR)
         self.config: dict[str, Any] = {}
         self.vars_config: dict[str, Any] = {}
+        self._personal_var_keys: set[str] = set()
         self.requirements: list[str] = []
         self.vault_password: str | None = None
 
@@ -4672,6 +4673,7 @@ class ProjectConfig:
                     personal = self._load_vars_with_vault(id_path)
                     for key in ("rig_identity_data_key", "rig_shared_data_key"):
                         personal.pop(key, None)
+                    self._personal_var_keys = set(personal)
                     self.vars_config = {**(self.vars_config or {}), **personal}
             except Exception:
                 pass
@@ -4770,9 +4772,25 @@ class ProjectConfig:
             return {}
 
     def _dump_vars(self, vars_path: str) -> None:
+        """Write shared vars.yml; keys merged in from vars.<identity>.yml stay out."""
+        data = self.vars_config
+        personal_keys = getattr(self, "_personal_var_keys", None)
+        if personal_keys and isinstance(data, dict):
+            shared_on_disk: dict[str, Any] = {}
+            if os.path.exists(vars_path):
+                try:
+                    with open(vars_path, encoding="utf-8") as existing:
+                        shared_on_disk = yaml.load(existing, Loader=_VarsLoader) or {}
+                except Exception:
+                    shared_on_disk = {}
+            data = {k: v for k, v in data.items() if k not in personal_keys}
+            # A personal value may shadow a shared one: keep the shared one as it was.
+            for key in personal_keys:
+                if key in shared_on_disk:
+                    data[key] = shared_on_disk[key]
         with open(vars_path, "w", encoding="utf-8") as handle:
             yaml.dump(
-                self.vars_config,
+                data,
                 handle,
                 Dumper=_VarsDumper,
                 default_flow_style=False,
