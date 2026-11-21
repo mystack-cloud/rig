@@ -210,3 +210,19 @@ def test_git_url_helpers():
     assert enc.to_https_git_url("git@github.com:o/r.git") == "https://github.com/o/r.git"
     assert "pat" in enc.project_pat_var_name("My App")
     assert enc.provider_pat_var_name("github") == "github_pat"
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://gitlab.mystack.cloud/o/r.git", "gitlab"),
+        ("git@gitlab.example.com:o/r.git", "gitlab"),
+        ("ssh://git@gitlab.corp.io:2222/o/r.git", "gitlab"),
+        ("https://github.com/o/gitlab-tools.git", "github"),
+        ("https://git.example.com/o/gitlab.git", None),
+    ],
+)
+def test_detect_git_provider_self_hosted_gitlab(url, expected):
+    from cli import encrypt as enc
+
+    assert enc.detect_git_provider(url) == expected

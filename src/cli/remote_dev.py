@@ -2344,6 +2344,8 @@ class RemoteDevEnvironment:
             clones = git_cfg.get("clone_repos") or []
             has_github_pat = bool(project.get_vars("github_pat"))
             has_gitlab_pat = bool(project.get_vars("gitlab_pat"))
+            from cli.encrypt import detect_git_provider
+
             missing = []
             for item in clones:
                 if not isinstance(item, dict):
@@ -2354,9 +2356,10 @@ class RemoteDevEnvironment:
                 pat_var = item.get("password_var") or ""
                 if pat_var and project.get_vars(str(pat_var)):
                     continue
-                if "gitlab.com" in repo and has_gitlab_pat:
+                is_gitlab = detect_git_provider(repo) == "gitlab"
+                if is_gitlab and has_gitlab_pat:
                     continue
-                if "gitlab.com" not in repo and has_github_pat:
+                if not is_gitlab and has_github_pat:
                     continue
                 missing.append(item.get("dest") or repo)
             if missing and "materialize" in wanted:
@@ -4389,7 +4392,7 @@ AUTHORIZE_PLAYBOOK = r"""---
               . /root/.config/rig/git-provider.env
               case "$host" in
                 github.com) user=x-access-token; pass="${GH_TOKEN:-}" ;;
-                gitlab.com) user=oauth2; pass="${GITLAB_TOKEN:-}" ;;
+                gitlab.com|*gitlab*) user=oauth2; pass="${GITLAB_TOKEN:-}" ;;
                 *) exit 0 ;;
               esac
               [ -n "$pass" ] || exit 0
@@ -4432,13 +4435,13 @@ MATERIALIZE_PLAYBOOK = """---
         # Fall back to provider default vault vars when password_var was skipped at init.
         _provider_pat: >-
           {{ (gitlab_pat | default(''))
-             if ('gitlab.com' in (item.repo | default('')))
+             if ((item.repo | default('')) is match('^(https?://)?([^/@]+@)?[^/]*gitlab'))
              else (github_pat | default('')) }}
         _pat: >-
           {{ (lookup('vars', _pat_var, default='') if _pat_var else '')
              or _provider_pat }}
         # GitHub expects x-access-token; GitLab expects oauth2.
-        _auth_user: "{{ 'oauth2' if ('gitlab.com' in item.repo) else 'x-access-token' }}"
+        _auth_user: "{{ 'oauth2' if (item.repo is match('^(https?://)?([^/@]+@)?[^/]*gitlab')) else 'x-access-token' }}"
       environment:
         # Never hang on an interactive username/password prompt (missing PAT).
         GIT_TERMINAL_PROMPT: "0"
