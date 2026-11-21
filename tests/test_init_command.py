@@ -739,9 +739,7 @@ def test_interactive_init_stores_repo_specific_pats_when_different(tmp_path):
     assert "vscode_browser_password: !vault |" in shared_text
     assert "github_pat:" not in personal_text
     assert "gitlab_pat:" not in personal_text
-    by_dest = {
-        item["dest"]: item["password_var"] for item in _derived(root)["git"]["clone_repos"]
-    }
+    by_dest = {item["dest"]: item["password_var"] for item in _derived(root)["git"]["clone_repos"]}
     assert by_dest["/workspace/api"] == "api_git_pat"
     assert by_dest["/workspace/web"] == "web_git_pat"
 
