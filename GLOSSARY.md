@@ -13,8 +13,12 @@ The storage bucket holding environment state for one Profile within one workspac
 _Avoid_: Production bucket, installation bucket
 
 **Workspace**:
-A project repository containing a `.rig/` directory, which owns its own State buckets.
+A folder containing `rig.yml` and a `.rig/` directory, which groups zero or more Repos and owns its own State buckets. It need not itself be a git repository.
 _Avoid_: Project (ambiguous with a Hetzner Cloud project)
+
+**Repo**:
+A git repository included in a Workspace and cloned onto its Environments.
+_Avoid_: Project
 
 **Environment**:
 A remote development machine provisioned by rig, owned by one identity and tracked in a State bucket.

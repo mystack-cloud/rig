@@ -5307,9 +5307,21 @@ def resolve_init_context(start: str | None = None) -> dict[str, Any]:
             "in_git_repo": True,
         }
 
+    projects = discover_git_projects(start)
+    # Nothing at or below start: look at neighbouring folders, up to two levels up.
+    ancestor = start
+    for _ in range(2):
+        if projects:
+            break
+        parent = os.path.dirname(ancestor)
+        if not parent or parent == ancestor:
+            break
+        projects = [p for p in discover_git_projects(parent) if p["path"] not in (parent, start)]
+        ancestor = parent
+
     return {
         "root": start,
-        "projects": discover_git_projects(start),
+        "projects": projects,
         "current": None,
         "in_git_repo": False,
     }

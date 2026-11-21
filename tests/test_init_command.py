@@ -838,3 +838,27 @@ def test_hidden_commands_are_rejected(command):
     with pytest.raises(SystemExit) as caught:
         main([command])
     assert caught.value.code != 0
+
+
+def test_resolve_init_context_non_git_finds_sibling_repos(tmp_path):
+    work = tmp_path / "work"
+    plain = work / "plain"
+    plain.mkdir(parents=True)
+    for name in ("api", "web"):
+        (work / name / ".git").mkdir(parents=True)
+
+    context = resolve_init_context(str(plain))
+
+    assert context["in_git_repo"] is False
+    assert context["root"] == str(plain)
+    assert [p["name"] for p in context["projects"]] == ["api", "web"]
+
+
+def test_resolve_init_context_non_git_finds_grandparent_siblings(tmp_path):
+    plain = tmp_path / "work" / "team" / "plain"
+    plain.mkdir(parents=True)
+    (tmp_path / "work" / "api" / ".git").mkdir(parents=True)
+
+    context = resolve_init_context(str(plain))
+
+    assert [p["name"] for p in context["projects"]] == ["api"]
