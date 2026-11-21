@@ -30,7 +30,7 @@ class MemStorage:
     def list_objects(self, bucket, prefix=""):
         return sorted(k for k in self.objects if k.startswith(prefix))
 
-    def download_file(self, bucket, key, path):
+    def download_file(self, bucket, key, path, retry_not_found=True):
         if key not in self.objects:
             return False
         with open(path, "wb") as f:
@@ -196,7 +196,7 @@ def test_setup_stops_when_name_taken(monkeypatch):
 class NoDownloadOfMissing(MemStorage):
     """download_file on a missing key mimics StorageManager's 30s retry loop."""
 
-    def download_file(self, bucket, key, path):
+    def download_file(self, bucket, key, path, retry_not_found=True):
         assert key in self.objects, f"downloaded a missing key: {key}"
         return super().download_file(bucket, key, path)
 

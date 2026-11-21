@@ -466,7 +466,7 @@ class TestRemoteDevManagerCoverage:
             def list_objects(self, bucket, prefix=""):
                 return []
 
-            def download_file(self, bucket, remote, local):
+            def download_file(self, bucket, remote, local, retry_not_found=True):
                 data = {"environments": [{"name": "dev-old", "id": 1}], "updated_at": "t"}
                 with open(local, "w") as f:
                     import yaml as y
