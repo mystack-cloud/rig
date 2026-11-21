@@ -571,6 +571,50 @@ def configured_agents(project) -> tuple[list[str], str]:
     )
 
 
+def derive_config_vars(config: dict[str, Any] | None) -> dict[str, Any]:
+    """Vars derivable from rig.yml, so ``vars.yml`` need not repeat them.
+
+    ``repos`` → ``git`` (clone lists) and ``git_providers``;
+    ``agent`` → ``coding_agent_type`` / ``coding_agent_types``.
+    A key is only returned when rig.yml actually declares its source.
+    """
+    from cli.agents import resolve_configured_agents
+    from cli.encrypt import git_providers_from_repos, to_https_git_url
+
+    cfg = config or {}
+    out: dict[str, Any] = {}
+
+    repos = [r for r in (cfg.get("repos") or []) if isinstance(r, dict) and r.get("name")]
+    if repos:
+        clone_repos: list[dict[str, Any]] = []
+        ssh_repos: list[dict[str, Any]] = []
+        for repo in repos:
+            url = str(repo.get("url") or "").strip()
+            if not url:
+                continue
+            entry: dict[str, Any] = {
+                "repo": url,
+                "dest": repo.get("dest") or remote_workspace_path(str(repo["name"])),
+                "accept_hostkey": True,
+            }
+            if repo.get("password_var"):
+                entry["password_var"] = repo["password_var"]
+            if url != to_https_git_url(url):
+                entry["ssh_key"] = "/root/.ssh/id_rsa"
+                ssh_repos.append(entry)
+            else:
+                clone_repos.append(entry)
+        out["git"] = {"clone_repos": clone_repos, "ssh_repos": ssh_repos}
+        out["git_providers"] = git_providers_from_repos(repos)
+
+    agent_cfg = cfg.get("agent")
+    if isinstance(agent_cfg, dict) and (agent_cfg.get("default") or agent_cfg.get("enabled") or agent_cfg.get("type")):
+        types, default = resolve_configured_agents(agent_cfg)
+        out["coding_agent_type"] = default
+        out["coding_agent_types"] = list(types)
+    return out
+
+
 def build_rig_ansible_vars(
     env: "RemoteDevEnvironment",
     project: Optional["ProjectConfig"] = None,
@@ -4678,6 +4722,9 @@ class ProjectConfig:
             except Exception:
                 pass
 
+            self._adopt_legacy_repo_fields()
+            self.vars_config = {**(self.vars_config or {}), **self.derived_vars()}
+
             requirements_path = os.path.join(self.rig_dir, self.REQUIREMENTS_YML)
             legacy_requirements = os.path.join(self.rig_dir, "requirements.txt")
             if os.path.exists(requirements_path):
@@ -4771,9 +4818,38 @@ class ProjectConfig:
             print(f"Warning: Could not load vars with vault: {e}")
             return {}
 
+    def derived_vars(self) -> dict[str, Any]:
+        """Vars computed from rig.yml (see ``derive_config_vars``)."""
+        return derive_config_vars(self.config)
+
+    def _adopt_legacy_repo_fields(self) -> None:
+        """Move per-repo fields that older versions kept only in vars.yml into rig.yml."""
+        repos = self.config.get("repos") if isinstance(self.config, dict) else None
+        legacy = ((self.vars_config or {}).get("git") or {}) if isinstance(self.vars_config, dict) else {}
+        if not repos or not isinstance(legacy, dict):
+            return
+        from cli.encrypt import to_https_git_url
+
+        by_url: dict[str, dict[str, Any]] = {}
+        for key in ("clone_repos", "ssh_repos"):
+            for item in legacy.get(key) or []:
+                if isinstance(item, dict) and item.get("repo"):
+                    by_url[str(item["repo"])] = item
+                    by_url[to_https_git_url(str(item["repo"]))] = item
+        for repo in repos:
+            if not isinstance(repo, dict) or repo.get("password_var"):
+                continue
+            item = by_url.get(str(repo.get("url") or ""))
+            if item and item.get("password_var"):
+                repo["password_var"] = item["password_var"]
+
     def _dump_vars(self, vars_path: str) -> None:
-        """Write shared vars.yml; keys merged in from vars.<identity>.yml stay out."""
+        """Write shared vars.yml; personal and rig.yml-derived keys stay out."""
         data = self.vars_config
+        if isinstance(data, dict):
+            # Declared in rig.yml → derived at load/run time, not repeated here.
+            derived = self.derived_vars()
+            data = {k: v for k, v in data.items() if k not in derived}
         personal_keys = getattr(self, "_personal_var_keys", None)
         if personal_keys and isinstance(data, dict):
             shared_on_disk: dict[str, Any] = {}
@@ -6415,6 +6491,11 @@ class AnsibleManager:
             if filtered_identity:
                 cmd.extend(["-e", f"@{filtered_identity}"])
                 vars_path = filtered_identity
+
+        # Vars derived from rig.yml (git, git_providers, agent) are not in vars.yml.
+        derived = self.project_config.derived_vars()
+        if derived:
+            cmd.extend(["-e", json.dumps(derived, default=str)])
 
         if outputs_file:
             cmd.extend(["-e", f"rig_outputs_file={outputs_file}"])
