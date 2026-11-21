@@ -400,14 +400,23 @@ PROVIDER_ENV_VARS = {
 }
 
 
+def _git_host(url: str) -> str:
+    """Lower-cased host of an https://, ssh:// or scp-style (git@host:path) remote."""
+    value = (url or "").strip().lower()
+    match = re.match(r"^(?:[a-z+]+://)?(?:[^@/]+@)?([^/:]+)", value)
+    return match.group(1) if match else ""
+
+
 def detect_git_provider(url: str) -> str | None:
-    """Return 'github' or 'gitlab' when the remote URL is a known host."""
-    if not url:
-        return None
-    lower = url.strip().lower()
-    if "github.com" in lower or lower.startswith("git@github.com:"):
+    """Return 'github' or 'gitlab' for a remote URL.
+
+    GitLab includes self-hosted instances (any host with a ``gitlab`` label,
+    e.g. ``gitlab.example.com``); GitHub is github.com only.
+    """
+    host = _git_host(url)
+    if host == "github.com":
         return "github"
-    if "gitlab.com" in lower or lower.startswith("git@gitlab.com:"):
+    if host == "gitlab.com" or "gitlab" in host.split("."):
         return "gitlab"
     return None
 
