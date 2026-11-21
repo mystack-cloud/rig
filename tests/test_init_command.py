@@ -897,3 +897,40 @@ def test_save_keeps_personal_vars_out_of_shared_vars_yml(tmp_path, monkeypatch):
     assert shared["x"] == 1
     assert shared["shadowed"] == "shared"
     assert shared["coding_agent_type"] == "opencode"
+
+
+def test_save_with_unreadable_shared_vars_still_omits_personal_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("RIG_IDENTITY", "tester")
+    rig = tmp_path / ".rig"
+    rig.mkdir()
+    (tmp_path / "rig.yml").write_text("name: z\n", encoding="utf-8")
+    (rig / "vars.yml").write_text("x: 1\n", encoding="utf-8")
+    (rig / "vars.tester.yml").write_text("gitlab_pat: personal-secret\nshadowed: mine\n", encoding="utf-8")
+
+    cfg = ProjectConfig(str(tmp_path))
+    assert cfg.load()
+
+    # Shared file became unparseable between load and save: fall back, never leak.
+    (rig / "vars.yml").write_text("{unclosed: [\n", encoding="utf-8")
+    assert cfg.save()
+
+    shared = yaml.safe_load((rig / "vars.yml").read_text(encoding="utf-8"))
+    assert "gitlab_pat" not in shared
+    assert "shadowed" not in shared
+    assert shared["x"] == 1
+
+
+def test_save_creates_shared_vars_when_missing_without_personal_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("RIG_IDENTITY", "tester")
+    rig = tmp_path / ".rig"
+    rig.mkdir()
+    (tmp_path / "rig.yml").write_text("name: z\n", encoding="utf-8")
+    (rig / "vars.tester.yml").write_text("gitlab_pat: personal-secret\n", encoding="utf-8")
+
+    cfg = ProjectConfig(str(tmp_path))
+    assert cfg.load()
+    assert not (rig / "vars.yml").exists()
+    assert cfg.save()
+
+    shared = yaml.safe_load((rig / "vars.yml").read_text(encoding="utf-8"))
+    assert "gitlab_pat" not in (shared or {})
