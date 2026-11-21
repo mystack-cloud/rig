@@ -5,6 +5,7 @@ Converted from test_real_e2e_storage.sh and real_e2e_test.sh
 
 import json
 import os
+import time
 import shutil
 import sys
 import tempfile
@@ -122,8 +123,8 @@ class TestRealE2EStorage:
         storage = StorageManager()
 
         # Create two buckets with unique names
-        bucket1 = f"unique-test-{hetzner_token[:8].lower()}-1"
-        bucket2 = f"unique-test-{hetzner_token[:8].lower()}-2"
+        bucket1 = f"unique-test-{hetzner_token[:8].lower()}-1-{uuid.uuid4().hex[:8]}"
+        bucket2 = f"unique-test-{hetzner_token[:8].lower()}-2-{uuid.uuid4().hex[:8]}"
 
         try:
             assert storage.create_bucket(bucket1) is True
@@ -242,7 +243,7 @@ class TestRealE2EIntegration:
 
         storage = StorageManager()
 
-        bucket_name = f"cleanup-test-{hetzner_token[:8].lower()}"
+        bucket_name = f"cleanup-test-{hetzner_token[:8].lower()}-{uuid.uuid4().hex[:8]}"
 
         # Create bucket
         assert storage.create_bucket(bucket_name) is True
@@ -256,8 +257,10 @@ class TestRealE2EIntegration:
 
         # Clean up
         storage.delete_object(bucket_name, "cleanup.txt")
-        storage.delete_bucket(bucket_name)
+        assert storage.delete_bucket(bucket_name) is True
 
-        # Verify cleanup (bucket should not exist)
-        buckets = storage.list_buckets()
-        assert bucket_name not in buckets
+        # Bucket listings can lag a deletion on the gateway; poll briefly.
+        deadline = time.time() + 60
+        while bucket_name in storage.list_buckets() and time.time() < deadline:
+            time.sleep(2)
+        assert bucket_name not in storage.list_buckets()
