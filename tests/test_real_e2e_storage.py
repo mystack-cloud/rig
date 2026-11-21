@@ -5,10 +5,11 @@ Converted from test_real_e2e_storage.sh and real_e2e_test.sh
 
 import json
 import os
-import time
 import shutil
 import sys
 import tempfile
+import time
+import uuid
 from unittest.mock import MagicMock, call, patch
 
 import pytest
