@@ -125,7 +125,7 @@ export HZ_TOKEN="your-hetzner-cloud-token"
 ```yaml
 # config.yaml
 hz_token: "your-hetzner-cloud-token"  # Only stored in environment variables
-s3_endpoint_url: "https://fsn1.yourdomain.com"  # Default Hetzner endpoint
+state_endpoint_url: "https://fsn1.yourdomain.com"  # Default Hetzner endpoint
 ```
 
 ## Security Features

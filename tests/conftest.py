@@ -100,6 +100,9 @@ def setup_test_env(request):
         "S3_ENDPOINT_URL",
         "HETZNER_S3_ACCESS_KEY",
         "HETZNER_S3_SECRET_KEY",
+        "RIG_STATE_ENDPOINT_URL",
+        "RIG_STATE_ACCESS_KEY",
+        "RIG_STATE_SECRET_KEY",
         "STATE_BUCKET",
         "TEST_BUCKET_PREFIX",
     )
@@ -109,6 +112,9 @@ def setup_test_env(request):
     os.environ["S3_ENDPOINT_URL"] = "https://fsn1.test.example.com"
     os.environ["HETZNER_S3_ACCESS_KEY"] = "test-access-key"
     os.environ["HETZNER_S3_SECRET_KEY"] = "test-secret-key"
+    # RigConfig.apply_to_environ exports RIG_STATE_*; keep it from leaking between tests.
+    for name in ("RIG_STATE_ENDPOINT_URL", "RIG_STATE_ACCESS_KEY", "RIG_STATE_SECRET_KEY"):
+        os.environ.pop(name, None)
     os.environ.pop("STATE_BUCKET", None)
     os.environ.pop("TEST_BUCKET_PREFIX", None)
     yield

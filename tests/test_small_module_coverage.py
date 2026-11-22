@@ -134,7 +134,7 @@ def test_config_profile_helpers(tmp_path):
 
     path = str(tmp_path / "cfg")
     cfg = config.RigConfig(path=path, profile="default")
-    cfg.set_profile({"hetzner_cloud_api_token": "t", "unknown": "x", "s3_endpoint_url": ""})
+    cfg.set_profile({"hetzner_cloud_api_token": "t", "unknown": "x", "state_endpoint_url": ""})
     cfg.set_profile({"hetzner_cloud_api_token": "t2"})
     cfg.set_profile({"hetzner_cloud_api_token": ""})
     assert "hetzner_cloud_api_token" not in cfg.get_profile()
@@ -189,7 +189,7 @@ def test_config_prompt_secret_fallback(tmp_path, monkeypatch):
         force_prompt=True,
     )
     assert vals["hetzner_cloud_api_token"] == "tok"
-    assert vals["hetzner_s3_access_key"] == "ak"
+    assert vals["state_access_key"] == "ak"
 
 
 def test_config_ensure_credentials_missing_raises(tmp_path, monkeypatch):

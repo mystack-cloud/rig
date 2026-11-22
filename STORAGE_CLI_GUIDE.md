@@ -21,14 +21,14 @@ This CLI tool is specifically designed to manage storage operations with Hetzner
 
 2. **Configure environment variables** (recommended):
    ```bash
-   export S3_ENDPOINT_URL="https://fsn1.yourdomain.com"
+   export RIG_STATE_ENDPOINT_URL="https://fsn1.yourdomain.com"
    export S3_ACCESS_KEY="your-access-key"
    export S3_SECRET_KEY="your-secret-key"
    ```
 
 3. **Or create a config.yaml file**:
    ```yaml
-   s3_endpoint_url: "https://fsn1.yourdomain.com"
+   state_endpoint_url: "https://fsn1.yourdomain.com"
    s3_access_key: "your-access-key"
    s3_secret_key: "your-secret-key"
    ```
@@ -91,14 +91,14 @@ The CLI follows a modular architecture:
 ## Configuration Options
 
 ### Environment Variables
-- `S3_ENDPOINT_URL`: The S3 endpoint URL (e.g., `https://fsn1.yourdomain.com`)
+- `RIG_STATE_ENDPOINT_URL`: The S3 endpoint URL (e.g., `https://fsn1.yourdomain.com`)
 - `S3_ACCESS_KEY`: Access key for authentication
 - `S3_SECRET_KEY`: Secret key for authentication
 
 ### Configuration File
 The CLI reads from `config.yaml` if it exists. The file should contain:
 ```yaml
-s3_endpoint_url: "https://fsn1.yourdomain.com"
+state_endpoint_url: "https://fsn1.yourdomain.com"
 s3_access_key: "your-access-key"
 s3_secret_key: "your-secret-key"
 ```

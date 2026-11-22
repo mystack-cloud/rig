@@ -366,6 +366,10 @@ See `docs/adr/0002-outputs-as-separate-object-via-file-handoff.md`.
 | `/tmp/.rig/.personal-data-key` / `.shared-data-key` | Materialized Ansible vault passwords after unlock (tmpfs). |
 | `/tmp/<env>-key` | Per-env SSH private key (attach / apply / delete finalizers). |
 
+### State backend: Hetzner Object Storage or Cloudflare R2
+
+State (environment records, outputs) lives in an S3-compatible bucket. The endpoint decides the provider: set `state_endpoint_url` in `~/.rig/config` (or `RIG_STATE_ENDPOINT_URL`) to your R2 endpoint, `https://<account-id>.r2.cloudflarestorage.com` (or the `.eu.` / `.fedramp.` variant), and use an R2 API token as `state_access_key` / `state_secret_key` (`RIG_STATE_ACCESS_KEY` / `RIG_STATE_SECRET_KEY`). The older `HETZNER_S3_*`, `S3_ENDPOINT_URL` and `hetzner_s3_*` / `s3_endpoint_url` names are still read as fallbacks. rig signs R2 requests with region `auto`. The Hetzner Cloud token is still required for the servers.
+
 `RIG_IDENTITY` overrides the configured identity. Teammates joining an existing workspace paste the shared data key once (`rig vars export-shared-key` from an unlocked machine).
 
 OpenCode without an API key uses free Zen models. With a key, config switches to the paid provider path. When several agents are selected, keys are `opencode_api_key`, `claude_api_key`, and `cursor_api_key` (`RIG_OPENCODE_API_KEY`, `RIG_ANTHROPIC_API_KEY`, `RIG_CURSOR_API_KEY`). A single agent still uses `coding_agent_api_key` (`RIG_CODING_AGENT_API_KEY`).
