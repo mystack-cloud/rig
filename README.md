@@ -30,6 +30,15 @@ Run `rig` from your machine, CI/CD, or a control plane: it provisions cloud VMs 
 
 `rig create` reads `host.provider`. Omit it and the provider is Hetzner. `--provider` overrides the file. `aws` and `gcp` are accepted as names and refused until those clouds can provision.
 
+State storage (environment records, outputs) is separate from the VM provider and can be any of:
+
+| Storage | Selected by | Status |
+| --- | --- | --- |
+| [Hetzner Object Storage](https://www.hetzner.com/storage/object-storage) | default endpoint (`https://fsn1.your-objectstorage.com`) | Supported |
+| [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/) | `state_endpoint_url` = `https://<account-id>.r2.cloudflarestorage.com` | Supported |
+
+See [State backend](#state-backend-hetzner-object-storage-or-cloudflare-r2) for the settings.
+
 ## Coding agents
 
 Chosen at `rig init` (`agent.enabled` in `rig.yml`, same multi-select as git projects: numbers, names, or `all`). Every selected agent is installed and configured on the VM. When more than one is selected, init asks which is the default for `rig attach` (`agent.default`). Pass `--agent` to open another one.
