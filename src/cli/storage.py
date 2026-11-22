@@ -235,8 +235,19 @@ class StorageManager:
         log.warning("Could not upload file after retries: %s", last_error)
         return False
 
-    def download_file(self, bucket_name: str, object_name: str, file_path: str) -> bool:
-        """Download a file from storage"""
+    def download_file(
+        self,
+        bucket_name: str,
+        object_name: str,
+        file_path: str,
+        retry_not_found: bool = True,
+    ) -> bool:
+        """Download a file from storage.
+
+        A 404 is retried for a short window (eventual consistency right after
+        a Put) unless ``retry_not_found`` is False, which callers use when the
+        object may legitimately not exist.
+        """
         s3_client = self._get_s3_client()
         deadline = time.time() + 30.0
         delay = 0.2
@@ -251,7 +262,7 @@ class StorageManager:
                 return False
             except Exception as e:
                 last_error = e
-                if self._is_not_found(e):
+                if self._is_not_found(e) and retry_not_found:
                     time.sleep(delay)
                     delay = min(delay * 1.5, 2.0)
                     continue

@@ -248,7 +248,7 @@ class ObjStorage(FakeStorage):
             self.objects[key] = fh.read()
         return True
 
-    def download_file(self, bucket, key, dest):
+    def download_file(self, bucket, key, dest, retry_not_found=True):
         if key not in self.objects:
             return False
         with open(dest, "w") as fh:
@@ -454,3 +454,22 @@ def test_temp_file_cleanup_tolerates_unlink_errors(tmp_path, monkeypatch):
     assert m._save_state({"name": "dev-b", "owner": "alice"}) is True
     m._drop_legacy_record("dev-a")
     assert m._read_yaml_object(f"{P}/state.yml") is not None
+
+
+def test_download_file_skips_404_retry_when_not_found_is_expected(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    from cli.storage import StorageManager
+
+    sm = StorageManager.__new__(StorageManager)
+    calls = []
+
+    class Client:
+        def download_file(self, *a):
+            calls.append(a)
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+
+    monkeypatch.setattr(sm, "_get_s3_client", lambda: Client(), raising=False)
+    monkeypatch.setattr("cli.storage.time.sleep", lambda s: pytest.fail("slept"))
+    assert sm.download_file("b", "k", "/tmp/x", retry_not_found=False) is False
+    assert len(calls) == 1

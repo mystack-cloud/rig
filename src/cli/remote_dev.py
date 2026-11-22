@@ -1577,15 +1577,18 @@ class RemoteDevManager:
             key = self._records_prefix(owner)
         return f"{self.state_bucket}/{key}"
 
-    def _read_yaml_object(self, key: str) -> dict | None:
-        """Download one object and parse it as YAML; None if unavailable."""
+    def _read_yaml_object(self, key: str, *, may_be_absent: bool = False) -> dict | None:
+        """Download one object and parse it as YAML; None if unavailable.
+
+        ``may_be_absent`` skips the 404 retry window for optional objects.
+        """
         import tempfile
 
         assert self.storage_manager is not None
         fd, tmp = tempfile.mkstemp(suffix=".yml")
         os.close(fd)
         try:
-            if not self.storage_manager.download_file(self.state_bucket, key, tmp):
+            if not self.storage_manager.download_file(self.state_bucket, key, tmp, retry_not_found=not may_be_absent):
                 return None
             with open(tmp) as f:
                 data = yaml.safe_load(f)
@@ -1808,7 +1811,7 @@ class RemoteDevManager:
                     seen.add(record["name"])
 
             if owner is None:
-                legacy = self._read_yaml_object(f"{self.state_prefix}/state.yml") or {}
+                legacy = self._read_yaml_object(f"{self.state_prefix}/state.yml", may_be_absent=True) or {}
                 for entry in legacy.get("environments") or []:
                     if entry.get("name") not in seen:
                         environments.append(entry)
