@@ -16,8 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 from cli import DISTRIBUTION_NAME
 from cli import log as log
 from cli.config import RigConfig
-from cli.encrypt import interactive_decrypt, interactive_encrypt
-from cli.last_env import clear_last_env, remember_last_env, resolve_env_name
 from cli.devcontainers import (
     DevContainerError,
     DevContainerScanError,
@@ -26,7 +24,8 @@ from cli.devcontainers import (
     repo_destinations,
     scan_environment,
 )
-from cli.last_target import read_target, remember_target
+from cli.encrypt import interactive_decrypt, interactive_encrypt
+from cli.last_env import clear_last_env, remember_last_env, resolve_env_name
 from cli.last_session import (
     agent_args_request_session,
     clear_last_session,
@@ -34,6 +33,7 @@ from cli.last_session import (
     remember_last_session,
     resume_args_for_agent,
 )
+from cli.last_target import read_target, remember_target
 from cli.live_agent import QUEUE_REFUSALS, running_agents
 from cli.remote_dev import (
     IMPLEMENTED_CLOUD_PROVIDERS,

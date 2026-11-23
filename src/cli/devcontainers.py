@@ -104,9 +104,7 @@ def choose_target(
         if len(in_repo) == 1:
             return in_repo[0]
         if not in_repo:
-            raise DevContainerError(
-                f"No Dev Container matches '{requested}' (found: {_listing(candidates) or 'none'})"
-            )
+            raise DevContainerError(f"No Dev Container matches '{requested}' (found: {_listing(candidates) or 'none'})")
         candidates = in_repo
     elif not candidates:
         return None
@@ -115,10 +113,11 @@ def choose_target(
 
     if not interactive:
         raise DevContainerError(
-            f"Several Dev Containers found: {_listing(candidates)}. "
-            "Pick one with --target <repo>[:<name>]"
+            f"Several Dev Containers found: {_listing(candidates)}. Pick one with --target <repo>[:<name>]"
         )
-    default = remembered if remembered in candidates else candidates[0]
+    default = candidates[0]
+    if remembered is not None and remembered in candidates:
+        default = remembered
     for index, target in enumerate(candidates, 1):
         print(f"  {index}) {target.label}")
     while True:
@@ -153,10 +152,7 @@ def devcontainer_folder_uri(alias: str, repo_dest: str, target: DevTarget) -> st
         },
     }
     encoded = json.dumps(payload, separators=(",", ":")).encode().hex()
-    return (
-        f"vscode-remote://dev-container+{encoded}@ssh-remote+{alias}"
-        f"/workspaces/{posixpath.basename(host_path)}"
-    )
+    return f"vscode-remote://dev-container+{encoded}@ssh-remote+{alias}/workspaces/{posixpath.basename(host_path)}"
 
 
 class DevContainerScanError(DevContainerError):

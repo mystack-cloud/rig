@@ -65,8 +65,7 @@ def test_results_are_sorted_by_repo_then_config():
     outputs = {
         "/workspace/web": "/workspace/web/.devcontainer/devcontainer.json\n",
         "/workspace/api": (
-            "/workspace/api/.devcontainer/z/devcontainer.json\n"
-            "/workspace/api/.devcontainer/a/devcontainer.json\n"
+            "/workspace/api/.devcontainer/z/devcontainer.json\n/workspace/api/.devcontainer/a/devcontainer.json\n"
         ),
     }
 
