@@ -450,3 +450,114 @@ def test_dev_requires_name_when_no_last_env(capsys):
     ):
         assert main(["dev"]) == 1
     assert "Environment name is required" in capsys.readouterr().err
+
+
+# --- Dev Containers ---------------------------------------------------------
+
+
+def _devcontainer_workspace(tmp_path, monkeypatch, *, enabled=True):
+    from cli.remote_dev import ProjectConfig
+
+    monkeypatch.chdir(tmp_path)
+    cfg = ProjectConfig(str(tmp_path))
+    assert cfg.init(name="ws", agent_type="opencode")
+    cfg.load()
+    cfg.config["editor"] = {"enabled": ["code"], "default": "code", "devcontainers": enabled}
+    cfg.config["repos"] = [
+        {"name": "api", "url": "https://example.com/api.git", "path": "api"},
+        {"name": "web", "url": "https://example.com/web.git", "path": "web"},
+    ]
+    cfg.save(write_vars=False)
+
+
+def _run_dev(argv, scan_output="", scan_rc=0):
+    """Run ``rig dev`` against a fake env; returns (exit code, env, remember mock)."""
+    with (
+        patch("cli.main._load_credentials"),
+        patch.dict(os.environ, {"HETZNER_CLOUD_API_TOKEN": "tok"}, clear=False),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.resolve_env_name", return_value="dev-dc"),
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env"),
+        patch("cli.main.remember_target") as remember,
+        patch("cli.main.read_target", return_value=None),
+    ):
+        env = MagicMock()
+        env.name = "dev-dc"
+        env.vm_ip = "10.0.0.9"
+        env.resolve_resources.return_value = True
+        env.open_vscode.return_value = 0
+        env.run_remote.return_value = MagicMock(returncode=scan_rc, stdout=scan_output, stderr="boom")
+        env_cls.return_value = env
+        return main(argv), env, remember
+
+
+def test_dev_without_flag_does_not_scan(tmp_path, monkeypatch):
+    _devcontainer_workspace(tmp_path, monkeypatch, enabled=False)
+    code, env, _ = _run_dev(["dev"])
+    assert code == 0
+    env.run_remote.assert_not_called()
+    assert env.open_vscode.call_args.kwargs.get("dev_target") is None
+
+
+def test_dev_opens_the_only_dev_container_and_remembers_it(tmp_path, monkeypatch):
+    from cli.devcontainers import DevTarget
+
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    code, env, remember = _run_dev(["dev"], scan_output="/workspace/api/.devcontainer/devcontainer.json\n")
+    kwargs = env.open_vscode.call_args.kwargs
+    expected = DevTarget("api", ".devcontainer/devcontainer.json")
+    assert code == 0
+    assert kwargs["dev_target"] == expected
+    assert kwargs["repo_dest"] == "/workspace/api"
+    remember.assert_called_once_with("dev-dc", expected)
+
+
+def test_dev_with_no_dev_container_opens_as_before(tmp_path, monkeypatch):
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    code, env, remember = _run_dev(["dev"], scan_output="")
+    assert code == 0
+    assert env.open_vscode.call_args.kwargs.get("dev_target") is None
+    remember.assert_not_called()
+
+
+def test_dev_scan_failure_warns_and_falls_back(tmp_path, monkeypatch, capsys):
+    from cli import log as rig_log
+
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    rig_log.configure_logging()
+    code, env, _ = _run_dev(["dev"], scan_rc=255)
+    assert code == 0
+    assert env.open_vscode.call_args.kwargs.get("dev_target") is None
+    assert "Dev Container" in capsys.readouterr().err
+
+
+def test_dev_scan_failure_with_explicit_target_fails(tmp_path, monkeypatch):
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    code, env, _ = _run_dev(["dev", "--target", "api"], scan_rc=255)
+    assert code == 1
+    env.open_vscode.assert_not_called()
+
+
+def test_dev_non_interactive_with_several_dev_containers_fails(tmp_path, monkeypatch):
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    scan = "/workspace/api/.devcontainer/devcontainer.json\n/workspace/web/.devcontainer.json\n"
+    code, env, _ = _run_dev(["dev"], scan_output=scan)
+    assert code == 1
+    env.open_vscode.assert_not_called()
+
+
+def test_dev_target_flag_picks_among_several(tmp_path, monkeypatch):
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    scan = "/workspace/api/.devcontainer/devcontainer.json\n/workspace/web/.devcontainer.json\n"
+    code, env, _ = _run_dev(["dev", "--target", "web"], scan_output=scan)
+    assert code == 0
+    assert env.open_vscode.call_args.kwargs["dev_target"].repo == "web"
+
+
+def test_dev_browser_ignores_dev_containers(tmp_path, monkeypatch):
+    _devcontainer_workspace(tmp_path, monkeypatch)
+    code, env, _ = _run_dev(["dev", "--browser"], scan_output="/workspace/api/.devcontainer.json\n")
+    assert code == 0
+    env.run_remote.assert_not_called()
+    assert env.open_vscode.call_args.kwargs.get("dev_target") is None

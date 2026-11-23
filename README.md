@@ -142,6 +142,23 @@ The prompt reaches the VM on stdin and a private temporary file that is deleted 
 
 Chosen at `rig init` (`editor.enabled` in `rig.yml`, same multi-select as git projects: numbers, names, or `all`). When more than one is selected, init asks which is the default for `rig dev` (`editor.default`). Pass `--editor` to open another enabled one. These are local clients: nothing extra is installed on the VM, and each IDE downloads its own remote server the first time it connects. Browser login: `rig vars decrypt vscode_browser_password`.
 
+### Dev Containers
+
+Set `editor.devcontainers: true` and `rig dev` looks for Dev Containers in your Repos on the VM (each Repo's root and its immediate subfolders: `.devcontainer/devcontainer.json`, `.devcontainer.json`, `.devcontainer/<name>/devcontainer.json`). One match opens straight away, several give a numbered prompt, none opens the plain folder.
+
+- `rig dev --target api` or `--target api:backend` skips the prompt; `--select` forces it. The last choice per Environment is remembered in `/tmp/.rig/targets/`.
+- Not supported with `--browser`. Agents still run on the VM, not in the container.
+- Docker is installed in the configure Stage and cached in the snapshot, so turning the flag on rebuilds the Workspace's snapshot once. New Workspaces get the task in `.rig/configure.yml`. **Existing Workspaces** must add it themselves, and existing Environments must be re-created:
+
+```yaml
+- name: Install Docker for Dev Containers
+  include_role:
+    name: geerlingguy.docker
+  when: install_docker | default(false)
+```
+
+See [ADR 0005](docs/adr/0005-docker-in-configure-for-devcontainers.md).
+
 ## Layout
 
 `rig init` writes commit-friendly files into the current directory (including a subdirectory of a git repo):
@@ -188,6 +205,7 @@ agent:
 editor:
   default: code           # default for `rig dev`
   enabled: [code]         # local IDEs `rig dev --editor` may open
+  devcontainers: false    # true: `rig dev` opens a Dev Container (see below)
 playbooks:
   provision: .rig/provision.yml
   configure: .rig/configure.yml
