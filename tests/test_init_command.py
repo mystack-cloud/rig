@@ -1005,3 +1005,73 @@ def test_save_creates_shared_vars_when_missing_without_personal_keys(tmp_path, m
 
     shared = yaml.safe_load((rig / "vars.yml").read_text(encoding="utf-8"))
     assert "gitlab_pat" not in (shared or {})
+
+
+def _init_with_devcontainer(tmp_path, *extra_answers, existing_flag=None):
+    root = tmp_path / "ws"
+    api = root / "api"
+    _git_init(api, "https://github.com/org/api.git")
+    dc = api / ".devcontainer"
+    dc.mkdir()
+    (dc / "devcontainer.json").write_text("{}\n")
+    if existing_flag is not None:
+        (api / "rig.yml").write_text(yaml.safe_dump({"kind": "workspace", "editor": {"devcontainers": existing_flag}}))
+    data_key = tmp_path / "data-key"
+    data_key.write_text("vault-pass\n")
+    asked = []
+    answers = _answers("", "api", "", "", *extra_answers)  # repo, name, agent, editor, ...
+
+    def ask(prompt):
+        asked.append(prompt)
+        return next(answers)
+
+    assert interactive_env_init(
+        str(api),
+        input_fn=ask,
+        secret_fn=_secrets(),
+        config_path=str(tmp_path / "rig-config"),
+        data_key_path=str(data_key),
+    )
+    return yaml.safe_load((api / "rig.yml").read_text()), asked
+
+
+def test_init_enables_dev_containers_by_default_when_found(tmp_path):
+    manifest, asked = _init_with_devcontainer(tmp_path, "")
+    assert manifest["editor"]["devcontainers"] is True
+    assert any("Dev Container" in prompt for prompt in asked)
+
+
+def test_init_records_a_no_answer(tmp_path):
+    manifest, _ = _init_with_devcontainer(tmp_path, "n")
+    assert manifest["editor"]["devcontainers"] is False
+
+
+def test_init_keeps_an_earlier_decision_without_asking(tmp_path):
+    manifest, asked = _init_with_devcontainer(tmp_path, existing_flag=False)
+    assert manifest["editor"]["devcontainers"] is False
+    assert not any("Dev Container" in prompt for prompt in asked)
+
+
+def test_init_without_dev_containers_asks_nothing_and_leaves_the_flag_unset(tmp_path):
+    root = tmp_path / "ws"
+    api = root / "api"
+    _git_init(api, "https://github.com/org/api.git")
+    data_key = tmp_path / "data-key"
+    data_key.write_text("vault-pass\n")
+    answers = _answers("", "api", "", "")
+    asked = []
+
+    def ask(prompt):
+        asked.append(prompt)
+        return next(answers)
+
+    assert interactive_env_init(
+        str(api),
+        input_fn=ask,
+        secret_fn=_secrets(),
+        config_path=str(tmp_path / "rig-config"),
+        data_key_path=str(data_key),
+    )
+    manifest = yaml.safe_load((api / "rig.yml").read_text())
+    assert "devcontainers" not in manifest["editor"]
+    assert not any("Dev Container" in prompt for prompt in asked)

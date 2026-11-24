@@ -144,7 +144,7 @@ Chosen at `rig init` (`editor.enabled` in `rig.yml`, same multi-select as git pr
 
 ### Dev Containers
 
-Set `editor.devcontainers: true` and `rig dev` looks for Dev Containers in your Repos on the VM (each Repo's root and its immediate subfolders: `.devcontainer/devcontainer.json`, `.devcontainer.json`, `.devcontainer/<name>/devcontainer.json`). One match opens straight away, several give a numbered prompt, none opens the plain folder.
+`rig init` looks for Dev Containers in the Repos you select and, when it finds any, asks whether to enable support (default yes). It records the answer in `rig.yml` and doesn't ask again. To enable it by hand, set `editor.devcontainers: true`; then `rig dev` looks for Dev Containers in your Repos on the VM (each Repo's root and its immediate subfolders: `.devcontainer/devcontainer.json`, `.devcontainer.json`, `.devcontainer/<name>/devcontainer.json`). One match opens straight away, several give a numbered prompt, none opens the plain folder.
 
 - `rig dev --target api` or `--target api:backend` skips the prompt; `--select` forces it. The last choice per Environment is remembered in `/tmp/.rig/targets/`.
 - Not supported with `--browser`. Agents still run on the VM, not in the container.
