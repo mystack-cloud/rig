@@ -5528,8 +5528,12 @@ class Workspace:
         agent_types: list[str] | None = None,
         editor: str | None = None,
         editors: list[str] | None = None,
+        devcontainers: bool | None = None,
     ) -> bool:
-        """Idempotently initialize workspace config and register selected repos."""
+        """Idempotently initialize workspace config and register selected repos.
+
+        ``devcontainers`` sets ``editor.devcontainers``; None leaves it as it is.
+        """
         workspace_name = name or os.path.basename(self.path.rstrip(os.sep)) or "workspace"
         if not _valid_component_name(workspace_name):
             print(f"Error: invalid workspace name '{workspace_name}'")
@@ -5578,6 +5582,8 @@ class Workspace:
         project.config["name"] = workspace_name
         project._set_agent_selection(chosen_agents, default=chosen_agent)
         apply_editor_selection(project.config, chosen_editors, default=chosen_editor)
+        if devcontainers is not None:
+            project.config["editor"]["devcontainers"] = devcontainers
         project.set_vars("coding_agent_type", chosen_agent)
         project.set_vars("coding_agent_types", list(chosen_agents))
 
@@ -5684,6 +5690,8 @@ class Workspace:
         # Re-apply after add_repo/load cycles so agent/editor choice is not lost.
         project._set_agent_selection(chosen_agents, default=chosen_agent)
         apply_editor_selection(project.config, chosen_editors, default=chosen_editor)
+        if devcontainers is not None:
+            project.config["editor"]["devcontainers"] = devcontainers
         project.set_vars("coding_agent_type", chosen_agent)
         project.set_vars("coding_agent_types", list(chosen_agents))
 
@@ -5874,6 +5882,16 @@ def interactive_env_init(
         print(f"Error: {exc}")
         return False
 
+    from cli.devcontainers import find_local_devcontainers, prompt_devcontainers
+
+    editor_block = existing.get("editor")
+    earlier = editor_block.get("devcontainers") if isinstance(editor_block, dict) else None
+    devcontainers = prompt_devcontainers(
+        find_local_devcontainers(selected),
+        earlier if isinstance(earlier, bool) else None,
+        input_fn or input,
+    )
+
     # Collect PATs before writing config so password_var can be attached on add.
     pat_assignments, default_pats = collect_repo_pats(
         selected,
@@ -5894,6 +5912,7 @@ def interactive_env_init(
         agent_types=agent_types,
         editor=editor,
         editors=editors,
+        devcontainers=devcontainers,
     ):
         return False
 

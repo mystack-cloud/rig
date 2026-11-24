@@ -9,6 +9,7 @@ import re
 import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,12 @@ _CONFIG_RE = re.compile(
 _SKIPPED_DIRS = ("node_modules", ".git")
 
 
+def _is_dev_container_path(config: str) -> bool:
+    """Is *config* (relative to a Repo root) a Dev Container within the scan depth?"""
+    match = _CONFIG_RE.match(config)
+    return match is not None and match.group("sub") not in _SKIPPED_DIRS
+
+
 def _scan_command(dest: str) -> str:
     skipped = " -o ".join(f"-name {d}" for d in _SKIPPED_DIRS)
     return (
@@ -73,10 +80,8 @@ def find_devcontainers(
             if not line.startswith(dest.rstrip("/") + "/"):
                 continue
             config = os.path.relpath(line, dest)
-            match = _CONFIG_RE.match(config)
-            if not match or match.group("sub") in _SKIPPED_DIRS:
-                continue
-            found.append(DevTarget(name, config))
+            if _is_dev_container_path(config):
+                found.append(DevTarget(name, config))
     return sorted(found, key=lambda t: (t.repo, t.config))
 
 
@@ -189,3 +194,45 @@ def scan_environment(env, repos: Sequence[tuple[str, str]]) -> list[DevTarget]:
         return result.stdout
 
     return find_devcontainers(run_remote, repos)
+
+
+_LOCAL_PATTERNS = (".devcontainer.json", ".devcontainer/devcontainer.json", ".devcontainer/*/devcontainer.json")
+
+
+def find_local_devcontainers(repos: Sequence[dict]) -> list[DevTarget]:
+    """Dev Containers in Repos checked out on this machine (each has ``name`` and ``path``)."""
+    found: list[DevTarget] = []
+    for repo in repos:
+        name, path = repo.get("name"), repo.get("path")
+        if not name or not path or not os.path.isdir(path):
+            continue
+        root = Path(path)
+        for prefix in ("", "*/"):
+            for pattern in _LOCAL_PATTERNS:
+                for match in root.glob(prefix + pattern):
+                    config = match.relative_to(root).as_posix()
+                    if match.is_file() and _is_dev_container_path(config):
+                        found.append(DevTarget(str(name), config))
+    return sorted(set(found), key=lambda t: (t.repo, t.config))
+
+
+def prompt_devcontainers(
+    found: Sequence[DevTarget],
+    current: bool | None,
+    input_fn: Callable[[str], str] = input,
+) -> bool | None:
+    """Whether to enable Dev Containers for the Workspace, asked by ``rig init``.
+
+    Asks only when some were found and ``editor.devcontainers`` was never set;
+    Enter means yes. An earlier answer is kept. None means leave the flag unset.
+    """
+    if current is not None:
+        return current
+    if not found:
+        return None
+    repos = ", ".join(sorted({t.repo for t in found}))
+    answer = input_fn(
+        f"Dev Containers found in {repos}. Enable Dev Container support "
+        "(installs Docker, rebuilds the snapshot once)? [Y/n]: "
+    )
+    return not answer.strip().lower().startswith("n")

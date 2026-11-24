@@ -239,3 +239,59 @@ def test_scan_reports_an_unreachable_environment():
     env.run_remote.side_effect = OSError("ssh not found")
     with pytest.raises(DevContainerScanError, match="could not reach"):
         scan_environment(env, [("api", "/workspace/api")])
+
+
+# --- rig init ---------------------------------------------------------------
+
+
+def _touch(root, rel):
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}\n")
+
+
+def test_local_scan_finds_dev_containers_in_selected_repos(tmp_path):
+    from cli.devcontainers import find_local_devcontainers
+
+    _touch(tmp_path / "api", ".devcontainer/devcontainer.json")
+    _touch(tmp_path / "mono", "svc/.devcontainer.json")
+    _touch(tmp_path / "mono", "a/b/.devcontainer.json")  # too deep
+    _touch(tmp_path / "mono", "node_modules/x/.devcontainer.json")
+    _touch(tmp_path / "web", "README.md")
+    repos = [{"name": n, "path": str(tmp_path / n)} for n in ("api", "mono", "web")]
+    assert find_local_devcontainers(repos) == [
+        DevTarget("api", ".devcontainer/devcontainer.json"),
+        DevTarget("mono", "svc/.devcontainer.json"),
+    ]
+
+
+def test_local_scan_skips_repos_without_a_local_path(tmp_path):
+    from cli.devcontainers import find_local_devcontainers
+
+    assert find_local_devcontainers([{"name": "x"}, {"name": "y", "path": str(tmp_path / "gone")}]) == []
+
+
+def test_init_asks_to_enable_only_when_found_and_never_answered():
+    from cli.devcontainers import prompt_devcontainers
+
+    found = [API_DEFAULT, WEB_SUB]
+    asked = []
+
+    def ask(prompt):
+        asked.append(prompt)
+        return ""
+
+    assert prompt_devcontainers(found, None, ask) is True  # Enter defaults to yes
+    assert "api" in asked[0] and "web" in asked[0]
+    assert prompt_devcontainers(found, None, lambda _p: "n") is False
+    assert prompt_devcontainers(found, None, lambda _p: "No") is False
+    assert prompt_devcontainers(found, None, lambda _p: "y") is True
+
+
+def test_init_does_not_ask_when_nothing_found_or_already_decided():
+    from cli.devcontainers import prompt_devcontainers
+
+    assert prompt_devcontainers([], None, _no_input) is None
+    assert prompt_devcontainers([], True, _no_input) is True
+    assert prompt_devcontainers([API_DEFAULT], False, _no_input) is False
+    assert prompt_devcontainers([API_DEFAULT], True, _no_input) is True
