@@ -308,6 +308,7 @@ def test_snapshot_after_playbook_only_after_configure(tmp_path):
     env = RemoteDevEnvironment(name="dev-x")
     env.vm_id = 99
     env.manager.create_snapshot = MagicMock(return_value={"id": 1})
+    env.flush_disk = MagicMock(return_value=True)
 
     # provision alone does not snapshot.
     assert env._snapshot_after_playbook("provision", project) is True
@@ -742,3 +743,58 @@ def test_system_hash_follows_provision_and_configure_playbooks(tmp_path):
     base = system_content_hash(project_dir=str(tmp_path))
     (rig / "configure.yml").write_text("# c2\n")
     assert system_content_hash(project_dir=str(tmp_path)) != base
+
+
+def _snapshot_project(tmp_path):
+    (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\nagent:\n  type: opencode\n")
+    (tmp_path / ".rig").mkdir()
+    for name in ("provision", "configure", "materialize"):
+        (tmp_path / ".rig" / f"{name}.yml").write_text("---\n")
+
+    from cli.remote_dev import ProjectConfig
+
+    project = ProjectConfig(str(tmp_path))
+    assert project.load()
+    return project
+
+
+def test_snapshot_flushes_the_disk_before_creating_the_image(tmp_path):
+    project = _snapshot_project(tmp_path)
+    env = RemoteDevEnvironment(name="dev-x")
+    env.vm_id = 99
+    calls = MagicMock()
+    env.flush_disk = calls.flush
+    calls.flush.return_value = True
+    env.manager.create_snapshot = calls.create
+    calls.create.return_value = {"id": 1}
+
+    assert env._snapshot_after_playbook("configure", project) is True
+    assert [c[0] for c in calls.mock_calls] == ["flush", "create"]
+
+
+def test_snapshot_is_skipped_when_the_disk_cannot_be_flushed(tmp_path):
+    project = _snapshot_project(tmp_path)
+    env = RemoteDevEnvironment(name="dev-x")
+    env.vm_id = 99
+    env.flush_disk = MagicMock(return_value=False)
+    env.manager.create_snapshot = MagicMock(return_value={"id": 1})
+
+    assert env._snapshot_after_playbook("configure", project) is False
+    env.manager.create_snapshot.assert_not_called()
+
+
+def test_flush_disk_runs_sync_on_the_vm():
+    env = RemoteDevEnvironment(name="dev-x")
+    env.vm_ip = "198.51.100.7"
+    env.run_remote = MagicMock(return_value=MagicMock(returncode=0, stderr=""))
+    assert env.flush_disk() is True
+    assert env.run_remote.call_args.args[0].split()[0] == "sync"
+
+    env.run_remote.return_value = MagicMock(returncode=255, stderr="refused")
+    assert env.flush_disk() is False
+
+    env.run_remote.side_effect = OSError("no ssh")
+    assert env.flush_disk() is False
+
+    env.vm_ip = None
+    assert env.flush_disk() is False

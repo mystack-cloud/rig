@@ -1177,3 +1177,28 @@ def test_authorize_fails_loudly_on_an_invalid_mcp_json(tmp_path):
     _root, result = _run_authorize_mcp_tasks(tmp_path, {"mcpServers": {"a": {}}}, ["claude"])
     assert result.returncode != 0
     assert "exactly one of" in result.stdout + result.stderr
+
+
+def test_authorize_treats_empty_claude_state_files_as_empty_json():
+    """A snapshot can hold a 0-byte settings.json; seeding must merge into {}."""
+    import base64
+
+    import yaml
+
+    pytest.importorskip("ansible")
+    from ansible.parsing.dataloader import DataLoader
+    from ansible.template import Templar, trust_as_template
+
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    tasks = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"]
+    seed = next(t for t in tasks if t.get("name", "").startswith("Seed Claude Code onboarding"))
+    results = [
+        {"item": {"item": "/root/.claude/settings.json"}, "content": ""},
+        {"item": {"item": "/root/.claude.json"}, "content": base64.b64encode(b'{"a": 1}').decode()},
+    ]
+    templar = Templar(loader=DataLoader(), variables={"_claude_state_contents": {"results": results}})
+    assert templar.template(trust_as_template(seed["vars"]["_existing"])) == {
+        "/root/.claude/settings.json": {},
+        "/root/.claude.json": {"a": 1},
+    }
