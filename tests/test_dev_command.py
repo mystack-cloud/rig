@@ -561,3 +561,37 @@ def test_dev_browser_ignores_dev_containers(tmp_path, monkeypatch):
     assert code == 0
     env.run_remote.assert_not_called()
     assert env.open_vscode.call_args.kwargs.get("dev_target") is None
+
+
+def test_open_vscode_opens_the_dev_container_uri(tmp_path):
+    from cli.devcontainers import DevTarget
+
+    env = RemoteDevEnvironment(name="dev-dcuri")
+    env.vm_ip = "198.51.100.12"
+    env.ssh_key_name = "dev-dcuri-key"
+    key_path = f"/tmp/{env.ssh_key_name}"
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return MagicMock(returncode=0)
+
+    with open(key_path, "w", encoding="utf-8") as handle:
+        handle.write("fake-key\n")
+    try:
+        with (
+            patch.object(RemoteDevEnvironment, "resolve_editor_command", return_value="/usr/bin/code"),
+            patch("cli.remote_dev.subprocess.run", side_effect=fake_run),
+        ):
+            code = env.open_vscode(
+                ssh_config_path=str(tmp_path / "ssh_config"),
+                dev_target=DevTarget("api", ".devcontainer/devcontainer.json"),
+                repo_dest="/workspace/api",
+            )
+    finally:
+        os.remove(key_path)
+    assert code == 0
+    assert captured["cmd"][:2] == ["/usr/bin/code", "--folder-uri"]
+    uri = captured["cmd"][2]
+    assert uri.startswith("vscode-remote://dev-container+")
+    assert uri.endswith("@ssh-remote+rig-dev-dcuri/workspaces/api")

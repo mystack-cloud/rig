@@ -33,3 +33,20 @@ def test_env_name_cannot_escape_the_directory(tmp_path):
     remember_target("../../evil", target, directory=directory)
     assert os.listdir(directory) and not (tmp_path / "evil").exists()
     assert read_target("../../evil", directory=directory) == target
+
+
+def test_malformed_remembered_target_is_ignored(tmp_path):
+    directory = tmp_path / "targets"
+    directory.mkdir()
+    (directory / "dev-bad").write_text("repo=api\n", encoding="utf-8")
+    assert read_target("dev-bad", directory=str(directory)) is None
+
+
+def test_remember_survives_chmod_failure(tmp_path):
+    from unittest.mock import patch
+
+    directory = str(tmp_path / "targets")
+    target = DevTarget(repo="api", config=".devcontainer.json")
+    with patch("cli.last_target.os.chmod", side_effect=OSError("nope")):
+        remember_target("dev-abc", target, directory=directory)
+    assert read_target("dev-abc", directory=directory) == target

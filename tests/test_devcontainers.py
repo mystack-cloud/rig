@@ -228,3 +228,14 @@ def test_default_configure_playbook_installs_docker_only_when_asked():
 
     assert "geerlingguy.docker" in CONFIGURE_PLAYBOOK
     assert "install_docker | default(false)" in CONFIGURE_PLAYBOOK
+
+
+def test_scan_reports_an_unreachable_environment():
+    from unittest.mock import MagicMock
+
+    from cli.devcontainers import DevContainerScanError, scan_environment
+
+    env = MagicMock()
+    env.run_remote.side_effect = OSError("ssh not found")
+    with pytest.raises(DevContainerScanError, match="could not reach"):
+        scan_environment(env, [("api", "/workspace/api")])
