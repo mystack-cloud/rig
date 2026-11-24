@@ -2528,6 +2528,10 @@ class RemoteDevEnvironment:
             agent_type=inputs.get("agent_type"),
         )
 
+        if not self.flush_disk():
+            log.warning("Skipping snapshot %s: could not flush the disk first", description)
+            return False
+
         try:
             image = self.manager.create_snapshot(
                 str(self.vm_id),
@@ -3256,6 +3260,24 @@ echo "Agent installation complete!"
             text=True,
             timeout=timeout,
         )
+
+    def flush_disk(self, *, timeout: int = 120) -> bool:
+        """Flush the VM's dirty pages to disk, so a snapshot of it is consistent.
+
+        Hetzner snapshots a running server's disk as it is, and ext4 can hold
+        a new file's contents in memory for ~30s after journaling that it exists.
+        """
+        if not self.vm_ip:
+            return False
+        try:
+            result = self.run_remote("sync && sync", timeout=timeout, connect_timeout=15)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.warning("Could not flush the disk of %s: %s", self.name, exc)
+            return False
+        if result.returncode != 0:
+            log.warning("Could not flush the disk of %s: %s", self.name, (result.stderr or "").strip())
+            return False
+        return True
 
     # --- live agents -------------------------------------------------------
 
@@ -4141,6 +4163,7 @@ AUTHORIZE_PLAYBOOK = r"""---
     # --- Skip first-run prompts (theme picker, login wizard, folder trust) ---
     # Runs on every create (authorize is never snapshotted) and merges into any
     # existing file: the installer can create ~/.claude.json before we get here.
+    # A file can be empty (a snapshot taken before its contents reached disk): read it as {}.
     - name: Ensure Claude config directory exists for seeding
       file:
         path: /root/.claude
@@ -4171,7 +4194,8 @@ AUTHORIZE_PLAYBOOK = r"""---
                   | map(attribute='item.item') | zip(
                     _claude_state_contents.results | default([])
                     | map(attribute='content')
-                    | map('b64decode') | map('from_json')) ) }}
+                    | map('b64decode') | map('trim') | map('default', '{}', true)
+                    | map('from_json')) ) }}
         _ws: "{{ workspace_root | default('/workspace') }}"
         _state_seed:
           hasCompletedOnboarding: true

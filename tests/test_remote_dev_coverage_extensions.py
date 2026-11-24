@@ -1035,6 +1035,7 @@ class TestRemoteDevEnvironmentMore:
         env.vm_id = "vm1"
         env.manager = MagicMock()
         env.manager.create_snapshot.return_value = {"id": "img"}
+        env.flush_disk = MagicMock(return_value=True)
         # Patch helpers in-place — never replace sys.modules["cli.snapshots"].
         monkeypatch.setattr("cli.snapshots.package_version", lambda: "0")
         monkeypatch.setattr(
