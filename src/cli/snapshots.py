@@ -35,6 +35,7 @@ SYSTEM_SNAPSHOT_VAR_KEYS: tuple[str, ...] = (
     "code_server_port",
     "code_server_user",
     "workspace_root",
+    "install_docker",
 )
 
 # Values that change what workspace.yml configures (clone layout, root path).

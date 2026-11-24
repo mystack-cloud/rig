@@ -55,3 +55,11 @@ _Avoid_: Plugin, tool, integration
 **MCP variable**:
 A named value an MCP server needs at runtime, resolved from the vaulted variable whose name matches it ignoring case.
 _Avoid_: MCP secret, MCP env
+
+**Dev Container**:
+One `devcontainer.json` definition found in a Repo, describing the container its code is developed in.
+_Avoid_: Project, devbox
+
+**Dev target**:
+The Repo and Dev Container pair that `rig dev` opens on an Environment.
+_Avoid_: Project, selection

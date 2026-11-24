@@ -16,6 +16,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 from cli import DISTRIBUTION_NAME
 from cli import log as log
 from cli.config import RigConfig
+from cli.devcontainers import (
+    DevContainerError,
+    DevContainerScanError,
+    choose_target,
+    devcontainers_enabled,
+    repo_destinations,
+    scan_environment,
+)
 from cli.encrypt import interactive_decrypt, interactive_encrypt
 from cli.last_env import clear_last_env, remember_last_env, resolve_env_name
 from cli.last_session import (
@@ -25,6 +33,7 @@ from cli.last_session import (
     remember_last_session,
     resume_args_for_agent,
 )
+from cli.last_target import read_target, remember_target
 from cli.live_agent import QUEUE_REFUSALS, running_agents
 from cli.remote_dev import (
     IMPLEMENTED_CLOUD_PROVIDERS,
@@ -676,6 +685,33 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         return 1
 
 
+def _pick_dev_target(env, project, args: argparse.Namespace):
+    """Scan the Environment and choose a Dev target: ``(target, repo remote path)``.
+
+    A scan that cannot run falls back to the plain open, unless ``--target`` was given.
+    """
+    requested = getattr(args, "target", None)
+    repos = repo_destinations(project.config, REMOTE_WORKSPACE_ROOT)
+    try:
+        candidates = scan_environment(env, repos)
+    except DevContainerScanError as exc:
+        if requested:
+            raise
+        log.warning("Could not look for Dev Containers (%s); opening the plain folder", exc)
+        return None, None
+    target = choose_target(
+        candidates,
+        read_target(env.name),
+        requested,
+        bool(getattr(args, "select", False)),
+        sys.stdin.isatty(),
+    )
+    if target is None:
+        return None, None
+    remember_target(env.name, target)
+    return target, dict(repos)[target.repo]
+
+
 def _cmd_dev(args: argparse.Namespace) -> int:
     _load_credentials()
     hetzner_token = os.getenv("HETZNER_CLOUD_API_TOKEN")
@@ -737,12 +773,24 @@ def _cmd_dev(args: argparse.Namespace) -> int:
                 ", ".join(enabled),
                 editor,
             )
+        dev_target, repo_dest = None, None
+        if devcontainers_enabled(project.config):
+            if getattr(args, "browser", False):
+                log.warning("Dev Containers are not supported with --browser; opening the plain folder")
+            else:
+                try:
+                    dev_target, repo_dest = _pick_dev_target(env, project, args)
+                except DevContainerError as exc:
+                    log.error("%s", exc)
+                    return 1
         return env.open_vscode(
             remote_path=getattr(args, "path", None) or REMOTE_WORKSPACE_ROOT,
             project_dir=os.getcwd(),
             browser=bool(getattr(args, "browser", False)),
             editor=editor,
             editor_fallbacks=editor_fallbacks,
+            dev_target=dev_target,
+            repo_dest=repo_dest,
         )
     except Exception as e:
         log.error("Error opening VS Code: %s", e)
@@ -1402,6 +1450,16 @@ def main(argv=None):
         "--browser",
         action="store_true",
         help="Open code-server in the browser instead of local VS Code/Cursor",
+    )
+    dev_parser.add_argument(
+        "--target",
+        metavar="REPO[:NAME]",
+        help="Dev Container to open (needs editor.devcontainers in rig.yml); skips the prompt",
+    )
+    dev_parser.add_argument(
+        "--select",
+        action="store_true",
+        help="Always ask which Dev Container to open",
     )
     dev_parser.add_argument(
         "--editor",

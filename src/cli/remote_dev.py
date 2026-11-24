@@ -612,6 +612,11 @@ def derive_config_vars(config: dict[str, Any] | None) -> dict[str, Any]:
         types, default = resolve_configured_agents(agent_cfg)
         out["coding_agent_type"] = default
         out["coding_agent_types"] = list(types)
+
+    from cli.devcontainers import devcontainers_enabled
+
+    if devcontainers_enabled(cfg):
+        out["install_docker"] = True  # Dev Containers need Docker (ADR 0005)
     return out
 
 
@@ -3505,9 +3510,14 @@ echo "Agent installation complete!"
         editor: str | None = None,
         editor_fallbacks: Sequence[str] | None = None,
         ssh_config_path: str | None = None,
+        dev_target: Any = None,
+        repo_dest: str | None = None,
     ) -> int:
         """
         Open VS Code (or Cursor) against the remote VM via Remote-SSH.
+
+        With a ``dev_target`` (a Repo's Dev Container, cloned at ``repo_dest``)
+        the editor opens that container instead of the plain folder.
 
         Editor is the default. Pass ``browser=True`` to open code-server in a
         browser instead.
@@ -3581,6 +3591,11 @@ echo "Agent installation complete!"
 
         alias = self.ensure_ssh_config_host(ssh_config_path=ssh_config_path)
         folder_uri = f"vscode-remote://ssh-remote+{alias}{remote_path}"
+        if dev_target is not None and repo_dest:
+            from cli.devcontainers import devcontainer_folder_uri
+
+            folder_uri = devcontainer_folder_uri(alias, repo_dest, dev_target)
+            remote_path = f"{dev_target.label} Dev Container"
         cmd = [editor_bin, "--folder-uri", folder_uri]
         log.info("Opening %s on %s (%s)", editor_bin, self.vm_ip, remote_path)
         log.debug("SSH host alias=%s folder_uri=%s", alias, folder_uri)
@@ -4023,6 +4038,11 @@ CONFIGURE_PLAYBOOK = """---
   become: true
   gather_facts: false
   tasks:
+    - name: Install Docker for Dev Containers (editor.devcontainers in rig.yml)
+      include_role:
+        name: geerlingguy.docker
+      when: install_docker | default(false)
+
     - name: Configure placeholder (customize this playbook)
       debug:
         msg: >-
