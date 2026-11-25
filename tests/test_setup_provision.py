@@ -1221,3 +1221,16 @@ def test_environment_connects_as_the_configured_workspace_user():
     assert env.work_home == "/home/ops"
     assert env._ssh_command("true", tty=False)[-2] == "ops@203.0.113.9"
     assert "/home/ops/.claude/credentials.env" in env.agent_remote_command("claude", home=env.work_home)
+
+
+def test_flush_disk_connects_as_root_before_the_workspace_user_can_log_in():
+    import subprocess
+    from unittest.mock import patch
+
+    env = RemoteDevEnvironment(name="flush")
+    env.vm_ip, env.ssh_key_name = "203.0.113.9", "k"
+    with patch("cli.remote_dev.subprocess.run") as run:
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        assert env.flush_disk() is True
+    assert "root@203.0.113.9" in run.call_args.args[0]
+    assert "dev@203.0.113.9" in env._ssh_command("true", tty=False)
