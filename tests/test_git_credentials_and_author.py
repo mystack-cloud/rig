@@ -162,17 +162,17 @@ def _provider_block():
 
 def test_authorize_sets_the_git_author():
     task = next(t for t in _authorize_tasks() if t["name"] == "Set the git author for commits made on the VM")
-    assert task["command"]["argv"][:3] == ["git", "config", "--global"]
+    assert task["command"]["argv"][:3] == ["git", "config", "--file"]
     keys = [item["key"] for item in task["loop"]]
     assert keys == ["user.name", "user.email"]
     rendered = yaml.safe_dump(task["loop"])
     assert "rig_git_author_name" in rendered and "rig_git_author_email" in rendered
 
 
-def test_authorize_writes_tokens_to_a_root_only_file():
+def test_authorize_writes_tokens_to_an_owner_only_file():
     block = _provider_block()
     env_file = next(t for t in block if t["name"].startswith("Write the provider token file"))
-    assert env_file["copy"]["dest"] == "/root/.config/rig/git-provider.env"
+    assert env_file["copy"]["dest"] == "/home/{{ rig_user }}/.config/rig/git-provider.env"
     assert env_file["copy"]["mode"] == "0600"
     assert env_file["no_log"] is True
     assert "GH_TOKEN=" in env_file["copy"]["content"]
@@ -209,7 +209,9 @@ def _helper_script(tmp_path):
     assert helper["copy"]["mode"] == "0755"
     token_file = tmp_path / "git-provider.env"
     script = tmp_path / "rig-git-credential"
-    script.write_text(helper["copy"]["content"].replace("/root/.config/rig/git-provider.env", str(token_file)))
+    script.write_text(
+        helper["copy"]["content"].replace("/home/{{ rig_user }}/.config/rig/git-provider.env", str(token_file))
+    )
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return script, token_file
 
@@ -274,7 +276,7 @@ def test_agent_launch_sources_the_provider_tokens():
     """`rig attach` runs `ssh host '<cmd>'` (non-login): /etc/profile.d is never
     read, so the launch command itself must export GH_TOKEN / GITLAB_TOKEN or
     `gh` inside the agent says it is not authenticated."""
-    assert PROVIDER_TOKENS_ENV_FILE == "/root/.config/rig/git-provider.env"
+    assert PROVIDER_TOKENS_ENV_FILE == "/home/dev/.config/rig/git-provider.env"
     for agent in ("claude", "cursor", "opencode"):
         cmd = RemoteDevEnvironment.agent_remote_command(agent)
         source = f"[ -f {PROVIDER_TOKENS_ENV_FILE} ] && . {PROVIDER_TOKENS_ENV_FILE}"

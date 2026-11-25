@@ -60,7 +60,7 @@ Declare an MCP server once in `.rig/mcp.json` and every enabled agent gets it. T
   "mcpServers": {
     "awx": {
       "command": "python3",
-      "args": ["-u", "/root/awx-mcp-stdio.py"],
+      "args": ["-u", "/home/dev/awx-mcp-stdio.py"],
       "env": { "AWX_MCP_API_KEY": "${AWX_MCP_API_KEY}" }
     },
     "context7": {
@@ -72,7 +72,7 @@ Declare an MCP server once in `.rig/mcp.json` and every enabled agent gets it. T
 ```
 
 ```bash
-rig mcp add awx --env AWX_MCP_API_KEY -- python3 -u /root/awx-mcp-stdio.py
+rig mcp add awx --env AWX_MCP_API_KEY -- python3 -u /home/dev/awx-mcp-stdio.py
 rig mcp add context7 --url https://mcp.context7.com/mcp --header 'CONTEXT7_API_KEY=${CONTEXT7_API_KEY}'
 rig mcp list      # servers, and whether each variable resolves
 rig mcp check     # same, exit 1 on any problem (also lists ignored legacy files)
@@ -118,7 +118,7 @@ rig exec --name dev-ab12cd34 --agent claude "..."
 
 `rig exec` starts the live agent with the prompt, prints how to attach, and returns. It never creates an Environment and never waits.
 
-- **Approvals are skipped by default** (`--permission-mode bypassPermissions` for Claude Code, `--force` for Cursor, `--auto` for OpenCode), because an unattended agent that stops at a prompt just sits there. Claude Code refuses bypass mode as root unless it is told it runs in a sandbox, so rig sets `IS_SANDBOX=1` for that run, and authorize pre-accepts Claude's first-use warning dialog (`skipDangerousModePermissionPrompt`), whose default answer is "exit". The Environment has internet access, your tokens and root, so an agent reading untrusted text could be talked into acting on it. Use `--no-auto-approve` to supervise the run; it then pauses at each approval until you attach.
+- **Approvals are skipped by default** (`--permission-mode bypassPermissions` for Claude Code, `--force` for Cursor, `--auto` for OpenCode), because an unattended agent that stops at a prompt just sits there. Claude Code refuses bypass mode as root unless it is told it runs in a sandbox, so rig sets `IS_SANDBOX=1` for that run (harmless for the non-root workspace user), and authorize pre-accepts Claude's first-use warning dialog (`skipDangerousModePermissionPrompt`), whose default answer is "exit". The Environment has internet access, your tokens and root, so an agent reading untrusted text could be talked into acting on it. Use `--no-auto-approve` to supervise the run; it then pauses at each approval until you attach.
 - **If a live agent is already running**, `rig exec` queues the prompt into it for Claude Code, which runs it after the current turn. rig does this only when Claude's hooks report it idle or working, never while it waits at an approval dialog (typing there would answer the dialog). If it is waiting, the state is unknown, or the agent is OpenCode or Cursor (queue behaviour not yet verified), `rig exec` refuses with the reason; `--restart` replaces the live agent instead. A queued prompt runs under the existing agent's permission mode.
 - The agent's startup is checked: if it exits within a couple of seconds (for example no credentials), `rig exec` prints its output and fails.
 
@@ -158,6 +158,19 @@ Chosen at `rig init` (`editor.enabled` in `rig.yml`, same multi-select as git pr
 ```
 
 See [ADR 0005](docs/adr/0005-docker-in-configure-for-devcontainers.md).
+
+### Workspace user
+
+Rig doesn't make you work as root. Provision creates one non-root account, `dev` by default, with passwordless `sudo` and (once Docker is installed) the `docker` group. It is the account `rig attach`, `rig exec`, `rig dev`, the SSH alias, agents, code-server and Dev Containers all use, so VS Code remaps the container user's uid to match it and `/workspace` is writable from the container. Ansible still connects as root. Authorize copies root's `authorized_keys` to the user on every create.
+
+Change the name in `rig.yml` (not `root`; a valid Linux user name):
+
+```yaml
+host:
+  user: dev
+```
+
+Agent config (`~/.claude`, `~/.cursor`, `~/.config/opencode`), the git token file and the git author live in that user's home. `code_server_user` is no longer used. Playbooks get `rig_user` and `rig_home`. **Existing Workspaces:** `provision.yml` and `authorize.yml` are regenerated, but your `materialize.yml` is not: add `become_user: "{{ rig_user }}"` to its clone task and `owner`/`group: "{{ rig_user }}"` to the `/workspace` task. Existing Environments predate the user and must be re-created. See [ADR 0006](docs/adr/0006-workspace-user-instead-of-root.md).
 
 ## Layout
 
@@ -238,7 +251,7 @@ ports:
     allowed_ips: ["198.51.100.10/32"]
 ```
 
-Remote project files live under `/workspace` (not `/root`).
+Remote project files live under `/workspace`, owned by the workspace user (not in its home).
 
 ## Lifecycle
 
@@ -439,7 +452,7 @@ MIT
 
 **Provider tokens never go into repo URLs.** `authorize.yml` (managed) takes
 `github_pat` / `gitlab_pat` from the vars files and writes them to
-`/root/.config/rig/git-provider.env` (mode `0600`, root only). From there:
+`~/.config/rig/git-provider.env` of the workspace user (mode `0600`). From there:
 
 - login shells get `GH_TOKEN` / `GITLAB_TOKEN` via `/etc/profile.d`, and `rig attach`
   exports them to the agent process itself (it starts the agent in a non-login
@@ -449,7 +462,7 @@ MIT
   answers `github.com` / `gitlab.com` HTTPS requests from that same file, so
   `git clone`, `git push` and the `materialize.yml` clone task all use plain
   URLs (`https://github.com/org/repo.git`) and nothing sits in `.git/config`
-  or `git remote -v`. Other users on the VM can't read the file and get no
+  or `git remote -v`. Other users on the VM (besides root) can't read the file and get no
   credentials.
 
 The `materialize.yml` clone task passes the token to git through an inline

@@ -26,7 +26,7 @@ def test_agent_remote_command_opencode_claude_and_cursor():
 
     cursor = RemoteDevEnvironment.agent_remote_command("cursor")
     assert "exec agent" in cursor
-    assert "/root/.cursor/credentials.env" in cursor
+    assert "/home/dev/.cursor/credentials.env" in cursor
     assert "mkdir -p /workspace" in cursor
 
 
@@ -354,7 +354,7 @@ def test_attach_to_agent_builds_ssh_tty_command(tmp_path, capsys):
     ssh_cmd = _attach_ssh_command(captured["cmd"])
     assert ssh_cmd[0] == "ssh" or ssh_cmd[0].endswith("/ssh")
     assert "-tt" in ssh_cmd
-    assert "root@203.0.113.10" in ssh_cmd
+    assert "dev@203.0.113.10" in ssh_cmd
     assert "LogLevel=ERROR" in ssh_cmd
     assert any("exec claude" in part for part in ssh_cmd)
 
@@ -384,7 +384,7 @@ def test_open_ssh_starts_a_workspace_shell():
     remote = ssh_cmd[-1]
     assert "cd /workspace" in remote
     assert "exec bash -l" in remote
-    assert "root@203.0.113.20" in ssh_cmd
+    assert "dev@203.0.113.20" in ssh_cmd
 
     with patch("cli.remote_dev.subprocess.run", side_effect=fake_run):
         assert env.open_ssh(remote_command="uptime") == 0
@@ -916,7 +916,7 @@ def test_claude_seed_merges_into_existing_files(tmp_path):
     play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
     names = ("Ensure Claude config", "Check for existing Claude", "Read existing Claude", "Seed Claude")
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
-    tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
+    tasks = json.loads(json.dumps(tasks).replace("/home/{{ rig_user }}", str(root)))
     pb = [
         {
             "hosts": "localhost",
@@ -957,7 +957,7 @@ def test_cursor_workspace_is_pretrusted():
     assert trust["copy"]["dest"].endswith("/.workspace-trusted")
     assert trust["copy"]["force"] is False
     assert trust["vars"]["_cursor_trust"]["workspacePath"].startswith("{{ workspace_root")
-    assert mkdir["file"]["path"].startswith("/root/.cursor/projects/")
+    assert mkdir["file"]["path"].startswith("/home/{{ rig_user }}/.cursor/projects/")
     assert "'cursor' in _rig_agent_types" in trust["when"]
 
 
@@ -1001,7 +1001,7 @@ def test_materialize_clone_retries_only_transient_network_errors():
 def test_provision_no_longer_deploys_per_agent_mcp_files():
     from cli.remote_dev import PROVISION_PLAYBOOK
 
-    for retired in ("MCP config", "Merge OpenCode MCP", "/root/.mcp.json", "mcp.json"):
+    for retired in ("MCP config", "Merge OpenCode MCP", "/home/dev/.mcp.json", "mcp.json"):
         assert retired not in PROVISION_PLAYBOOK, retired
 
 
@@ -1014,8 +1014,8 @@ def test_authorize_renders_mcp_servers_with_the_hostvars_mapping():
     assert render["no_log"] is True
     assert tasks["Merge MCP servers into Agent configs"]["no_log"] is True
     targets = {t["agent"]: t for t in render["set_fact"]["_rig_mcp_targets"]}
-    assert targets["claude"]["path"] == "/root/.claude.json" and targets["claude"]["key"] == "mcpServers"
-    assert targets["cursor"]["path"] == "/root/.cursor/mcp.json"
+    assert targets["claude"]["path"] == "/home/{{ rig_user }}/.claude.json" and targets["claude"]["key"] == "mcpServers"
+    assert targets["cursor"]["path"] == "/home/{{ rig_user }}/.cursor/mcp.json"
     assert targets["opencode"]["key"] == "mcp"
 
 
@@ -1065,7 +1065,7 @@ def _run_authorize_mcp_tasks(tmp_path, mcp_config, agents, extra_vars=None, file
     play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     assert len(tasks) == len(names)
-    tasks = json.loads(json.dumps(tasks).replace("/root", str(root)))
+    tasks = json.loads(json.dumps(tasks).replace("/home/{{ rig_user }}", str(root)))
     playbook = [
         {
             "hosts": "localhost",
@@ -1194,11 +1194,30 @@ def test_authorize_treats_empty_claude_state_files_as_empty_json():
     tasks = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"]
     seed = next(t for t in tasks if t.get("name", "").startswith("Seed Claude Code onboarding"))
     results = [
-        {"item": {"item": "/root/.claude/settings.json"}, "content": ""},
-        {"item": {"item": "/root/.claude.json"}, "content": base64.b64encode(b'{"a": 1}').decode()},
+        {"item": {"item": "/home/dev/.claude/settings.json"}, "content": ""},
+        {"item": {"item": "/home/dev/.claude.json"}, "content": base64.b64encode(b'{"a": 1}').decode()},
     ]
     templar = Templar(loader=DataLoader(), variables={"_claude_state_contents": {"results": results}})
     assert templar.template(trust_as_template(seed["vars"]["_existing"])) == {
-        "/root/.claude/settings.json": {},
-        "/root/.claude.json": {"a": 1},
+        "/home/dev/.claude/settings.json": {},
+        "/home/dev/.claude.json": {"a": 1},
     }
+
+
+def test_workspace_user_defaults_to_dev_and_is_configurable():
+    from cli.workspace_user import workspace_user
+
+    assert workspace_user(None) == "dev"
+    assert workspace_user({"user": ""}) == "dev"
+    assert workspace_user({"user": "ops"}) == "ops"
+    for bad in ("root", "Bad Name", "1abc", "a" * 40):
+        with pytest.raises(ValueError):
+            workspace_user({"user": bad})
+
+
+def test_environment_connects_as_the_configured_workspace_user():
+    env = RemoteDevEnvironment(name="u", config={"host": {"provider": "hetzner", "user": "ops"}})
+    env.vm_ip, env.ssh_key_name = "203.0.113.9", "k"
+    assert env.work_home == "/home/ops"
+    assert env._ssh_command("true", tty=False)[-2] == "ops@203.0.113.9"
+    assert "/home/ops/.claude/credentials.env" in env.agent_remote_command("claude", home=env.work_home)
