@@ -4383,6 +4383,19 @@ AUTHORIZE_PLAYBOOK = r"""---
         - /run/rig/agents
         - /var/log/rig
 
+    # The agent runs as the workspace user: its hooks write state here and the
+    # attach script writes the log. /run is a tmpfs, so this runs on every authorize.
+    - name: Let the workspace user write live-agent state and logs
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
+        mode: "0755"
+      loop:
+        - /run/rig/agents
+        - /var/log/rig
+
     - name: Install the live-agent tmux configuration
       copy:
         src: "{{ rig_assets_dir }}/tmux.conf"
