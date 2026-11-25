@@ -58,7 +58,7 @@ These rules apply to coding agents provisioned by rig for this workspace.
 
 ## Remote environment
 - This workspace runs on a rig-managed remote VM.
-- Project files live under `/workspace` (not `/root`); home is for tooling/dotfiles only.
+- Project files live under `/workspace` (not your home directory); home is for tooling/dotfiles only.
 - Git remotes use HTTPS with provider PATs from the environment / Ansible vars.
 - Prefer `gh` (GitHub) or `glab` (GitLab) for MRs, reviews, and issue workflows.
 
@@ -178,31 +178,31 @@ def agent_config_dir_name(agent_type: str) -> str:
     return ".claude"
 
 
-def agent_remote_paths(agent_type: str) -> dict[str, str]:
-    """Where scaffolded files land on the remote VM (as root)."""
+def agent_remote_paths(agent_type: str, home: str = "/home/dev") -> dict[str, str]:
+    """Where scaffolded files land on the remote VM, under the workspace user's *home*."""
     agent = normalize_agent_type(agent_type)
     if agent == "opencode":
         return {
-            "config_dir": "/root/.config/opencode",
-            "config_file": "/root/.config/opencode/opencode.json",
-            "mcp_file": "/root/.config/opencode/opencode.json",  # `mcp` key, merged at authorize
-            "rules_file": "/root/.config/opencode/AGENTS.md",
-            "env_file": "/root/.config/opencode/credentials.env",
+            "config_dir": f"{home}/.config/opencode",
+            "config_file": f"{home}/.config/opencode/opencode.json",
+            "mcp_file": f"{home}/.config/opencode/opencode.json",  # `mcp` key, merged at authorize
+            "rules_file": f"{home}/.config/opencode/AGENTS.md",
+            "env_file": f"{home}/.config/opencode/credentials.env",
         }
     if agent == "cursor":
         return {
-            "config_dir": "/root/.cursor",
-            "config_file": "/root/.cursor/cli-config.json",
-            "mcp_file": "/root/.cursor/mcp.json",
+            "config_dir": f"{home}/.cursor",
+            "config_file": f"{home}/.cursor/cli-config.json",
+            "mcp_file": f"{home}/.cursor/mcp.json",
             "rules_file": "/workspace/AGENTS.md",
-            "env_file": "/root/.cursor/credentials.env",
+            "env_file": f"{home}/.cursor/credentials.env",
         }
     return {
-        "config_dir": "/root/.claude",
-        "config_file": "/root/.claude/settings.json",
-        "mcp_file": "/root/.claude.json",  # `mcpServers` key, merged at authorize
-        "rules_file": "/root/.claude/CLAUDE.md",
-        "env_file": "/root/.claude/credentials.env",
+        "config_dir": f"{home}/.claude",
+        "config_file": f"{home}/.claude/settings.json",
+        "mcp_file": f"{home}/.claude.json",  # `mcpServers` key, merged at authorize
+        "rules_file": f"{home}/.claude/CLAUDE.md",
+        "env_file": f"{home}/.claude/credentials.env",
     }
 
 

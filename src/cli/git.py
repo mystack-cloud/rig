@@ -94,7 +94,7 @@ class GitManager:
                         "accept_hostkey": repo.get("accept_hostkey", True),
                         "force": repo.get("force", False),
                         "version": repo.get("version", "main"),
-                        "ssh_key": repo.get("ssh_key", "/root/.ssh/id_rsa"),
+                        "ssh_key": repo.get("ssh_key", "~/.ssh/id_rsa"),
                     },
                 }
             )
@@ -173,7 +173,7 @@ class GitManager:
                 repo_config["password_var"] = password_var
 
             if is_ssh:
-                repo_config["ssh_key"] = "/root/.ssh/id_rsa"
+                repo_config["ssh_key"] = "~/.ssh/id_rsa"
                 ssh_repos.append(repo_config)
             else:
                 clone_repos.append(repo_config)

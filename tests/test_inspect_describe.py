@@ -90,7 +90,7 @@ def test_inspect_merges_record_and_live():
     assert d["stale"] is False
     assert d["ssh_key_id"] == 7 and d["firewall_id"] == 9
     assert d["created_at"] == "2026-01-01T00:00:00Z"
-    assert d["connection"]["user"] == "root"
+    assert d["connection"]["user"] == "dev"
     assert d["connection"]["host"] == "2.2.2.2"
     assert d["connection"]["ssh_key_path"].startswith("/tmp/")
 

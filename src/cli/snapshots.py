@@ -33,7 +33,7 @@ SYSTEM_SNAPSHOT_VAR_KEYS: tuple[str, ...] = (
     "coding_agent_types",
     "git_providers",
     "code_server_port",
-    "code_server_user",
+    "rig_user",
     "workspace_root",
     "install_docker",
 )
@@ -102,6 +102,12 @@ def extract_snapshot_var_map(
     merged = _project_merged_vars(project)
     out: dict[str, Any] = {}
     for key in keys:
+        if key == "rig_user":  # the workspace user lives in rig.yml (host.user), not the vars
+            from cli.workspace_user import workspace_user
+
+            host = (getattr(project, "config", None) or {}).get("host")
+            out[key] = workspace_user(host if isinstance(host, dict) else None)
+            continue
         if key not in merged:
             continue
         value = merged[key]

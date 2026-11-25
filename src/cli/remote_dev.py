@@ -21,6 +21,7 @@ import requests
 from cli import log as log
 from cli.live_agent import ASSETS_DIR, LiveAgent
 from cli.state_bucket import StateBucketError
+from cli.workspace_user import workspace_home, workspace_user  # (ADR 0006)
 
 # YAML support
 try:
@@ -44,7 +45,7 @@ except ImportError:
     VPNManagerType = Any  # type: ignore
 
 
-# Project files live here on the VM — separate from /root home (dotfiles, caches).
+# Project files live here on the VM — separate from the home directory (dotfiles, caches).
 REMOTE_WORKSPACE_ROOT = "/workspace"
 
 # Local editor CLIs for ``rig dev`` (Remote-SSH). ``editor.enabled`` is the
@@ -600,7 +601,7 @@ def derive_config_vars(config: dict[str, Any] | None) -> dict[str, Any]:
             if repo.get("password_var"):
                 entry["password_var"] = repo["password_var"]
             if url != to_https_git_url(url):
-                entry["ssh_key"] = "/root/.ssh/id_rsa"
+                entry["ssh_key"] = "~/.ssh/id_rsa"
                 ssh_repos.append(entry)
             else:
                 clone_repos.append(entry)
@@ -671,6 +672,8 @@ def build_rig_ansible_vars(
         "rig_agent_type": default_agent,
         "rig_agent_types": list(installed_agents),
         "rig_workspace_root": REMOTE_WORKSPACE_ROOT,
+        "rig_user": (env.work_user if env else workspace_user(host_cfg)),
+        "rig_home": (env.work_home if env else workspace_home(workspace_user(host_cfg))),
         "rig_assets_dir": ASSETS_DIR,
         "rig_version": version,
         "rig_boot_source": (env.boot_source if env else None) or "base",
@@ -1875,8 +1878,18 @@ class RemoteDevManager:
 # is started with `ssh host '<command>'`, a non-login shell, so /etc/profile.d
 # is never read: source the file here or `gh` / `glab` inside the agent's shell
 # commands have no token.
-PROVIDER_TOKENS_ENV_FILE = "/root/.config/rig/git-provider.env"
-SOURCE_PROVIDER_TOKENS = f"[ -f {PROVIDER_TOKENS_ENV_FILE} ] && . {PROVIDER_TOKENS_ENV_FILE}; "
+def provider_tokens_env_file(home: str) -> str:
+    return f"{home}/.config/rig/git-provider.env"
+
+
+def source_provider_tokens(home: str) -> str:
+    path = provider_tokens_env_file(home)
+    return f"[ -f {path} ] && . {path}; "
+
+
+# For the default workspace user.
+PROVIDER_TOKENS_ENV_FILE = provider_tokens_env_file(workspace_home())
+SOURCE_PROVIDER_TOKENS = source_provider_tokens(workspace_home())
 
 
 class RemoteDevEnvironment:
@@ -1896,6 +1909,8 @@ class RemoteDevEnvironment:
         self.vm_type = host.get("server_type") or DEFAULT_SERVER_TYPE
         self.region = host.get("availability_zone") or "hel1"
         self.image = host.get("image") or "ubuntu-24.04"
+        self.work_user = workspace_user(host)
+        self.work_home = workspace_home(self.work_user)
         if self.provider not in IMPLEMENTED_CLOUD_PROVIDERS:
             available = ", ".join(sorted(IMPLEMENTED_CLOUD_PROVIDERS))
             raise ValueError(f"Cloud provider {self.provider!r} is not available yet (supported now: {available})")
@@ -2094,7 +2109,7 @@ class RemoteDevEnvironment:
             details["stale"] = True
         details["connection"] = {
             "host": details["ip"],
-            "user": "root",
+            "user": self.work_user,
             "ssh_key_path": f"/tmp/{self.ssh_key_name}",
         }
         if details.get("status") == "running":
@@ -2375,11 +2390,12 @@ class RemoteDevEnvironment:
 
         installed_agents, _default_agent = configured_agents(project)
         log.debug(
-            "Applying %s on %s as root@%s (agents=%s)",
+            "Applying %s on %s as root@%s (agents=%s; work user %s)",
             "+".join(wanted),
             project_dir,
             self.vm_ip,
             ",".join(installed_agents),
+            self.work_user,
         )
 
         # Ensure legacy /root/<repo> clone destinations are under /workspace.
@@ -3067,6 +3083,7 @@ echo "Agent installation complete!"
         *,
         prompt_file: str | None = None,
         auto_approve: bool = False,
+        home: str | None = None,
     ) -> str:
         """Shell command that starts the agent on the VM.
 
@@ -3074,6 +3091,7 @@ echo "Agent installation complete!"
         passed as the agent's initial prompt. ``auto_approve`` adds the flag that
         makes the agent skip approval prompts.
         """
+        home = home or workspace_home()
         try:
             from cli.agents import normalize_agent_type
 
@@ -3103,9 +3121,9 @@ echo "Agent installation complete!"
             return (
                 'export PATH="$HOME/.local/bin:$PATH"; '
                 "set -a; "
-                "[ -f /root/.claude/credentials.env ] && . /root/.claude/credentials.env; "
-                f"{SOURCE_PROVIDER_TOKENS}"
-                "set +a; "
+                f"[ -f {home}/.claude/credentials.env ] && . {home}/.claude/credentials.env; "
+                + source_provider_tokens(home)
+                + "set +a; "
                 f"{lead}"
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
                 f"cd {REMOTE_WORKSPACE_ROOT} && exec claude{flags}{suffix}{trailer}"
@@ -3114,9 +3132,9 @@ echo "Agent installation complete!"
             return (
                 'export PATH="$HOME/.local/bin:$PATH"; '
                 "set -a; "
-                "[ -f /root/.cursor/credentials.env ] && . /root/.cursor/credentials.env; "
-                f"{SOURCE_PROVIDER_TOKENS}"
-                "set +a; "
+                f"[ -f {home}/.cursor/credentials.env ] && . {home}/.cursor/credentials.env; "
+                + source_provider_tokens(home)
+                + "set +a; "
                 f"{lead}"
                 f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
                 f"cd {REMOTE_WORKSPACE_ROOT} && exec agent --approve-mcps{flags}{suffix}{trailer}"
@@ -3124,10 +3142,8 @@ echo "Agent installation complete!"
         return (
             'export PATH="$HOME/.opencode/bin:/usr/local/bin:$PATH"; '
             "set -a; "
-            "[ -f /root/.config/opencode/credentials.env ] && "
-            ". /root/.config/opencode/credentials.env; "
-            f"{SOURCE_PROVIDER_TOKENS}"
-            "set +a; "
+            f"[ -f {home}/.config/opencode/credentials.env ] && "
+            f". {home}/.config/opencode/credentials.env; " + source_provider_tokens(home) + "set +a; "
             f"{lead}"
             f"mkdir -p {REMOTE_WORKSPACE_ROOT} && "
             f"cd {REMOTE_WORKSPACE_ROOT} && exec opencode{flags}{suffix}{trailer}"
@@ -3168,7 +3184,7 @@ echo "Agent installation complete!"
             _installed, agent_type = configured_agents(project)
 
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
-        remote_cmd = self.agent_remote_command(agent_type, extra_args=agent_args)
+        remote_cmd = self.agent_remote_command(agent_type, extra_args=agent_args, home=self.work_home)
         if persist:
             from cli.agents import normalize_agent_type
             from cli.live_agent import attach_script
@@ -3216,7 +3232,7 @@ echo "Agent installation complete!"
         return int(exit_code)
 
     def _ssh_command(self, remote_cmd: str, *, tty: bool, connect_timeout: int | None = None) -> list[str]:
-        """SSH argv as root. ``tty`` allocates a terminal; otherwise the call is batch-mode."""
+        """SSH argv as the workspace user. ``tty`` allocates a terminal; otherwise the call is batch-mode."""
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
         cmd = ["ssh"]
         if tty:
@@ -3237,11 +3253,11 @@ echo "Agent installation complete!"
             cmd += ["-o", "BatchMode=yes"]
         if connect_timeout:
             cmd += ["-o", f"ConnectTimeout={int(connect_timeout)}"]
-        cmd += [f"root@{self.vm_ip}", remote_cmd]
+        cmd += [f"{self.work_user}@{self.vm_ip}", remote_cmd]
         return cmd
 
     def _interactive_ssh_command(self, remote_cmd: str) -> list[str]:
-        """SSH argv for an interactive session as root."""
+        """SSH argv for an interactive session as the workspace user."""
         return self._ssh_command(remote_cmd, tty=True)
 
     def run_remote(
@@ -3319,7 +3335,9 @@ echo "Agent installation complete!"
         if uploaded.returncode != 0 or not prompt_file:
             log.error("Could not upload the prompt: %s", (uploaded.stderr or "").strip() or "ssh failed")
             return 1
-        launch = self.agent_remote_command(agent, prompt_file=prompt_file, auto_approve=auto_approve)
+        launch = self.agent_remote_command(
+            agent, prompt_file=prompt_file, auto_approve=auto_approve, home=self.work_home
+        )
         started = self.run_remote(ensure_session_script(agent, launch, restart=restart), timeout=60)
         if started.returncode != 0:
             self.run_remote(f"rm -f {shlex.quote(prompt_file)}", timeout=15)
@@ -3427,7 +3445,7 @@ echo "Agent installation complete!"
             f"{begin}\n"
             f"Host {alias}\n"
             f"  HostName {self.vm_ip}\n"
-            f"  User root\n"
+            f"  User {self.work_user}\n"
             f"  IdentityFile {key_path}\n"
             f"  IdentitiesOnly yes\n"
             f"  StrictHostKeyChecking no\n"
@@ -3638,7 +3656,7 @@ echo "Agent installation complete!"
             "ssh_key_path": f"/tmp/{self.ssh_key_name}",
             "agent_type": agent_type,
             "agent_types": installed_agents,
-            "remote_command": self.agent_remote_command(agent_type),
+            "remote_command": self.agent_remote_command(agent_type, home=self.work_home),
             "agent_status": "installed" if self.vm_ip else "not installed",
         }
 
@@ -3755,7 +3773,6 @@ PROVISION_PLAYBOOK = r"""---
     coding_agent_type: "{{ coding_agent_type | default('opencode') }}"
     _rig_agent_types: "{{ coding_agent_types | default([coding_agent_type]) }}"
     code_server_port: "{{ code_server_port | default(8080) }}"
-    code_server_user: "{{ code_server_user | default('coder') }}"
   tasks:
     - name: Wait for cloud-init to finish
       command: cloud-init status --wait
@@ -3783,12 +3800,35 @@ PROVISION_PLAYBOOK = r"""---
           - build-essential
         state: present
 
+    # The workspace user: the one account you SSH in as, run agents as, and that
+    # code-server and Dev Containers use. Ansible itself still connects as root.
+    - name: Install acl (lets Ansible become the workspace user from root)
+      apt:
+        name: acl
+        state: present
+
+    - name: Create the workspace user
+      user:
+        name: "{{ rig_user }}"
+        shell: /bin/bash
+        create_home: true
+        system: false
+        groups: sudo
+        append: true
+
+    - name: Allow the workspace user passwordless sudo
+      copy:
+        dest: "/etc/sudoers.d/90-rig-{{ rig_user }}"
+        mode: "0440"
+        content: "{{ rig_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        validate: /usr/sbin/visudo -cf %s
+
     - name: Ensure project workspace directory exists
       file:
         path: "{{ workspace_root | default('/workspace') }}"
         state: directory
-        owner: root
-        group: root
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
         mode: "0755"
 
     # --- GitHub CLI (gh) when workspace repos use github.com ---
@@ -3853,13 +3893,6 @@ PROVISION_PLAYBOOK = r"""---
         executable: /bin/bash
       when: "'gitlab' in (git_providers | default([]))"
 
-    - name: Create code-server user
-      user:
-        name: "{{ code_server_user }}"
-        shell: /bin/bash
-        create_home: true
-        system: false
-
     - name: Install code-server (VS Code)
       shell: curl -fsSL https://code-server.dev/install.sh | sh
       args:
@@ -3867,10 +3900,10 @@ PROVISION_PLAYBOOK = r"""---
 
     - name: Ensure code-server config directory exists
       file:
-        path: "/home/{{ code_server_user }}/.config/code-server"
+        path: "/home/{{ rig_user }}/.config/code-server"
         state: directory
-        owner: "{{ code_server_user }}"
-        group: "{{ code_server_user }}"
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
         mode: "0700"
       # Password + systemd start live in authorize.yml (secrets; not snapshotted).
 
@@ -3880,7 +3913,7 @@ PROVISION_PLAYBOOK = r"""---
     - name: Install OpenCode CLI
       shell: |
         set -euo pipefail
-        bin=/root/.opencode/bin/opencode
+        bin=/home/{{ rig_user }}/.opencode/bin/opencode
         if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
           exit 0
         fi
@@ -3892,12 +3925,12 @@ PROVISION_PLAYBOOK = r"""---
       args:
         executable: /bin/bash
       environment:
-        HOME: /root
+        HOME: /home/{{ rig_user }}
       when: "'opencode' in _rig_agent_types"
 
     - name: Symlink OpenCode onto PATH
       file:
-        src: /root/.opencode/bin/opencode
+        src: /home/{{ rig_user }}/.opencode/bin/opencode
         dest: /usr/local/bin/opencode
         state: link
         force: true
@@ -3905,14 +3938,14 @@ PROVISION_PLAYBOOK = r"""---
 
     - name: Ensure OpenCode bin is on PATH for login shells
       lineinfile:
-        path: /root/.bashrc
+        path: /home/{{ rig_user }}/.bashrc
         line: 'export PATH="$HOME/.opencode/bin:$PATH"'
         create: true
       when: "'opencode' in _rig_agent_types"
 
     - name: Ensure OpenCode config directory exists
       file:
-        path: /root/.config/opencode
+        path: /home/{{ rig_user }}/.config/opencode
         state: directory
         mode: "0700"
       when: "'opencode' in _rig_agent_types"
@@ -3920,14 +3953,14 @@ PROVISION_PLAYBOOK = r"""---
     - name: Deploy OpenCode config from .rig/.opencode
       copy:
         src: "{{ playbook_dir }}/.opencode/opencode.json"
-        dest: /root/.config/opencode/opencode.json
+        dest: /home/{{ rig_user }}/.config/opencode/opencode.json
         mode: "0600"
       when: "'opencode' in _rig_agent_types"
 
     - name: Deploy AGENTS.md as OpenCode global rules
       copy:
         src: "{{ playbook_dir }}/AGENTS.md"
-        dest: /root/.config/opencode/AGENTS.md
+        dest: /home/{{ rig_user }}/.config/opencode/AGENTS.md
         mode: "0644"
       when: "'opencode' in _rig_agent_types"
 
@@ -3936,7 +3969,7 @@ PROVISION_PLAYBOOK = r"""---
     - name: Install Claude Code CLI
       shell: |
         set -euo pipefail
-        bin=/root/.local/bin/claude
+        bin=/home/{{ rig_user }}/.local/bin/claude
         if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
           exit 0
         fi
@@ -3956,19 +3989,19 @@ PROVISION_PLAYBOOK = r"""---
       args:
         executable: /bin/bash
       environment:
-        HOME: /root
+        HOME: /home/{{ rig_user }}
       when: "'claude' in _rig_agent_types"
 
     - name: Ensure Claude local bin is on PATH
       lineinfile:
-        path: /root/.bashrc
+        path: /home/{{ rig_user }}/.bashrc
         line: 'export PATH="$HOME/.local/bin:$PATH"'
         create: true
       when: "'claude' in _rig_agent_types"
 
     - name: Symlink Claude onto PATH
       file:
-        src: /root/.local/bin/claude
+        src: /home/{{ rig_user }}/.local/bin/claude
         dest: /usr/local/bin/claude
         state: link
         force: true
@@ -3976,7 +4009,7 @@ PROVISION_PLAYBOOK = r"""---
 
     - name: Ensure Claude config directory exists
       file:
-        path: /root/.claude
+        path: /home/{{ rig_user }}/.claude
         state: directory
         mode: "0700"
       when: "'claude' in _rig_agent_types"
@@ -3984,14 +4017,14 @@ PROVISION_PLAYBOOK = r"""---
     - name: Deploy Claude settings from .rig/.claude
       copy:
         src: "{{ playbook_dir }}/.claude/settings.json"
-        dest: /root/.claude/settings.json
+        dest: /home/{{ rig_user }}/.claude/settings.json
         mode: "0600"
       when: "'claude' in _rig_agent_types"
 
     - name: Deploy AGENTS.md as Claude global rules (CLAUDE.md)
       copy:
         src: "{{ playbook_dir }}/AGENTS.md"
-        dest: /root/.claude/CLAUDE.md
+        dest: /home/{{ rig_user }}/.claude/CLAUDE.md
         mode: "0644"
       when: "'claude' in _rig_agent_types"
 
@@ -4006,7 +4039,7 @@ PROVISION_PLAYBOOK = r"""---
     - name: Install Cursor CLI
       shell: |
         set -euo pipefail
-        bin=/root/.local/bin/agent
+        bin=/home/{{ rig_user }}/.local/bin/agent
         if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
           exit 0
         fi
@@ -4017,19 +4050,19 @@ PROVISION_PLAYBOOK = r"""---
       args:
         executable: /bin/bash
       environment:
-        HOME: /root
+        HOME: /home/{{ rig_user }}
       when: "'cursor' in _rig_agent_types"
 
     - name: Ensure Cursor local bin is on PATH
       lineinfile:
-        path: /root/.bashrc
+        path: /home/{{ rig_user }}/.bashrc
         line: 'export PATH="$HOME/.local/bin:$PATH"'
         create: true
       when: "'cursor' in _rig_agent_types"
 
     - name: Symlink Cursor agent onto PATH
       file:
-        src: /root/.local/bin/agent
+        src: /home/{{ rig_user }}/.local/bin/agent
         dest: /usr/local/bin/agent
         state: link
         force: true
@@ -4037,7 +4070,7 @@ PROVISION_PLAYBOOK = r"""---
 
     - name: Ensure Cursor config directory exists
       file:
-        path: /root/.cursor
+        path: /home/{{ rig_user }}/.cursor
         state: directory
         mode: "0700"
       when: "'cursor' in _rig_agent_types"
@@ -4045,10 +4078,14 @@ PROVISION_PLAYBOOK = r"""---
     - name: Deploy Cursor CLI config from .rig/.cursor
       copy:
         src: "{{ playbook_dir }}/.cursor/cli-config.json"
-        dest: /root/.cursor/cli-config.json
+        dest: /home/{{ rig_user }}/.cursor/cli-config.json
         mode: "0600"
       when: "'cursor' in _rig_agent_types"
 
+    # Everything above runs as root, so hand the home directory to the workspace user.
+    - name: Give the workspace user its home directory
+      command: "chown -R {{ rig_user }}:{{ rig_user }} /home/{{ rig_user }}"
+      changed_when: false
 """
 
 # User image customization (.rig/configure.yml). Cached with provision; never secrets.
@@ -4058,7 +4095,7 @@ CONFIGURE_PLAYBOOK = """---
 - name: Configure remote services
   hosts: remote_vm
   become: true
-  gather_facts: false
+  gather_facts: true  # geerlingguy.docker needs OS facts
   tasks:
     - name: Install Docker for Dev Containers (editor.devcontainers in rig.yml)
       include_role:
@@ -4083,13 +4120,35 @@ AUTHORIZE_PLAYBOOK = r"""---
     coding_agent_type: "{{ coding_agent_type | default('opencode') }}"
     _rig_agent_types: "{{ coding_agent_types | default([coding_agent_type]) }}"
     code_server_port: "{{ code_server_port | default(8080) }}"
-    code_server_user: "{{ code_server_user | default('coder') }}"
   tasks:
+    # Ansible connects as root; the workspace user is who you SSH in as. Copy the
+    # key here (not in provision) because a snapshot carries the old VM's key.
+    - name: Let the workspace user log in with the same SSH key as root
+      shell: |
+        set -eu
+        install -d -m 0700 -o {{ rig_user }} -g {{ rig_user }} /home/{{ rig_user }}/.ssh
+        install -m 0600 -o {{ rig_user }} -g {{ rig_user }} /root/.ssh/authorized_keys /home/{{ rig_user }}/.ssh/authorized_keys
+      changed_when: false
+
+    # Docker is installed in configure (editor.devcontainers); its group exists only then.
+    - name: Check for the docker group
+      command: getent group docker
+      register: _rig_docker_group
+      changed_when: false
+      failed_when: false
+
+    - name: Add the workspace user to the docker group (Dev Containers)
+      user:
+        name: "{{ rig_user }}"
+        groups: docker
+        append: true
+      when: _rig_docker_group.rc == 0
+
     - name: Configure code-server with vaulted browser password
       copy:
-        dest: "/home/{{ code_server_user }}/.config/code-server/config.yaml"
-        owner: "{{ code_server_user }}"
-        group: "{{ code_server_user }}"
+        dest: "/home/{{ rig_user }}/.config/code-server/config.yaml"
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
         mode: "0600"
         content: |
           bind-addr: 0.0.0.0:{{ code_server_port }}
@@ -4101,7 +4160,7 @@ AUTHORIZE_PLAYBOOK = r"""---
 
     - name: Enable and start code-server for user
       systemd:
-        name: "code-server@{{ code_server_user }}"
+        name: "code-server@{{ rig_user }}"
         enabled: true
         state: started
         daemon_reload: true
@@ -4149,7 +4208,7 @@ AUTHORIZE_PLAYBOOK = r"""---
 
     - name: Write OpenCode credentials env file
       copy:
-        dest: /root/.config/opencode/credentials.env
+        dest: /home/{{ rig_user }}/.config/opencode/credentials.env
         mode: "0600"
         content: |
           CODING_AGENT_API_KEY={{ rig_opencode_api_key }}
@@ -4166,7 +4225,7 @@ AUTHORIZE_PLAYBOOK = r"""---
     # A file can be empty (a snapshot taken before its contents reached disk): read it as {}.
     - name: Ensure Claude config directory exists for seeding
       file:
-        path: /root/.claude
+        path: /home/{{ rig_user }}/.claude
         state: directory
         mode: "0700"
       when: "'claude' in _rig_agent_types"
@@ -4175,8 +4234,8 @@ AUTHORIZE_PLAYBOOK = r"""---
       stat:
         path: "{{ item }}"
       loop:
-        - /root/.claude.json
-        - /root/.claude/settings.json
+        - /home/{{ rig_user }}/.claude.json
+        - /home/{{ rig_user }}/.claude/settings.json
       register: _claude_state_files
       when: "'claude' in _rig_agent_types"
 
@@ -4218,9 +4277,9 @@ AUTHORIZE_PLAYBOOK = r"""---
         mode: "0600"
         content: "{{ _final | to_nice_json }}"
       loop:
-        - path: /root/.claude.json
+        - path: /home/{{ rig_user }}/.claude.json
           seed: "{{ _state_seed }}"
-        - path: /root/.claude/settings.json
+        - path: /home/{{ rig_user }}/.claude/settings.json
           seed: "{{ _settings_seed }}"
       loop_control:
         label: "{{ item.path }}"
@@ -4229,7 +4288,7 @@ AUTHORIZE_PLAYBOOK = r"""---
     # Cursor keeps its trust marker at ~/.cursor/projects/<path slug>/.workspace-trusted.
     - name: Create Cursor workspace trust directory
       file:
-        path: "/root/.cursor/projects/{{ _cursor_slug }}"
+        path: "/home/{{ rig_user }}/.cursor/projects/{{ _cursor_slug }}"
         state: directory
         mode: "0700"
       vars:
@@ -4238,7 +4297,7 @@ AUTHORIZE_PLAYBOOK = r"""---
 
     - name: Trust the workspace for Cursor CLI
       copy:
-        dest: "/root/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
+        dest: "/home/{{ rig_user }}/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
         mode: "0600"
         force: false
         content: "{{ _cursor_trust | to_nice_json }}"
@@ -4258,9 +4317,9 @@ AUTHORIZE_PLAYBOOK = r"""---
       set_fact:
         _rig_mcp: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/mcp.json', errors='ignore') | default('', true) | rig_mcp_render(_rig_agent_types, hostvars[inventory_hostname]) }}"
         _rig_mcp_targets:
-          - {agent: claude, path: /root/.claude.json, key: mcpServers, dir: /root}
-          - {agent: cursor, path: /root/.cursor/mcp.json, key: mcpServers, dir: /root/.cursor}
-          - {agent: opencode, path: /root/.config/opencode/opencode.json, key: mcp, dir: /root/.config/opencode}
+          - {agent: claude, path: "/home/{{ rig_user }}/.claude.json", key: mcpServers, dir: "/home/{{ rig_user }}"}
+          - {agent: cursor, path: "/home/{{ rig_user }}/.cursor/mcp.json", key: mcpServers, dir: "/home/{{ rig_user }}/.cursor"}
+          - {agent: opencode, path: "/home/{{ rig_user }}/.config/opencode/opencode.json", key: mcp, dir: "/home/{{ rig_user }}/.config/opencode"}
       no_log: true
 
     - name: Select Agents that have MCP servers to install
@@ -4341,21 +4400,21 @@ AUTHORIZE_PLAYBOOK = r"""---
 
     - name: Read Claude settings for the live-agent hooks
       slurp:
-        src: /root/.claude/settings.json
+        src: /home/{{ rig_user }}/.claude/settings.json
       register: _rig_claude_settings
       failed_when: false
       when: "'claude' in _rig_agent_types"
 
     - name: Record Claude's state for live agents (hooks)
       copy:
-        dest: /root/.claude/settings.json
+        dest: /home/{{ rig_user }}/.claude/settings.json
         mode: "0600"
         content: "{{ (_rig_claude_settings.content | default('', true) | b64decode or '{}') | from_json | rig_claude_hooks | to_nice_json }}\n"
       when: "'claude' in _rig_agent_types"
 
     - name: Write Claude credentials env file
       copy:
-        dest: /root/.claude/credentials.env
+        dest: /home/{{ rig_user }}/.claude/credentials.env
         mode: "0600"
         content: |
           CODING_AGENT_API_KEY={{ rig_claude_api_key }}
@@ -4371,7 +4430,7 @@ AUTHORIZE_PLAYBOOK = r"""---
 
     - name: Write Cursor credentials env file
       copy:
-        dest: /root/.cursor/credentials.env
+        dest: /home/{{ rig_user }}/.cursor/credentials.env
         mode: "0600"
         content: |
           CODING_AGENT_API_KEY={{ rig_cursor_api_key }}
@@ -4390,20 +4449,20 @@ AUTHORIZE_PLAYBOOK = r"""---
           # `rig attach --agent` sources that agent's credentials.env itself so
           # several installed agents do not overwrite one shared variable.
           _rig_default="{{ coding_agent_type | default('opencode') }}"
-          if [ "$_rig_default" = "claude" ] && [ -f /root/.claude/credentials.env ]; then
+          if [ "$_rig_default" = "claude" ] && [ -f /home/{{ rig_user }}/.claude/credentials.env ]; then
             set -a
             # shellcheck disable=SC1091
-            . /root/.claude/credentials.env
+            . /home/{{ rig_user }}/.claude/credentials.env
             set +a
-          elif [ "$_rig_default" = "cursor" ] && [ -f /root/.cursor/credentials.env ]; then
+          elif [ "$_rig_default" = "cursor" ] && [ -f /home/{{ rig_user }}/.cursor/credentials.env ]; then
             set -a
             # shellcheck disable=SC1091
-            . /root/.cursor/credentials.env
+            . /home/{{ rig_user }}/.cursor/credentials.env
             set +a
-          elif [ -f /root/.config/opencode/credentials.env ]; then
+          elif [ -f /home/{{ rig_user }}/.config/opencode/credentials.env ]; then
             set -a
             # shellcheck disable=SC1091
-            . /root/.config/opencode/credentials.env
+            . /home/{{ rig_user }}/.config/opencode/credentials.env
             set +a
           fi
       when: >-
@@ -4416,7 +4475,7 @@ AUTHORIZE_PLAYBOOK = r"""---
     # cli/git_author.py); override with git_author_name / git_author_email.
     - name: Set the git author for commits made on the VM
       command:
-        argv: ["git", "config", "--global", "{{ item.key }}", "{{ item.value }}"]
+        argv: ["git", "config", "--file", "/home/{{ rig_user }}/.gitconfig", "{{ item.key }}", "{{ item.value }}"]
       loop:
         - { key: user.name, value: "{{ rig_git_author_name | default('') }}" }
         - { key: user.email, value: "{{ rig_git_author_email | default('') }}" }
@@ -4425,7 +4484,7 @@ AUTHORIZE_PLAYBOOK = r"""---
       changed_when: false
       when: item.value | length > 0
 
-    # Provider tokens: kept in one root-only file instead of being embedded in
+    # Provider tokens: kept in one owner-only file instead of being embedded in
     # repo URLs (where they would sit in every clone's .git/config and show up
     # in `git remote -v`). gh / glab read GH_TOKEN / GITLAB_TOKEN out of the box.
     - name: Provider tokens for git, gh and glab
@@ -4436,13 +4495,13 @@ AUTHORIZE_PLAYBOOK = r"""---
       block:
         - name: Ensure the rig config directory exists
           file:
-            path: /root/.config/rig
+            path: /home/{{ rig_user }}/.config/rig
             state: directory
             mode: "0700"
 
-        - name: Write the provider token file (root only)
+        - name: Write the provider token file (workspace user only)
           copy:
-            dest: /root/.config/rig/git-provider.env
+            dest: /home/{{ rig_user }}/.config/rig/git-provider.env
             mode: "0600"
             content: |
               {% if _rig_gh_token | length > 0 %}
@@ -4458,29 +4517,29 @@ AUTHORIZE_PLAYBOOK = r"""---
             dest: /etc/profile.d/rig-git-provider.sh
             mode: "0644"
             content: |
-              if [ -r /root/.config/rig/git-provider.env ]; then
+              if [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ]; then
                 set -a
-                . /root/.config/rig/git-provider.env
+                . /home/{{ rig_user }}/.config/rig/git-provider.env
                 set +a
               fi
 
-        - name: Install the git credential helper (answers from the root-only file)
+        - name: Install the git credential helper (answers from the owner-only file)
           copy:
             dest: /usr/local/bin/rig-git-credential
             mode: "0755"
             content: |
               #!/bin/sh
               # git credential helper: serves GitHub/GitLab HTTPS credentials from
-              # /root/.config/rig/git-provider.env so repo URLs stay plain. Only
-              # root can read that file; any other user simply gets no answer.
+              # /home/{{ rig_user }}/.config/rig/git-provider.env so repo URLs stay plain. Only
+              # the workspace user (and root) can read it; anyone else gets no answer.
               [ "$1" = get ] || exit 0
               host=""
               while IFS='=' read -r key value; do
                 [ -z "$key" ] && break
                 [ "$key" = host ] && host="$value"
               done
-              [ -r /root/.config/rig/git-provider.env ] || exit 0
-              . /root/.config/rig/git-provider.env
+              [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ] || exit 0
+              . /home/{{ rig_user }}/.config/rig/git-provider.env
               case "$host" in
                 github.com) user=x-access-token; pass="${GH_TOKEN:-}" ;;
                 gitlab.com|*gitlab*) user=oauth2; pass="${GITLAB_TOKEN:-}" ;;
@@ -4493,6 +4552,12 @@ AUTHORIZE_PLAYBOOK = r"""---
           command:
             argv: ["git", "config", "--system", "credential.helper", "/usr/local/bin/rig-git-credential"]
           changed_when: false
+
+    # Everything above runs as root, so hand what it wrote in the home directory
+    # (agent config, credentials, tokens) to the workspace user.
+    - name: Give the workspace user its home directory
+      command: "chown -R {{ rig_user }}:{{ rig_user }} /home/{{ rig_user }}"
+      changed_when: false
 """
 
 # Materialize playbook (.rig/materialize.yml). Project content after authorize.
@@ -4510,8 +4575,8 @@ MATERIALIZE_PLAYBOOK = """---
       file:
         path: "{{ workspace_root }}"
         state: directory
-        owner: root
-        group: root
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
         mode: "0755"
 
     # Plain repo URLs: the token reaches git through an inline credential
@@ -4544,6 +4609,7 @@ MATERIALIZE_PLAYBOOK = """---
         GIT_CONFIG_VALUE_0: ""
         GIT_CONFIG_KEY_1: credential.helper
         GIT_CONFIG_VALUE_1: '!f() { test "$1" = get && { echo "username=$RIG_GIT_USERNAME"; echo "password=$RIG_GIT_PASSWORD"; }; }; f'
+      become_user: "{{ rig_user }}"
       git:
         repo: "{{ item.repo }}"
         dest: "{{ item.dest }}"
@@ -4703,7 +4769,6 @@ class ProjectConfig:
             # inventory; as extra vars they'd override localhost delegation.
             "coding_agent_type": "opencode",
             "code_server_port": 8080,
-            "code_server_user": "coder",
             "workspace_root": REMOTE_WORKSPACE_ROOT,
             "git": {"clone_repos": [], "ssh_repos": []},
             "git_providers": [],

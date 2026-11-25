@@ -48,6 +48,10 @@ _Avoid_: Background agent, daemon, detached session
 One of the playbook steps rig runs in order when creating an Environment: provision, configure, authorize, materialize, finalize. Only provision and configure are cached in a snapshot.
 _Avoid_: Phase, step
 
+**Workspace user**:
+The one non-root account on an Environment that you SSH in as and that agents, the editor and Dev Containers run as (`dev` by default, `host.user` in `rig.yml`). Ansible still connects as root.
+_Avoid_: Login user, coder
+
 **MCP server**:
 A tool server declared once in the Workspace and installed into every Agent on its Environments.
 _Avoid_: Plugin, tool, integration

@@ -399,7 +399,7 @@ def _run_live_authorize_tasks(tmp_path, claude_settings=None, agents=("claude",)
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     assert len(tasks) == len(names)
     text = json.dumps(tasks)
-    text = text.replace("/root/.claude", str(root / "claude"))
+    text = text.replace("/home/{{ rig_user }}/.claude", str(root / "claude"))
     for path in ("/etc/rig", "/run/rig", "/var/log/rig", "/usr/local/bin"):
         text = text.replace(path, str(root) + path)
     playbook = [

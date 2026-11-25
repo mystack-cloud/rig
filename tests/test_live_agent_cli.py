@@ -337,7 +337,7 @@ def _done(returncode=0, stdout="", stderr=""):
 def test_non_interactive_ssh_is_batch_mode_without_a_tty(real_env):
     cmd = real_env._ssh_command("true", tty=False, connect_timeout=5)
     assert "-tt" not in cmd and "BatchMode=yes" in cmd and "ConnectTimeout=5" in cmd
-    assert cmd[-2:] == ["root@203.0.113.7", "true"]
+    assert cmd[-2:] == ["dev@203.0.113.7", "true"]
     assert "-tt" in real_env._interactive_ssh_command("true")
 
 
