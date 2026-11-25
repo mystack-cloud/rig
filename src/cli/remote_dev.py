@@ -3231,8 +3231,10 @@ echo "Agent installation complete!"
             log.debug("Resume later with: rig attach  (or --resume/--session %s)", session_id)
         return int(exit_code)
 
-    def _ssh_command(self, remote_cmd: str, *, tty: bool, connect_timeout: int | None = None) -> list[str]:
-        """SSH argv as the workspace user. ``tty`` allocates a terminal; otherwise the call is batch-mode."""
+    def _ssh_command(
+        self, remote_cmd: str, *, tty: bool, connect_timeout: int | None = None, user: str | None = None
+    ) -> list[str]:
+        """SSH argv as the workspace user (or ``user``). ``tty`` allocates a terminal; otherwise the call is batch-mode."""
         ssh_key_path = f"/tmp/{self.ssh_key_name}"
         cmd = ["ssh"]
         if tty:
@@ -3253,7 +3255,7 @@ echo "Agent installation complete!"
             cmd += ["-o", "BatchMode=yes"]
         if connect_timeout:
             cmd += ["-o", f"ConnectTimeout={int(connect_timeout)}"]
-        cmd += [f"{self.work_user}@{self.vm_ip}", remote_cmd]
+        cmd += [f"{user or self.work_user}@{self.vm_ip}", remote_cmd]
         return cmd
 
     def _interactive_ssh_command(self, remote_cmd: str) -> list[str]:
@@ -3267,10 +3269,15 @@ echo "Agent installation complete!"
         input_text: str | None = None,
         timeout: int = 30,
         connect_timeout: int = 10,
+        user: str | None = None,
     ) -> subprocess.CompletedProcess:
-        """Run one non-interactive command on the VM (stdin from ``input_text``)."""
+        """Run one non-interactive command on the VM (stdin from ``input_text``).
+
+        Runs as the workspace user unless ``user`` is given. Before authorize has
+        run, only root can log in: the workspace user's key is copied there.
+        """
         return subprocess.run(
-            self._ssh_command(command, tty=False, connect_timeout=connect_timeout),
+            self._ssh_command(command, tty=False, connect_timeout=connect_timeout, user=user),
             input=input_text,
             capture_output=True,
             text=True,
@@ -3286,7 +3293,8 @@ echo "Agent installation complete!"
         if not self.vm_ip:
             return False
         try:
-            result = self.run_remote("sync && sync", timeout=timeout, connect_timeout=15)
+            # As root: this runs before authorize, when the workspace user can't log in yet.
+            result = self.run_remote("sync && sync", timeout=timeout, connect_timeout=15, user="root")
         except (OSError, subprocess.SubprocessError) as exc:
             log.warning("Could not flush the disk of %s: %s", self.name, exc)
             return False
@@ -4380,6 +4388,19 @@ AUTHORIZE_PLAYBOOK = r"""---
         mode: "0755"
       loop:
         - /etc/rig
+        - /run/rig/agents
+        - /var/log/rig
+
+    # The agent runs as the workspace user: its hooks write state here and the
+    # attach script writes the log. /run is a tmpfs, so this runs on every authorize.
+    - name: Let the workspace user write live-agent state and logs
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
+        mode: "0755"
+      loop:
         - /run/rig/agents
         - /var/log/rig
 

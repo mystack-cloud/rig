@@ -612,3 +612,12 @@ def test_claude_as_root_needs_is_sandbox_to_use_bypass_mode():
     assert "export IS_SANDBOX=1; " in only_flag and "IS_SANDBOX" not in RemoteDevEnvironment.agent_remote_command(
         "claude"
     )
+
+
+def test_authorize_hands_live_agent_state_and_log_dirs_to_the_workspace_user():
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    task = next(t for t in play["tasks"] if t.get("name", "").startswith("Let the workspace user write live-agent"))
+    assert task["file"]["owner"] == "{{ rig_user }}"
+    assert task["loop"] == [la.STATE_DIR, la.LOG_DIR]
