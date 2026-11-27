@@ -137,16 +137,84 @@ def choose_target(
         print(f"Not a choice: {answer}")
 
 
-def devcontainer_folder_uri(alias: str, repo_dest: str, target: DevTarget) -> str:
+def _strip_jsonc(text: str) -> str:
+    """Drop ``//`` and ``/* */`` comments and trailing commas (devcontainer.json is JSONC)."""
+    out: list[str] = []
+    i, n, in_str = 0, len(text), False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 1
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+            out.append(c)
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        else:
+            out.append(c)
+        i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+def parse_workspace_folder(config_text: str, host_path: str) -> str | None:
+    """``workspaceFolder`` from a devcontainer.json's text, or None when unset or unusable.
+
+    Resolves ``${localWorkspaceFolder}`` and ``${localWorkspaceFolderBasename}``;
+    anything else that is not an absolute path is ignored.
+    """
+    try:
+        data = json.loads(_strip_jsonc(config_text))
+    except ValueError:
+        return None
+    value = data.get("workspaceFolder") if isinstance(data, dict) else None
+    if not isinstance(value, str):
+        return None
+    value = value.replace("${localWorkspaceFolderBasename}", posixpath.basename(host_path))
+    value = value.replace("${localWorkspaceFolder}", host_path)
+    return value if value.startswith("/") and "${" not in value else None
+
+
+def read_workspace_folder(env, repo_dest: str, target: DevTarget) -> str | None:
+    """The ``workspaceFolder`` *target*'s devcontainer.json sets, read from *env*'s VM over SSH.
+
+    None when it is unset or the file can't be read, so the caller falls back to the default.
+    """
+    config = posixpath.join(repo_dest, target.config)
+    try:
+        result = env.run_remote(f"cat {shlex.quote(config)}")
+    except Exception:  # ssh missing, timeout, ...
+        return None
+    if result.returncode != 0:
+        return None
+    return parse_workspace_folder(result.stdout, _host_path(repo_dest, target))
+
+
+def _host_path(repo_dest: str, target: DevTarget) -> str:
+    # "" for the repo root, "sub/" for a subfolder
+    prefix = target.config.split(".devcontainer")[0]
+    return posixpath.join(repo_dest, prefix).rstrip("/")
+
+
+def devcontainer_folder_uri(alias: str, repo_dest: str, target: DevTarget, workspace_folder: str | None = None) -> str:
     """``--folder-uri`` that opens *target* in its container over Remote-SSH.
 
     The folder holding the ``.devcontainer`` definition is the container's host
-    path, and the editor mounts it at ``/workspaces/<folder name>``.
+    path. The editor opens the config's ``workspaceFolder`` when it sets one,
+    else the Dev Containers default ``/workspaces/<folder name>``.
     """
     config = posixpath.join(repo_dest, target.config)
-    # "" for the repo root, "sub/" for a subfolder
-    prefix = target.config.split(".devcontainer")[0]
-    host_path = posixpath.join(repo_dest, prefix).rstrip("/")
+    host_path = _host_path(repo_dest, target)
     payload = {
         "hostPath": host_path,
         "configFile": {
@@ -157,7 +225,8 @@ def devcontainer_folder_uri(alias: str, repo_dest: str, target: DevTarget) -> st
         },
     }
     encoded = json.dumps(payload, separators=(",", ":")).encode().hex()
-    return f"vscode-remote://dev-container+{encoded}@ssh-remote+{alias}/workspaces/{posixpath.basename(host_path)}"
+    folder = workspace_folder or f"/workspaces/{posixpath.basename(host_path)}"
+    return f"vscode-remote://dev-container+{encoded}@ssh-remote+{alias}{folder}"
 
 
 class DevContainerScanError(DevContainerError):

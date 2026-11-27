@@ -198,6 +198,61 @@ def test_uri_for_subfolder_container_uses_that_folder_as_host_path():
     assert folder == "/workspaces/svc"
 
 
+def test_uri_opens_the_workspace_folder_the_config_sets():
+    from cli.devcontainers import devcontainer_folder_uri
+
+    uri = devcontainer_folder_uri("rig-env1", "/workspace/ops-box", API_DEFAULT, "/workspace")
+    _payload, _host, folder = _decode_uri(uri)
+    assert folder == "/workspace"
+
+
+JSONC = """{
+  // the compose file mounts the parent directory
+  "name": "ops", /* c */
+  "url": "http://x//y",
+  "workspaceFolder": "/workspace/${localWorkspaceFolderBasename}",
+}"""
+
+
+def test_parse_workspace_folder_handles_jsonc_and_variables():
+    from cli.devcontainers import parse_workspace_folder
+
+    assert parse_workspace_folder(JSONC, "/workspace/ops-box") == "/workspace/ops-box"
+    assert parse_workspace_folder('{"workspaceFolder": "${localWorkspaceFolder}/app"}', "/w/r") == "/w/r/app"
+
+
+def test_parse_workspace_folder_ignores_unset_relative_unknown_and_broken():
+    from cli.devcontainers import parse_workspace_folder
+
+    for text in ("{}", '{"workspaceFolder": "rel"}', '{"workspaceFolder": "${containerEnv:X}"}', "nope", "[]"):
+        assert parse_workspace_folder(text, "/w/r") is None
+
+
+def test_read_workspace_folder_reads_over_ssh_and_falls_back_on_failure():
+    import subprocess
+    from types import SimpleNamespace
+
+    from cli.devcontainers import read_workspace_folder
+
+    seen = []
+
+    def ok(cmd):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"workspaceFolder": "/workspace"}', stderr="")
+
+    assert read_workspace_folder(SimpleNamespace(run_remote=ok), "/workspace/api", API_DEFAULT) == "/workspace"
+    assert "/workspace/api/.devcontainer/devcontainer.json" in seen[0]
+
+    def bad(cmd):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no such file")
+
+    def boom(cmd):
+        raise OSError("ssh missing")
+
+    assert read_workspace_folder(SimpleNamespace(run_remote=bad), "/workspace/api", API_DEFAULT) is None
+    assert read_workspace_folder(SimpleNamespace(run_remote=boom), "/workspace/api", API_DEFAULT) is None
+
+
 # --- Docker in configure (ADR 0005) -----------------------------------------
 
 
