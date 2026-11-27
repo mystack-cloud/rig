@@ -698,12 +698,39 @@ def build_rig_ansible_vars(
     except Exception:
         identity = ""
         author = {"name": "", "email": ""}
+    vars_out["rig_git_repo_tokens"] = git_repo_token_vars(project)
     vars_out["rig_identity"] = identity
     vars_out["rig_git_author_name"] = author["name"]
     vars_out["rig_git_author_email"] = author["email"]
     if action:
         vars_out["rig_action"] = action
     return vars_out
+
+
+def git_repo_token_vars(project: Any) -> list[dict[str, str]]:
+    """``{host, user, var}`` for each HTTPS clone Repo that has its own ``password_var``.
+
+    Only the variable *name* is passed on; authorize resolves the secret, so a
+    PAT stored per Repo (``<project>_git_pat``) reaches the VM's git credential
+    helper like ``github_pat`` / ``gitlab_pat`` do.
+    """
+    if project is None:
+        return []
+    from cli.encrypt import _git_host, detect_git_provider
+
+    found: list[dict[str, str]] = []
+    for item in (project.get_vars("git") or {}).get("clone_repos") or []:
+        if not isinstance(item, dict):
+            continue
+        repo, var = str(item.get("repo") or ""), str(item.get("password_var") or "")
+        host = _git_host(repo)
+        if not (repo.startswith("https://") and var and host):
+            continue
+        user = "x-access-token" if detect_git_provider(repo) == "github" else "oauth2"
+        entry = {"host": host, "user": user, "var": var}
+        if entry not in found:
+            found.append(entry)
+    return found
 
 
 def remote_workspace_path(*parts: str) -> str:
@@ -4514,7 +4541,7 @@ AUTHORIZE_PLAYBOOK = r"""---
       vars:
         _rig_gh_token: "{{ github_pat | default('') }}"
         _rig_gl_token: "{{ gitlab_pat | default('') }}"
-      when: (_rig_gh_token | length > 0) or (_rig_gl_token | length > 0)
+      when: (_rig_gh_token | length > 0) or (_rig_gl_token | length > 0) or (rig_git_repo_tokens | default([]) | length > 0)
       block:
         - name: Ensure the rig config directory exists
           file:
@@ -4533,6 +4560,21 @@ AUTHORIZE_PLAYBOOK = r"""---
               {% if _rig_gl_token | length > 0 %}
               GITLAB_TOKEN={{ _rig_gl_token }}
               {% endif %}
+          no_log: true
+
+        # PATs stored per Repo (password_var, e.g. <project>_git_pat): one
+        # "host user token" line each, for the credential helper below.
+        - name: Write the per-repo token file (workspace user only)
+          copy:
+            dest: /home/{{ rig_user }}/.config/rig/git-hosts
+            mode: "0600"
+            content: |
+              {% for t in rig_git_repo_tokens | default([]) %}
+              {% set _tok = lookup('vars', t.var, default='') %}
+              {% if _tok | length > 0 %}
+              {{ t.host }} {{ t.user }} {{ _tok }}
+              {% endif %}
+              {% endfor %}
           no_log: true
 
         - name: Export the tokens in login shells (gh and glab work out of the box)
@@ -4561,6 +4603,16 @@ AUTHORIZE_PLAYBOOK = r"""---
                 [ -z "$key" ] && break
                 [ "$key" = host ] && host="$value"
               done
+              # A token stored for this exact host (per-Repo password_var) wins.
+              hosts=/home/{{ rig_user }}/.config/rig/git-hosts
+              if [ -r "$hosts" ]; then
+                while read -r h u p; do
+                  if [ "$h" = "$host" ] && [ -n "$p" ]; then
+                    printf 'username=%s\npassword=%s\n' "$u" "$p"
+                    exit 0
+                  fi
+                done < "$hosts"
+              fi
               [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ] || exit 0
               . /home/{{ rig_user }}/.config/rig/git-provider.env
               case "$host" in

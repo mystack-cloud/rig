@@ -459,7 +459,9 @@ MIT
   shell, which never reads `/etc/profile.d`), so `gh` and `glab` work out of the
   box in both;
 - a system-wide git credential helper (`/usr/local/bin/rig-git-credential`)
-  answers `github.com` / `gitlab.com` HTTPS requests from that same file, so
+  answers `github.com` / `gitlab.com` HTTPS requests from that same file (and, for a
+  Repo with its own `password_var` such as `<project>_git_pat`, requests to that
+  Repo's host from `~/.config/rig/git-hosts`), so
   `git clone`, `git push` and the `materialize.yml` clone task all use plain
   URLs (`https://github.com/org/repo.git`) and nothing sits in `.git/config`
   or `git remote -v`. Other users on the VM (besides root) can't read the file and get no

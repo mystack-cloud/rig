@@ -209,9 +209,8 @@ def _helper_script(tmp_path):
     assert helper["copy"]["mode"] == "0755"
     token_file = tmp_path / "git-provider.env"
     script = tmp_path / "rig-git-credential"
-    script.write_text(
-        helper["copy"]["content"].replace("/home/{{ rig_user }}/.config/rig/git-provider.env", str(token_file))
-    )
+    content = helper["copy"]["content"].replace("/home/{{ rig_user }}/.config/rig/git-provider.env", str(token_file))
+    script.write_text(content.replace("/home/{{ rig_user }}/.config/rig/git-hosts", str(tmp_path / "git-hosts")))
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return script, token_file
 
@@ -243,6 +242,71 @@ def test_helper_stays_silent_when_it_has_nothing_to_say(tmp_path):
     assert _ask(script, "get", "gitlab.com") == ""  # no GitLab token
     assert _ask(script, "store", "github.com") == ""  # only answers `get`
     assert _ask(script, "erase", "github.com") == ""
+
+
+def test_helper_serves_a_per_repo_token_for_its_host(tmp_path):
+    """A PAT stored per Repo (password_var) answers git pull, even on a host rig can't classify."""
+    script, token_file = _helper_script(tmp_path)
+    (tmp_path / "git-hosts").write_text("git.corp.example oauth2 glpat-repo\ngitlab.com oauth2 glpat-own\n")
+    token_file.write_text("GITLAB_TOKEN=glpat-default\n")
+
+    assert _ask(script, "get", "git.corp.example") == "username=oauth2\npassword=glpat-repo\n"
+    assert _ask(script, "get", "gitlab.com") == "username=oauth2\npassword=glpat-own\n"  # per-repo wins
+    assert _ask(script, "get", "other.example") == ""
+
+
+def test_helper_without_provider_file_still_serves_per_repo_token(tmp_path):
+    script, _token_file = _helper_script(tmp_path)
+    (tmp_path / "git-hosts").write_text("gitlab.com oauth2 glpat-own\n")
+
+    assert _ask(script, "get", "gitlab.com") == "username=oauth2\npassword=glpat-own\n"
+
+
+def test_authorize_writes_per_repo_tokens_from_their_vars():
+    import jinja2
+
+    block = _provider_block()
+    task = next(t for t in block if t["name"].startswith("Write the per-repo token file"))
+    assert task["copy"]["mode"] == "0600" and task["no_log"] is True
+    secrets = {"p_git_pat": "glpat-1", "unset": ""}
+    template = jinja2.Environment().from_string(task["copy"]["content"])
+    rendered = template.render(
+        lookup=lambda _kind, name, default="": secrets.get(name, default),
+        rig_git_repo_tokens=[
+            {"host": "gitlab.com", "user": "oauth2", "var": "p_git_pat"},
+            {"host": "x.example", "user": "oauth2", "var": "unset"},
+        ],
+    )
+    assert rendered.strip() == "gitlab.com oauth2 glpat-1"
+    assert next(t for t in _authorize_tasks() if t["name"] == "Provider tokens for git, gh and glab")["when"].count(
+        "rig_git_repo_tokens"
+    )
+
+
+def test_git_repo_token_vars_lists_https_repos_with_their_own_password_var():
+    from cli.remote_dev import git_repo_token_vars
+
+    class Project:
+        def get_vars(self, key):
+            assert key == "git"
+            return {
+                "clone_repos": [
+                    {"repo": "https://gitlab.com/o/a.git", "password_var": "a_git_pat"},
+                    {"repo": "https://gitlab.com/o/a2.git", "password_var": "a_git_pat"},
+                    {"repo": "https://github.com/o/b.git", "password_var": "b_git_pat"},
+                    {"repo": "https://git.corp.example/o/c.git", "password_var": "c_git_pat"},
+                    {"repo": "git@gitlab.com:o/d.git", "password_var": "d_git_pat"},
+                    {"repo": "https://gitlab.com/o/e.git"},
+                    "junk",
+                ]
+            }
+
+    assert git_repo_token_vars(Project()) == [
+        {"host": "gitlab.com", "user": "oauth2", "var": "a_git_pat"},
+        {"host": "github.com", "user": "x-access-token", "var": "b_git_pat"},
+        {"host": "git.corp.example", "user": "oauth2", "var": "c_git_pat"},
+    ]
+    assert git_repo_token_vars(None) == []
 
 
 def test_helper_works_through_real_git(tmp_path):
