@@ -3640,9 +3640,11 @@ echo "Agent installation complete!"
         alias = self.ensure_ssh_config_host(ssh_config_path=ssh_config_path)
         folder_uri = f"vscode-remote://ssh-remote+{alias}{remote_path}"
         if dev_target is not None and repo_dest:
-            from cli.devcontainers import devcontainer_folder_uri
+            from cli.devcontainers import devcontainer_folder_uri, read_workspace_folder
 
-            folder_uri = devcontainer_folder_uri(alias, repo_dest, dev_target)
+            folder_uri = devcontainer_folder_uri(
+                alias, repo_dest, dev_target, read_workspace_folder(self, repo_dest, dev_target)
+            )
             remote_path = f"{dev_target.label} Dev Container"
         cmd = [editor_bin, "--folder-uri", folder_uri]
         log.info("Opening %s on %s (%s)", editor_bin, self.vm_ip, remote_path)
