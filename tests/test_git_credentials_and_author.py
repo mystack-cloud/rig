@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from _roles import authorize_play  # noqa: E402
+from _roles import authorize_play, role_tasks, role_text  # noqa: E402
 
 from cli.git_author import derive_git_author, resolve_git_author
 from cli.remote_dev import (
@@ -95,13 +95,14 @@ def test_runtime_vars_honour_the_vars_override(tmp_path, monkeypatch):
 
 
 def _clone_task():
-    tasks = yaml.safe_load(MATERIALIZE_PLAYBOOK)[0]["tasks"]
+    tasks = role_tasks("rig_workspace_repos", "materialize")
     return next(t for t in tasks if t["name"] == "Clone configured git repositories")
 
 
 def test_materialize_clone_uses_the_plain_repo_url():
-    assert "replace('https://'" not in MATERIALIZE_PLAYBOOK
-    assert "x-access-token@" not in MATERIALIZE_PLAYBOOK
+    text = MATERIALIZE_PLAYBOOK + role_text(stage="materialize")
+    assert "replace('https://'" not in text
+    assert "x-access-token@" not in text
     clone = _clone_task()
     assert clone["git"]["repo"] == "{{ item.repo }}"
     assert clone["environment"]["GIT_TERMINAL_PROMPT"] == "0"

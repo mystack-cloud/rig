@@ -4002,6 +4002,8 @@ AUTHORIZE_PLAYBOOK = r"""---
 MATERIALIZE_PLAYBOOK = """---
 # Materialize playbook: clone configured repos and populate /workspace.
 # Rig injects runtime vars prefixed with rig_ (e.g. rig_env_name, rig_vm_ip).
+# This file is yours: add tasks after the role call. The clone logic lives in rig's bundled
+# role rig_workspace_repos (docs/roles.md); skip it with --skip-tags rig_workspace_repos.
 - name: Materialize workspace
   hosts: remote_vm
   become: true
@@ -4009,62 +4011,11 @@ MATERIALIZE_PLAYBOOK = """---
   vars:
     workspace_root: "{{ workspace_root | default('/workspace') }}"
   tasks:
-    - name: Ensure project workspace directory exists
-      file:
-        path: "{{ workspace_root }}"
-        state: directory
-        owner: "{{ rig_user }}"
-        group: "{{ rig_user }}"
-        mode: "0755"
-
-    # Plain repo URLs: the token reaches git through an inline credential
-    # helper fed from this task's environment, so it is never embedded in the
-    # URL (where it would end up in every clone's .git/config and in
-    # `git remote -v`) and never written to disk. Honours a per-repo
-    # password_var, else github_pat / gitlab_pat. authorize.yml additionally
-    # installs a system-wide helper so later `git pull/push` work too.
-    - name: Clone configured git repositories
-      vars:
-        _pat_var: "{{ item.password_var | default('') }}"
-        # Fall back to provider default vault vars when password_var was skipped at init.
-        _provider_pat: >-
-          {{ (gitlab_pat | default(''))
-             if ((item.repo | default('')) is match('^(https?://)?([^/@]+@)?[^/]*gitlab'))
-             else (github_pat | default('')) }}
-        _pat: >-
-          {{ (lookup('vars', _pat_var, default='') if _pat_var else '')
-             or _provider_pat }}
-        # GitHub expects x-access-token; GitLab expects oauth2.
-        _auth_user: "{{ 'oauth2' if (item.repo is match('^(https?://)?([^/@]+@)?[^/]*gitlab')) else 'x-access-token' }}"
-      environment:
-        # Never hang on an interactive username/password prompt (missing PAT).
-        GIT_TERMINAL_PROMPT: "0"
-        RIG_GIT_USERNAME: "{{ _auth_user }}"
-        RIG_GIT_PASSWORD: "{{ _pat }}"
-        # Empty helper first: reset anything inherited, then answer from env.
-        GIT_CONFIG_COUNT: "{{ 2 if (_pat | length > 0) else 0 }}"
-        GIT_CONFIG_KEY_0: credential.helper
-        GIT_CONFIG_VALUE_0: ""
-        GIT_CONFIG_KEY_1: credential.helper
-        GIT_CONFIG_VALUE_1: '!f() { test "$1" = get && { echo "username=$RIG_GIT_USERNAME"; echo "password=$RIG_GIT_PASSWORD"; }; }; f'
-      become_user: "{{ rig_user }}"
-      git:
-        repo: "{{ item.repo }}"
-        dest: "{{ item.dest }}"
-        version: "{{ item.version | default(omit) }}"
-        accept_hostkey: "{{ item.accept_hostkey | default(true) }}"
-        force: "{{ item.force | default(false) }}"
-      register: _git_clone
-      # A fresh VM can hit transient network resets reaching the git host.
-      # Retry those only; auth failures (bad PAT) still fail immediately.
-      retries: 5
-      delay: 5
-      until: >-
-        _git_clone is succeeded
-        or not ((_git_clone.msg | default('')) is search(
-          'Connection reset|Connection timed out|Could not resolve|Recv failure|early EOF|RPC failed|SSL_connect|GnuTLS|Failed to connect'))
-      loop: "{{ git.clone_repos | default([]) }}"
-      when: git is defined and git.clone_repos is defined
+    - name: Workspace repos
+      include_role:
+        name: rig_workspace_repos
+        tasks_from: materialize
+      tags: [always]
 """
 
 FINALIZE_PLAYBOOK = """---
@@ -4089,9 +4040,11 @@ DESTROY_PLAYBOOK = """---
   become: true
   gather_facts: false
   tasks:
-    - name: Managed destroy placeholder
-      debug:
-        msg: "No managed destroy tasks for {{ rig_env_name | default('env') }}"
+    - name: Managed destroy
+      include_role:
+        name: rig_destroy
+        tasks_from: destroy
+      tags: [always]
 """
 
 
