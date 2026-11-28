@@ -284,6 +284,30 @@ def test_create_success_and_no_attach(tok_env, tmp_path, capsys):
         remember.assert_called()
 
 
+def test_create_remembers_env_when_provision_fails(tok_env, tmp_path):
+    (tmp_path / "rig.yml").write_text("name: p\n")
+    with (
+        patch("cli.main._load_credentials"),
+        patch("cli.main.StorageManager", side_effect=ValueError("no storage")),
+        patch("cli.main.ProjectConfig") as pc_cls,
+        patch("cli.main.RemoteDevEnvironment") as env_cls,
+        patch("cli.main.remember_last_env") as remember,
+        patch("cli.main.os.getcwd", return_value=str(tmp_path)),
+    ):
+        pc = MagicMock()
+        pc.config = {"vm": {}}
+        pc.load.return_value = True
+        pc_cls.return_value = pc
+        inst = MagicMock()
+        inst.name = "dev-c1"
+        inst.setup.return_value = True
+        inst.provision.return_value = False
+        env_cls.return_value = inst
+
+        assert main(["create", "--name", "c1"]) == 1
+        remember.assert_called_once_with("dev-c1")
+
+
 def test_create_setup_fails(tok_env, tmp_path, capsys):
     (tmp_path / "rig.yml").write_text("name: p\n")
     with (
