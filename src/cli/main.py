@@ -1163,6 +1163,25 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     return 2
 
 
+def _cmd_repo(args: argparse.Namespace) -> int:
+    from cli import repos as repo_cmd
+
+    action = args.repo_command
+    if action == "add":
+        code = repo_cmd.cmd_add(args.url, name=args.name, dest=args.dest, no_pat=args.no_pat)
+    elif action == "remove":
+        code = repo_cmd.cmd_remove(args.name)
+    elif action == "list":
+        return repo_cmd.cmd_list()
+    else:
+        return 2
+    apply_target = getattr(args, "apply", None)
+    if code == 0 and apply_target is not None:
+        name = None if apply_target is True else apply_target
+        return _cmd_apply(argparse.Namespace(name=name, name_flag=None))
+    return code
+
+
 def _cmd_vars_export_shared_key(args: argparse.Namespace) -> int:
     from cli.encrypt import export_shared_data_key
 
@@ -1689,6 +1708,23 @@ def main(argv=None):
     mcp_subparsers.add_parser("list", help="List MCP servers and whether their variables resolve")
     mcp_subparsers.add_parser("check", help="Validate .rig/mcp.json; exit 1 on problems")
 
+    repo_parser = subparsers.add_parser(
+        "repo",
+        help="Add, remove or list the Workspace's Repos in rig.yml (no full rig init)",
+    )
+    repo_subparsers = repo_parser.add_subparsers(dest="repo_command", help="Repo actions")
+    apply_help = "Then run `rig apply` on NAME (default: the last Environment)"
+    repo_add = repo_subparsers.add_parser("add", help="Add a Repo by git URL")
+    repo_add.add_argument("url", help="Git URL (SSH URLs are converted to HTTPS)")
+    repo_add.add_argument("--name", help="Repo name (default: last URL segment)")
+    repo_add.add_argument("--dest", help="Clone path on the Environment (default: /workspace/<name>)")
+    repo_add.add_argument("--no-pat", action="store_true", help="Don't prompt for or store a git PAT")
+    repo_add.add_argument("--apply", nargs="?", const=True, default=None, metavar="NAME", help=apply_help)
+    repo_remove = repo_subparsers.add_parser("remove", help="Remove a Repo from rig.yml (the VM clone stays)")
+    repo_remove.add_argument("name", help="Repo name")
+    repo_remove.add_argument("--apply", nargs="?", const=True, default=None, metavar="NAME", help=apply_help)
+    repo_subparsers.add_parser("list", help="List Repos and their PAT variables")
+
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     server_command: list[str] = []
     # `rig mcp add NAME [options] -- COMMAND ARGS...`: argparse would let a
@@ -1729,6 +1765,11 @@ def main(argv=None):
         return _cmd_cache(args)
     if args.command == "delete":
         return _cmd_delete(args)
+    if args.command == "repo":
+        if not args.repo_command:
+            repo_parser.print_help()
+            return 1
+        return _cmd_repo(args)
     if args.command == "mcp":
         if not args.mcp_command:
             mcp_parser.print_help()

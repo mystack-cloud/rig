@@ -279,12 +279,22 @@ destroy playbooks:
 | Command | What happens |
 | --- | --- |
 | **init** | Scaffold `rig.yml` + `.rig/`. Collect Hetzner creds, repo PATs, agent choices and a key per agent. |
+| **repo** | `rig repo add <url> [--name] [--dest] [--no-pat] [--apply [NAME]]`, `rig repo remove <name> [--apply [NAME]]`, `rig repo list`. Edit the Workspace's Repos without `rig init`. See [Managing Repos](#managing-repos). |
 | **create** | Boot VM (base/system snapshot). Run provision → configure → authorize → materialize. Snapshot after **configure** only. |
 | **apply** | Default: authorize → materialize. Flags: `--provision` / `--configure` / `--authorize` / `--materialize` / `--finalize` / `--destroy` (playbooks only; the VM stays). `--tags` and `--skip-tags` are passed to every playbook in the run. |
 | **attach** | SSH TTY into the agent's [live agent](#live-agents) on `/workspace` (started if needed, joined if running). `--agent` picks among installed agents. |
 | **exec** | Start a live agent with a prompt and return; the work continues unattended. See [Live agents](#live-agents). |
 | **dev** | Open VS Code/Cursor via Remote-SSH on `/workspace` (or `--browser` for code-server). |
 | **delete** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. `--tags` and `--skip-tags` are passed to both playbooks. |
+
+### Managing Repos
+
+`rig repo` edits the `repos:` list in `rig.yml` (the only thing it writes; the clone lists the playbooks read are derived from it on every run, so existing Workspaces and their `materialize.yml` need no change).
+
+- `add <url>`: SSH URLs become HTTPS; the name defaults to the last URL segment; a duplicate name or URL is refused. For a GitHub or GitLab URL with no provider PAT yet it prompts for one (non-interactive: `RIG_GITHUB_PAT` / `RIG_GITLAB_PAT`; `--no-pat` skips). Without `--no-pat` a repo-specific PAT is stored as `<name>_git_pat` and referenced by `password_var`.
+- `remove <name>`: removes the entry only. The clone on the Environment and any PAT variable stay; delete the clone on the VM yourself if unwanted.
+- `list`: name, URL, dest and PAT variable, from config only.
+- Neither `add` nor `remove` touches the VM. Run `rig apply` to clone (or pass `--apply [NAME]`, which runs the default apply on that Environment, or the last one). A changed `repos:` list means one snapshot cache miss. Saving rewrites `rig.yml`, so comments in it are lost (as with `rig init`).
 
 `provision.yml`, `authorize.yml` and `destroy.yml` (and a new Workspace's `materialize.yml`) only call [bundled roles](docs/roles.md); skip any part with `--skip-tags` (or `ansible.skip_tags` in `rig.yml`). See [ADR 0007](docs/adr/0007-managed-playbook-content-ships-as-bundled-roles.md). **Existing Environments** created before tmux entered provision (before live agents) lack it: authorize no longer installs it, so run `rig apply --provision` or re-create them. **Existing Workspaces** keep their long `materialize.yml` (it is yours and never overwritten); to adopt the clone role see [docs/roles.md](docs/roles.md#materialize-is-yours).
 
