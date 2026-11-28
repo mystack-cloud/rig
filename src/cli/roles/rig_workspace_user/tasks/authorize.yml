@@ -1,0 +1,30 @@
+---
+# Authorize: let the workspace user log in, and join the docker group when it exists.
+- name: Workspace user access
+  tags: [rig_workspace_user]
+  block:
+    # Ansible connects as root; the workspace user is who you SSH in as. Copy the
+    # key here (not in provision) because a snapshot carries the old VM's key.
+    - name: Let the workspace user log in with the same SSH key as root
+      shell: |
+        set -eu
+        install -d -m 0700 -o {{ rig_user }} -g {{ rig_user }} /home/{{ rig_user }}/.ssh
+        install -m 0600 -o {{ rig_user }} -g {{ rig_user }} /root/.ssh/authorized_keys /home/{{ rig_user }}/.ssh/authorized_keys
+      changed_when: false
+      tags: [rig_workspace_user_ssh_key]
+
+    # Docker is installed in configure (editor.devcontainers); its group exists only then.
+    - name: Check for the docker group
+      command: getent group docker
+      register: _rig_docker_group
+      changed_when: false
+      failed_when: false
+      tags: [rig_workspace_user_docker_group]
+
+    - name: Add the workspace user to the docker group (Dev Containers)
+      user:
+        name: "{{ rig_user }}"
+        groups: docker
+        append: true
+      when: _rig_docker_group.rc == 0
+      tags: [rig_workspace_user_docker_group]

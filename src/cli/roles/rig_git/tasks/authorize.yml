@@ -1,0 +1,109 @@
+---
+# Authorize: the git author for commits made on the VM, and the provider tokens / credential helper.
+- name: Git author and provider tokens
+  tags: [rig_git]
+  block:
+    # Git author: a fresh VM has none, so the first commit fails with
+    # "Author identity unknown". Derived from the rig identity (see
+    # cli/git_author.py); override with git_author_name / git_author_email.
+    - name: Set the git author for commits made on the VM
+      command:
+        argv: ["git", "config", "--file", "/home/{{ rig_user }}/.gitconfig", "{{ item.key }}", "{{ item.value }}"]
+      loop:
+        - { key: user.name, value: "{{ rig_git_author_name | default('') }}" }
+        - { key: user.email, value: "{{ rig_git_author_email | default('') }}" }
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      when: item.value | length > 0
+      tags: [rig_git_author]
+
+    # Provider tokens: kept in one owner-only file instead of being embedded in
+    # repo URLs (where they would sit in every clone's .git/config and show up
+    # in `git remote -v`). gh / glab read GH_TOKEN / GITLAB_TOKEN out of the box.
+    - name: Provider tokens for git, gh and glab
+      vars:
+        _rig_gh_token: "{{ github_pat | default('') }}"
+        _rig_gl_token: "{{ gitlab_pat | default('') }}"
+      when: (_rig_gh_token | length > 0) or (_rig_gl_token | length > 0) or (rig_git_repo_tokens | default([]) | length > 0)
+      block:
+        - name: Ensure the rig config directory exists
+          file:
+            path: /home/{{ rig_user }}/.config/rig
+            state: directory
+            mode: "0700"
+        - name: Write the provider token file (workspace user only)
+          copy:
+            dest: /home/{{ rig_user }}/.config/rig/git-provider.env
+            mode: "0600"
+            content: |
+              {% if _rig_gh_token | length > 0 %}
+              GH_TOKEN={{ _rig_gh_token }}
+              {% endif %}
+              {% if _rig_gl_token | length > 0 %}
+              GITLAB_TOKEN={{ _rig_gl_token }}
+              {% endif %}
+          no_log: true
+        # PATs stored per Repo (password_var, e.g. <project>_git_pat): one
+        # "host user token" line each, for the credential helper below.
+        - name: Write the per-repo token file (workspace user only)
+          copy:
+            dest: /home/{{ rig_user }}/.config/rig/git-hosts
+            mode: "0600"
+            content: |
+              {% for t in rig_git_repo_tokens | default([]) %}
+              {% set _tok = lookup('vars', t.var, default='') %}
+              {% if _tok | length > 0 %}
+              {{ t.host }} {{ t.user }} {{ _tok }}
+              {% endif %}
+              {% endfor %}
+          no_log: true
+        - name: Export the tokens in login shells (gh and glab work out of the box)
+          copy:
+            dest: /etc/profile.d/rig-git-provider.sh
+            mode: "0644"
+            content: |
+              if [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ]; then
+                set -a
+                . /home/{{ rig_user }}/.config/rig/git-provider.env
+                set +a
+              fi
+        - name: Install the git credential helper (answers from the owner-only file)
+          copy:
+            dest: /usr/local/bin/rig-git-credential
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              # git credential helper: serves GitHub/GitLab HTTPS credentials from
+              # /home/{{ rig_user }}/.config/rig/git-provider.env so repo URLs stay plain. Only
+              # the workspace user (and root) can read it; anyone else gets no answer.
+              [ "$1" = get ] || exit 0
+              host=""
+              while IFS='=' read -r key value; do
+                [ -z "$key" ] && break
+                [ "$key" = host ] && host="$value"
+              done
+              # A token stored for this exact host (per-Repo password_var) wins.
+              hosts=/home/{{ rig_user }}/.config/rig/git-hosts
+              if [ -r "$hosts" ]; then
+                while read -r h u p; do
+                  if [ "$h" = "$host" ] && [ -n "$p" ]; then
+                    printf 'username=%s\npassword=%s\n' "$u" "$p"
+                    exit 0
+                  fi
+                done < "$hosts"
+              fi
+              [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ] || exit 0
+              . /home/{{ rig_user }}/.config/rig/git-provider.env
+              case "$host" in
+                github.com) user=x-access-token; pass="${GH_TOKEN:-}" ;;
+                gitlab.com|*gitlab*) user=oauth2; pass="${GITLAB_TOKEN:-}" ;;
+                *) exit 0 ;;
+              esac
+              [ -n "$pass" ] || exit 0
+              printf 'username=%s\npassword=%s\n' "$user" "$pass"
+        - name: Use the helper for every git HTTPS operation
+          command:
+            argv: ["git", "config", "--system", "credential.helper", "/usr/local/bin/rig-git-credential"]
+          changed_when: false
+      tags: [rig_git_provider_tokens, credentials, git]

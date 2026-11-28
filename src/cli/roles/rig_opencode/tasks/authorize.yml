@@ -1,0 +1,36 @@
+---
+# Authorize: opencode credentials. Selected by the playbook when 'opencode' is an enabled Agent.
+- name: OpenCode credentials
+  tags: [rig_opencode, agents]
+  block:
+    - name: Resolve the OpenCode API key
+      set_fact:
+        rig_opencode_api_key: "{{ opencode_api_key | default('') }}"
+      no_log: true
+      tags: [rig_opencode_credentials, credentials]
+
+    - name: Use legacy coding_agent_api_key for a single OpenCode install
+      set_fact:
+        rig_opencode_api_key: "{{ coding_agent_api_key }}"
+      no_log: true
+      when:
+        - _rig_agent_types | length == 1
+        - (_rig_agent_types[0] | string) == "opencode"
+        - rig_opencode_api_key | length == 0
+        - coding_agent_api_key is defined
+        - coding_agent_api_key | length > 0
+      tags: [rig_opencode_credentials, credentials]
+
+    - name: Write OpenCode credentials env file
+      copy:
+        dest: /home/{{ rig_user }}/.config/opencode/credentials.env
+        mode: "0600"
+        content: |
+          CODING_AGENT_API_KEY={{ rig_opencode_api_key }}
+          ANTHROPIC_API_KEY={{ rig_opencode_api_key }}
+          OPENCODE_API_KEY={{ rig_opencode_api_key }}
+      no_log: true
+      when:
+        - "'opencode' in _rig_agent_types"
+        - rig_opencode_api_key | length > 0
+      tags: [rig_opencode_credentials, credentials]

@@ -11,11 +11,11 @@ from pathlib import Path
 import yaml
 
 
-def _roles_text():
+def _roles_text(stage="install"):
     sys.path.insert(0, os.path.dirname(__file__))
     from _roles import role_text
 
-    return role_text()
+    return role_text(stage=stage)
 
 
 class TestRemoteDevConfig(unittest.TestCase):
@@ -242,7 +242,7 @@ class TestProjectConfig(unittest.TestCase):
             self.assertNotIn("coding_agent_api_key", system_playbook)
             self.assertIn("Install GitHub CLI (gh)", system_playbook)
             with open(os.path.join(temp_dir, ".rig", "authorize.yml")) as handle:
-                authnz_playbook = handle.read()
+                authnz_playbook = handle.read() + _roles_text("authorize")
             self.assertIn("coding_agent_api_key", authnz_playbook)
             self.assertIn("vscode_browser_password", authnz_playbook)
             self.assertIn("Install GitLab CLI (glab)", system_playbook)

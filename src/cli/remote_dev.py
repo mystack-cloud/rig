@@ -3937,6 +3937,10 @@ CONFIGURE_PLAYBOOK = """---
 # Secrets / auth material (.rig/authorize.yml). Always runs; never snapshotted.
 AUTHORIZE_PLAYBOOK = r"""---
 # Authorize playbook: inject credentials after provision/configure (not snapshotted).
+# The work is done by rig's bundled roles; skip any of it with --skip-tags
+# (role tags: rig_workspace_user, rig_code_server, rig_<agent>, rig_mcp, rig_live_agent, rig_git, ...).
+# Order matters: the Agent roles seed ~/.claude.json and settings.json before rig_mcp merges into
+# them and rig_live_agent adds its hooks; rig_home_ownership runs last.
 - name: Authorize remote access
   hosts: remote_vm
   become: true
@@ -3945,484 +3949,53 @@ AUTHORIZE_PLAYBOOK = r"""---
     coding_agent_type: "{{ coding_agent_type | default('opencode') }}"
     _rig_agent_types: "{{ coding_agent_types | default([coding_agent_type]) }}"
     code_server_port: "{{ code_server_port | default(8080) }}"
+    _rig_agent_roles:
+      opencode: rig_opencode
+      claude: rig_claude_code
+      cursor: rig_cursor_cli
   tasks:
-    # Ansible connects as root; the workspace user is who you SSH in as. Copy the
-    # key here (not in provision) because a snapshot carries the old VM's key.
-    - name: Let the workspace user log in with the same SSH key as root
-      shell: |
-        set -eu
-        install -d -m 0700 -o {{ rig_user }} -g {{ rig_user }} /home/{{ rig_user }}/.ssh
-        install -m 0600 -o {{ rig_user }} -g {{ rig_user }} /root/.ssh/authorized_keys /home/{{ rig_user }}/.ssh/authorized_keys
-      changed_when: false
+    - name: Workspace user access
+      include_role:
+        name: rig_workspace_user
+        tasks_from: authorize
+      tags: [always]
 
-    # Docker is installed in configure (editor.devcontainers); its group exists only then.
-    - name: Check for the docker group
-      command: getent group docker
-      register: _rig_docker_group
-      changed_when: false
-      failed_when: false
+    - name: code-server credentials
+      include_role:
+        name: rig_code_server
+        tasks_from: authorize
+      tags: [always]
 
-    - name: Add the workspace user to the docker group (Dev Containers)
-      user:
-        name: "{{ rig_user }}"
-        groups: docker
-        append: true
-      when: _rig_docker_group.rc == 0
+    - name: Coding agent credentials and first-run state
+      include_role:
+        name: "{{ _rig_agent_roles[item] }}"
+        tasks_from: authorize
+      loop: "{{ _rig_agent_types | select('in', _rig_agent_roles) | list }}"
+      tags: [always]
 
-    - name: Configure code-server with vaulted browser password
-      copy:
-        dest: "/home/{{ rig_user }}/.config/code-server/config.yaml"
-        owner: "{{ rig_user }}"
-        group: "{{ rig_user }}"
-        mode: "0600"
-        content: |
-          bind-addr: 0.0.0.0:{{ code_server_port }}
-          auth: password
-          password: "{{ vscode_browser_password }}"
-          cert: false
-      no_log: true
-      when: vscode_browser_password is defined and vscode_browser_password | length > 0
+    - name: MCP servers
+      include_role:
+        name: rig_mcp
+        tasks_from: authorize
+      tags: [always]
 
-    - name: Enable and start code-server for user
-      systemd:
-        name: "code-server@{{ rig_user }}"
-        enabled: true
-        state: started
-        daemon_reload: true
-      when: vscode_browser_password is defined and vscode_browser_password | length > 0
+    - name: Live agent files and hooks
+      include_role:
+        name: rig_live_agent
+        tasks_from: authorize
+      tags: [always]
 
-    - name: Resolve per-agent API keys
-      set_fact:
-        rig_opencode_api_key: "{{ opencode_api_key | default('') }}"
-        rig_claude_api_key: "{{ claude_api_key | default('') }}"
-        rig_cursor_api_key: "{{ cursor_api_key | default('') }}"
-      no_log: true
+    - name: Git author and provider tokens
+      include_role:
+        name: rig_git
+        tasks_from: authorize
+      tags: [always]
 
-    - name: Use legacy coding_agent_api_key for a single OpenCode install
-      set_fact:
-        rig_opencode_api_key: "{{ coding_agent_api_key }}"
-      no_log: true
-      when:
-        - _rig_agent_types | length == 1
-        - (_rig_agent_types[0] | string) == "opencode"
-        - rig_opencode_api_key | length == 0
-        - coding_agent_api_key is defined
-        - coding_agent_api_key | length > 0
-
-    - name: Use legacy coding_agent_api_key for a single Claude Code install
-      set_fact:
-        rig_claude_api_key: "{{ coding_agent_api_key }}"
-      no_log: true
-      when:
-        - _rig_agent_types | length == 1
-        - (_rig_agent_types[0] | string) == "claude"
-        - rig_claude_api_key | length == 0
-        - coding_agent_api_key is defined
-        - coding_agent_api_key | length > 0
-
-    - name: Use legacy coding_agent_api_key for a single Cursor CLI install
-      set_fact:
-        rig_cursor_api_key: "{{ coding_agent_api_key }}"
-      no_log: true
-      when:
-        - _rig_agent_types | length == 1
-        - (_rig_agent_types[0] | string) == "cursor"
-        - rig_cursor_api_key | length == 0
-        - coding_agent_api_key is defined
-        - coding_agent_api_key | length > 0
-
-    - name: Write OpenCode credentials env file
-      copy:
-        dest: /home/{{ rig_user }}/.config/opencode/credentials.env
-        mode: "0600"
-        content: |
-          CODING_AGENT_API_KEY={{ rig_opencode_api_key }}
-          ANTHROPIC_API_KEY={{ rig_opencode_api_key }}
-          OPENCODE_API_KEY={{ rig_opencode_api_key }}
-      no_log: true
-      when:
-        - "'opencode' in _rig_agent_types"
-        - rig_opencode_api_key | length > 0
-
-    # --- Skip first-run prompts (theme picker, login wizard, folder trust) ---
-    # Runs on every create (authorize is never snapshotted) and merges into any
-    # existing file: the installer can create ~/.claude.json before we get here.
-    # A file can be empty (a snapshot taken before its contents reached disk): read it as {}.
-    - name: Ensure Claude config directory exists for seeding
-      file:
-        path: /home/{{ rig_user }}/.claude
-        state: directory
-        mode: "0700"
-      when: "'claude' in _rig_agent_types"
-
-    - name: Check for existing Claude state files
-      stat:
-        path: "{{ item }}"
-      loop:
-        - /home/{{ rig_user }}/.claude.json
-        - /home/{{ rig_user }}/.claude/settings.json
-      register: _claude_state_files
-      when: "'claude' in _rig_agent_types"
-
-    - name: Read existing Claude state files
-      slurp:
-        src: "{{ item.item }}"
-      loop: "{{ _claude_state_files.results | default([]) | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list }}"
-      register: _claude_state_contents
-      when: "'claude' in _rig_agent_types"
-
-    - name: Seed Claude Code onboarding, theme and workspace trust
-      vars:
-        _existing: >-
-          {{ dict(_claude_state_contents.results | default([])
-                  | map(attribute='item.item') | zip(
-                    _claude_state_contents.results | default([])
-                    | map(attribute='content')
-                    | map('b64decode') | map('trim') | map('default', '{}', true)
-                    | map('from_json')) ) }}
-        _ws: "{{ workspace_root | default('/workspace') }}"
-        _state_seed:
-          hasCompletedOnboarding: true
-          shiftEnterKeyBindingInstalled: true
-          projects: "{{ {_ws: {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
-        _settings_seed:
-          theme: dark
-          # `rig exec` runs Claude in bypass mode; without this it stops at a first-use
-          # warning dialog (default answer: exit) that nobody is there to answer.
-          skipDangerousModePermissionPrompt: true
-        _merged: "{{ (_existing[item.path] | default({})) | combine(item.seed, recursive=True) }}"
-        # "Tool(*)" allow rules warn on current Claude Code; bare "Tool" is equivalent.
-        _final: >-
-          {{ _merged | combine({'permissions': {'allow':
-               _merged.permissions.allow | map('regex_replace', '[(][*][)]$', '') | unique | list}},
-             recursive=True)
-             if (_merged.permissions | default({})).allow is defined else _merged }}
-      copy:
-        dest: "{{ item.path }}"
-        mode: "0600"
-        content: "{{ _final | to_nice_json }}"
-      loop:
-        - path: /home/{{ rig_user }}/.claude.json
-          seed: "{{ _state_seed }}"
-        - path: /home/{{ rig_user }}/.claude/settings.json
-          seed: "{{ _settings_seed }}"
-      loop_control:
-        label: "{{ item.path }}"
-      when: "'claude' in _rig_agent_types"
-
-    # Cursor keeps its trust marker at ~/.cursor/projects/<path slug>/.workspace-trusted.
-    - name: Create Cursor workspace trust directory
-      file:
-        path: "/home/{{ rig_user }}/.cursor/projects/{{ _cursor_slug }}"
-        state: directory
-        mode: "0700"
-      vars:
-        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
-      when: "'cursor' in _rig_agent_types"
-
-    - name: Trust the workspace for Cursor CLI
-      copy:
-        dest: "/home/{{ rig_user }}/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
-        mode: "0600"
-        force: false
-        content: "{{ _cursor_trust | to_nice_json }}"
-      vars:
-        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
-        _cursor_trust:
-          trustedAt: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%S.000Z') }}"
-          workspacePath: "{{ workspace_root | default('/workspace') }}"
-          trustMethod: rig
-      when: "'cursor' in _rig_agent_types"
-
-    # --- MCP servers: render .rig/mcp.json into each enabled Agent's own config ---
-    # Runs here (not in provision) because it needs vaulted values and because
-    # mcp.json is not part of the snapshot hash. Same-name servers are replaced;
-    # servers added by hand on the Environment are kept.
-    - name: Render MCP servers for each Agent
-      set_fact:
-        _rig_mcp: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/mcp.json', errors='ignore') | default('', true) | rig_mcp_render(_rig_agent_types, hostvars[inventory_hostname]) }}"
-        _rig_mcp_targets:
-          - {agent: claude, path: "/home/{{ rig_user }}/.claude.json", key: mcpServers, dir: "/home/{{ rig_user }}"}
-          - {agent: cursor, path: "/home/{{ rig_user }}/.cursor/mcp.json", key: mcpServers, dir: "/home/{{ rig_user }}/.cursor"}
-          - {agent: opencode, path: "/home/{{ rig_user }}/.config/opencode/opencode.json", key: mcp, dir: "/home/{{ rig_user }}/.config/opencode"}
-      no_log: true
-
-    - name: Select Agents that have MCP servers to install
-      set_fact:
-        _rig_mcp_active: >-
-          {{ _rig_mcp_targets
-             | selectattr('agent', 'in', _rig_mcp | dict2items | selectattr('value') | map(attribute='key') | list)
-             | list }}
-      no_log: true
-
-    - name: Ensure MCP config directories exist
-      file:
-        path: "{{ item.dir }}"
-        state: directory
-        mode: "0700"
-      loop: "{{ _rig_mcp_active }}"
-      loop_control:
-        label: "{{ item.agent }}"
-
-    - name: Read existing Agent MCP configs
-      slurp:
-        src: "{{ item.path }}"
-      register: _rig_mcp_current
-      failed_when: false
-      no_log: true
-      loop: "{{ _rig_mcp_active }}"
-      loop_control:
-        label: "{{ item.agent }}"
-
-    - name: Merge MCP servers into Agent configs
-      copy:
-        dest: "{{ item.path }}"
-        mode: "0600"
-        content: "{{ _existing | rig_mcp_merge(item.key, _rig_mcp[item.agent]) | to_nice_json }}\n"
-      vars:
-        _existing: "{{ (_rig_mcp_current.results[ansible_loop.index0].content | default('', true) | b64decode or '{}') | from_json }}"
-      no_log: true
-      loop: "{{ _rig_mcp_active }}"
-      loop_control:
-        label: "{{ item.agent }}"
-        extended: true
-
-    # --- Live agents: tmux, its config, helper scripts and Claude's state hooks ---
-    # Agents run in a tmux session of their own (`tmux -L rig`) so they keep working
-    # when the terminal goes away. tmux is also in provision; this covers Environments
-    # created before that. Everything here is secret-free but lives in authorize so
-    # editing it never discards the cached image.
-    - name: Ensure tmux is installed
-      apt:
-        name: tmux
-        state: present
-        cache_valid_time: 3600
-
-    - name: Create the live-agent directories
-      file:
-        path: "{{ item }}"
-        state: directory
-        mode: "0755"
-      loop:
-        - /etc/rig
-        - /run/rig/agents
-        - /var/log/rig
-
-    # The agent runs as the workspace user: its hooks write state here and the
-    # attach script writes the log. /run is a tmpfs, so this runs on every authorize.
-    - name: Let the workspace user write live-agent state and logs
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ rig_user }}"
-        group: "{{ rig_user }}"
-        mode: "0755"
-      loop:
-        - /run/rig/agents
-        - /var/log/rig
-
-    - name: Install the live-agent tmux configuration
-      copy:
-        src: "{{ rig_assets_dir }}/tmux.conf"
-        dest: /etc/rig/tmux.conf
-        mode: "0644"
-
-    - name: Install the live-agent helper scripts
-      copy:
-        src: "{{ rig_assets_dir }}/{{ item }}"
-        dest: "/usr/local/bin/{{ item }}"
-        mode: "0755"
-      loop:
-        - rig-agent-state
-        - rig-agent-queue
-
-    - name: Read Claude settings for the live-agent hooks
-      slurp:
-        src: /home/{{ rig_user }}/.claude/settings.json
-      register: _rig_claude_settings
-      failed_when: false
-      when: "'claude' in _rig_agent_types"
-
-    - name: Record Claude's state for live agents (hooks)
-      copy:
-        dest: /home/{{ rig_user }}/.claude/settings.json
-        mode: "0600"
-        content: "{{ (_rig_claude_settings.content | default('', true) | b64decode or '{}') | from_json | rig_claude_hooks | to_nice_json }}\n"
-      when: "'claude' in _rig_agent_types"
-
-    - name: Write Claude credentials env file
-      copy:
-        dest: /home/{{ rig_user }}/.claude/credentials.env
-        mode: "0600"
-        content: |
-          CODING_AGENT_API_KEY={{ rig_claude_api_key }}
-          {# Only one of the two may be set. An explicit claude_auth_type (asked at setup) wins; else the key prefix decides. #}
-          {% set _kind = claude_auth_type | default('') %}
-          {% if _kind == 'oauth' or (_kind != 'api_key' and rig_claude_api_key.startswith('sk-ant-oat')) %}
-          CLAUDE_CODE_OAUTH_TOKEN={{ rig_claude_api_key }}
-          {% else %}
-          ANTHROPIC_API_KEY={{ rig_claude_api_key }}
-          {% endif %}
-      no_log: true
-      when:
-        - "'claude' in _rig_agent_types"
-        - rig_claude_api_key | length > 0
-
-    - name: Write Cursor credentials env file
-      copy:
-        dest: /home/{{ rig_user }}/.cursor/credentials.env
-        mode: "0600"
-        content: |
-          CODING_AGENT_API_KEY={{ rig_cursor_api_key }}
-          CURSOR_API_KEY={{ rig_cursor_api_key }}
-      no_log: true
-      when:
-        - "'cursor' in _rig_agent_types"
-        - rig_cursor_api_key | length > 0
-
-    - name: Install coding-agent profile.d env exports
-      copy:
-        dest: /etc/profile.d/rig-coding-agent.sh
-        mode: "0644"
-        content: |
-          # Managed by rig authorize.yml — load the default agent's key only.
-          # `rig attach --agent` sources that agent's credentials.env itself so
-          # several installed agents do not overwrite one shared variable.
-          _rig_default="{{ coding_agent_type | default('opencode') }}"
-          if [ "$_rig_default" = "claude" ] && [ -f /home/{{ rig_user }}/.claude/credentials.env ]; then
-            set -a
-            # shellcheck disable=SC1091
-            . /home/{{ rig_user }}/.claude/credentials.env
-            set +a
-          elif [ "$_rig_default" = "cursor" ] && [ -f /home/{{ rig_user }}/.cursor/credentials.env ]; then
-            set -a
-            # shellcheck disable=SC1091
-            . /home/{{ rig_user }}/.cursor/credentials.env
-            set +a
-          elif [ -f /home/{{ rig_user }}/.config/opencode/credentials.env ]; then
-            set -a
-            # shellcheck disable=SC1091
-            . /home/{{ rig_user }}/.config/opencode/credentials.env
-            set +a
-          fi
-      when: >-
-        (rig_opencode_api_key | default('') | length > 0)
-        or (rig_claude_api_key | default('') | length > 0)
-        or (rig_cursor_api_key | default('') | length > 0)
-
-    # Git author: a fresh VM has none, so the first commit fails with
-    # "Author identity unknown". Derived from the rig identity (see
-    # cli/git_author.py); override with git_author_name / git_author_email.
-    - name: Set the git author for commits made on the VM
-      command:
-        argv: ["git", "config", "--file", "/home/{{ rig_user }}/.gitconfig", "{{ item.key }}", "{{ item.value }}"]
-      loop:
-        - { key: user.name, value: "{{ rig_git_author_name | default('') }}" }
-        - { key: user.email, value: "{{ rig_git_author_email | default('') }}" }
-      loop_control:
-        label: "{{ item.key }}"
-      changed_when: false
-      when: item.value | length > 0
-
-    # Provider tokens: kept in one owner-only file instead of being embedded in
-    # repo URLs (where they would sit in every clone's .git/config and show up
-    # in `git remote -v`). gh / glab read GH_TOKEN / GITLAB_TOKEN out of the box.
-    - name: Provider tokens for git, gh and glab
-      vars:
-        _rig_gh_token: "{{ github_pat | default('') }}"
-        _rig_gl_token: "{{ gitlab_pat | default('') }}"
-      when: (_rig_gh_token | length > 0) or (_rig_gl_token | length > 0) or (rig_git_repo_tokens | default([]) | length > 0)
-      block:
-        - name: Ensure the rig config directory exists
-          file:
-            path: /home/{{ rig_user }}/.config/rig
-            state: directory
-            mode: "0700"
-
-        - name: Write the provider token file (workspace user only)
-          copy:
-            dest: /home/{{ rig_user }}/.config/rig/git-provider.env
-            mode: "0600"
-            content: |
-              {% if _rig_gh_token | length > 0 %}
-              GH_TOKEN={{ _rig_gh_token }}
-              {% endif %}
-              {% if _rig_gl_token | length > 0 %}
-              GITLAB_TOKEN={{ _rig_gl_token }}
-              {% endif %}
-          no_log: true
-
-        # PATs stored per Repo (password_var, e.g. <project>_git_pat): one
-        # "host user token" line each, for the credential helper below.
-        - name: Write the per-repo token file (workspace user only)
-          copy:
-            dest: /home/{{ rig_user }}/.config/rig/git-hosts
-            mode: "0600"
-            content: |
-              {% for t in rig_git_repo_tokens | default([]) %}
-              {% set _tok = lookup('vars', t.var, default='') %}
-              {% if _tok | length > 0 %}
-              {{ t.host }} {{ t.user }} {{ _tok }}
-              {% endif %}
-              {% endfor %}
-          no_log: true
-
-        - name: Export the tokens in login shells (gh and glab work out of the box)
-          copy:
-            dest: /etc/profile.d/rig-git-provider.sh
-            mode: "0644"
-            content: |
-              if [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ]; then
-                set -a
-                . /home/{{ rig_user }}/.config/rig/git-provider.env
-                set +a
-              fi
-
-        - name: Install the git credential helper (answers from the owner-only file)
-          copy:
-            dest: /usr/local/bin/rig-git-credential
-            mode: "0755"
-            content: |
-              #!/bin/sh
-              # git credential helper: serves GitHub/GitLab HTTPS credentials from
-              # /home/{{ rig_user }}/.config/rig/git-provider.env so repo URLs stay plain. Only
-              # the workspace user (and root) can read it; anyone else gets no answer.
-              [ "$1" = get ] || exit 0
-              host=""
-              while IFS='=' read -r key value; do
-                [ -z "$key" ] && break
-                [ "$key" = host ] && host="$value"
-              done
-              # A token stored for this exact host (per-Repo password_var) wins.
-              hosts=/home/{{ rig_user }}/.config/rig/git-hosts
-              if [ -r "$hosts" ]; then
-                while read -r h u p; do
-                  if [ "$h" = "$host" ] && [ -n "$p" ]; then
-                    printf 'username=%s\npassword=%s\n' "$u" "$p"
-                    exit 0
-                  fi
-                done < "$hosts"
-              fi
-              [ -r /home/{{ rig_user }}/.config/rig/git-provider.env ] || exit 0
-              . /home/{{ rig_user }}/.config/rig/git-provider.env
-              case "$host" in
-                github.com) user=x-access-token; pass="${GH_TOKEN:-}" ;;
-                gitlab.com|*gitlab*) user=oauth2; pass="${GITLAB_TOKEN:-}" ;;
-                *) exit 0 ;;
-              esac
-              [ -n "$pass" ] || exit 0
-              printf 'username=%s\npassword=%s\n' "$user" "$pass"
-
-        - name: Use the helper for every git HTTPS operation
-          command:
-            argv: ["git", "config", "--system", "credential.helper", "/usr/local/bin/rig-git-credential"]
-          changed_when: false
-
-    # Everything above runs as root, so hand what it wrote in the home directory
-    # (agent config, credentials, tokens) to the workspace user.
-    - name: Give the workspace user its home directory
-      command: "chown -R {{ rig_user }}:{{ rig_user }} /home/{{ rig_user }}"
-      changed_when: false
+    - name: Home directory ownership
+      include_role:
+        name: rig_home_ownership
+        tasks_from: authorize
+      tags: [always]
 """
 
 # Materialize playbook (.rig/materialize.yml). Project content after authorize.

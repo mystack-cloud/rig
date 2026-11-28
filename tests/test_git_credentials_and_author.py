@@ -9,9 +9,12 @@ import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+sys.path.insert(0, os.path.dirname(__file__))
+
+from _roles import authorize_play  # noqa: E402
+
 from cli.git_author import derive_git_author, resolve_git_author
 from cli.remote_dev import (
-    AUTHORIZE_PLAYBOOK,
     MATERIALIZE_PLAYBOOK,
     PROVIDER_TOKENS_ENV_FILE,
     ProjectConfig,
@@ -152,7 +155,7 @@ def test_materialize_inline_helper_answers_from_the_environment():
 
 
 def _authorize_tasks():
-    return yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"]
+    return authorize_play()["tasks"]
 
 
 def _provider_block():

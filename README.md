@@ -286,7 +286,7 @@ destroy playbooks:
 | **dev** | Open VS Code/Cursor via Remote-SSH on `/workspace` (or `--browser` for code-server). |
 | **delete** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. `--tags` and `--skip-tags` are passed to both playbooks. |
 
-The managed playbooks only call [bundled roles](docs/roles.md); skip any part with `--skip-tags` (or `ansible.skip_tags` in `rig.yml`). See [ADR 0007](docs/adr/0007-managed-playbook-content-ships-as-bundled-roles.md).
+`provision.yml` and `authorize.yml` only call [bundled roles](docs/roles.md); skip any part with `--skip-tags` (or `ansible.skip_tags` in `rig.yml`). See [ADR 0007](docs/adr/0007-managed-playbook-content-ships-as-bundled-roles.md). **Existing Environments** created before tmux entered provision (before live agents) lack it: authorize no longer installs it, so run `rig apply --provision` or re-create them.
 
 Put secret-free installs in `configure.yml` (cached). Put clone/setup that needs credentials in `materialize.yml`.
 

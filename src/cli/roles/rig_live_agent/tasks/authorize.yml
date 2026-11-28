@@ -1,0 +1,95 @@
+---
+# Authorize: tmux config, helper scripts, Claude's state hooks and the default agent's env exports.
+# Secret-free (except the profile.d exports) but kept in authorize so editing it never discards
+# the cached image. tmux itself is installed in provision.
+- name: Live agent files and hooks
+  tags: [rig_live_agent]
+  block:
+    - name: Create the live-agent directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /etc/rig
+        - /run/rig/agents
+        - /var/log/rig
+      tags: [rig_live_agent_files]
+
+    # The agent runs as the workspace user: its hooks write state here and the
+    # attach script writes the log. /run is a tmpfs, so this runs on every authorize.
+    - name: Let the workspace user write live-agent state and logs
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
+        mode: "0755"
+      loop:
+        - /run/rig/agents
+        - /var/log/rig
+      tags: [rig_live_agent_files]
+
+    - name: Install the live-agent tmux configuration
+      copy:
+        src: "{{ rig_assets_dir }}/tmux.conf"
+        dest: /etc/rig/tmux.conf
+        mode: "0644"
+      tags: [rig_live_agent_files]
+
+    - name: Install the live-agent helper scripts
+      copy:
+        src: "{{ rig_assets_dir }}/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: "0755"
+      loop:
+        - rig-agent-state
+        - rig-agent-queue
+      tags: [rig_live_agent_files]
+
+    - name: Read Claude settings for the live-agent hooks
+      slurp:
+        src: /home/{{ rig_user }}/.claude/settings.json
+      register: _rig_claude_settings
+      failed_when: false
+      when: "'claude' in _rig_agent_types"
+      tags: [rig_live_agent_claude_hooks]
+
+    - name: Record Claude's state for live agents (hooks)
+      copy:
+        dest: /home/{{ rig_user }}/.claude/settings.json
+        mode: "0600"
+        content: "{{ (_rig_claude_settings.content | default('', true) | b64decode or '{}') | from_json | rig_claude_hooks | to_nice_json }}\n"
+      when: "'claude' in _rig_agent_types"
+      tags: [rig_live_agent_claude_hooks]
+
+    - name: Install coding-agent profile.d env exports
+      copy:
+        dest: /etc/profile.d/rig-coding-agent.sh
+        mode: "0644"
+        content: |
+          # Managed by rig authorize.yml — load the default agent's key only.
+          # `rig attach --agent` sources that agent's credentials.env itself so
+          # several installed agents do not overwrite one shared variable.
+          _rig_default="{{ coding_agent_type | default('opencode') }}"
+          if [ "$_rig_default" = "claude" ] && [ -f /home/{{ rig_user }}/.claude/credentials.env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . /home/{{ rig_user }}/.claude/credentials.env
+            set +a
+          elif [ "$_rig_default" = "cursor" ] && [ -f /home/{{ rig_user }}/.cursor/credentials.env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . /home/{{ rig_user }}/.cursor/credentials.env
+            set +a
+          elif [ -f /home/{{ rig_user }}/.config/opencode/credentials.env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . /home/{{ rig_user }}/.config/opencode/credentials.env
+            set +a
+          fi
+      when: >-
+        (rig_opencode_api_key | default('') | length > 0)
+        or (rig_claude_api_key | default('') | length > 0)
+        or (rig_cursor_api_key | default('') | length > 0)
+      tags: [rig_live_agent_profile, credentials, agents]

@@ -380,7 +380,9 @@ def test_state_helper_writes_state_and_epoch(tmp_path):
 
 
 def _run_live_authorize_tasks(tmp_path, claude_settings=None, agents=("claude",)):
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK, rig_filter_plugins_path
+    from _roles import authorize_play
+
+    from cli.remote_dev import rig_filter_plugins_path
 
     root = tmp_path / "root"
     root.mkdir(exist_ok=True)
@@ -395,7 +397,7 @@ def _run_live_authorize_tasks(tmp_path, claude_settings=None, agents=("claude",)
         "Read Claude settings for the live-agent hooks",
         "Record Claude's state for live agents",
     )
-    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    play = authorize_play()
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     assert len(tasks) == len(names)
     text = json.dumps(tasks)
@@ -487,17 +489,16 @@ def test_start_check_passes_for_a_running_agent(tm):
 # ---- wiring ------------------------------------------------------------------------
 
 
-def test_tmux_is_installed_by_the_live_agent_role():
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+def test_tmux_is_installed_once_by_the_live_agent_role_in_provision():
+    from _roles import authorize_tasks
 
     sys.path.insert(0, os.path.dirname(__file__))
     from _roles import role_tasks
 
     installs = [t for t in role_tasks("rig_live_agent") if "apt" in t]
     assert [t["apt"]["name"] for t in installs] == ["tmux"]
-    assert "rig_base_packages" not in installs[0]["apt"]["name"]
-    authorize = {t["name"]: t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if "name" in t}
-    assert authorize["Ensure tmux is installed"]["apt"]["name"] == "tmux"  # Environments from before this feature
+    # It is part of the cached image, so authorize does not install it again.
+    assert not [t for t in authorize_tasks() if "apt" in t]
 
 
 def test_the_assets_ship_with_the_package():
@@ -597,11 +598,9 @@ def test_ctrl_c_goes_to_the_agent_and_does_not_detach(tm):
 
 def test_claude_is_seeded_to_skip_the_bypass_mode_warning_dialog():
     """Verified on a real VM: without this an unattended `rig exec` stops at a dialog whose default is "exit"."""
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+    from _roles import authorize_play
 
-    seed = next(
-        t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if t.get("name", "").startswith("Seed Claude Code")
-    )
+    seed = next(t for t in authorize_play()["tasks"] if t.get("name", "").startswith("Seed Claude Code"))
     assert seed["vars"]["_settings_seed"]["skipDangerousModePermissionPrompt"] is True
 
 
@@ -620,9 +619,9 @@ def test_claude_as_root_needs_is_sandbox_to_use_bypass_mode():
 
 
 def test_authorize_hands_live_agent_state_and_log_dirs_to_the_workspace_user():
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+    from _roles import authorize_play
 
-    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    play = authorize_play()
     task = next(t for t in play["tasks"] if t.get("name", "").startswith("Let the workspace user write live-agent"))
     assert task["file"]["owner"] == "{{ rig_user }}"
     assert task["loop"] == [la.STATE_DIR, la.LOG_DIR]

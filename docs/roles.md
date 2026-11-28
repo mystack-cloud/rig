@@ -1,22 +1,25 @@
 # Bundled roles
 
-The playbooks rig generates (`provision.yml`, and later `authorize.yml`) are short: they call **bundled roles** that ship inside the rig package (`src/cli/roles/`). The roles do the work, so rig can change what an Environment gets without rewriting your `.rig/` files, and you can skip any part of it.
+The playbooks rig generates (`provision.yml` and `authorize.yml`) are short: they call **bundled roles** that ship inside the rig package (`src/cli/roles/`). The roles do the work, so rig can change what an Environment gets without rewriting your `.rig/` files, and you can skip any part of it.
 
 The playbooks are regenerated on every run. Do not edit them; skip or override through tags, variables or your own roles (below).
 
 ## Roles
 
-One role per concern. A role has a *Stage entry point* for each Stage it takes part in: `tasks/install.yml` runs in **provision**. The provision Stage is cached in a snapshot; later Stages are not.
+One role per concern. A role has a *Stage entry point* for each Stage it takes part in: `tasks/install.yml` runs in **provision** (cached in a snapshot) and `tasks/authorize.yml` runs in **authorize** (every create and apply, never cached).
 
-| Role | Provision (`install`) |
-| --- | --- |
-| `rig_base` | wait for cloud-init, apt cache, base packages |
-| `rig_workspace_user` | the [Workspace user](../GLOSSARY.md), its sudo rule, `/workspace`, `AGENTS.md` |
-| `rig_git` | GitHub CLI and GitLab CLI, for the providers the Workspace's repos use |
-| `rig_live_agent` | tmux |
-| `rig_code_server` | code-server and its config directory |
-| `rig_opencode`, `rig_claude_code`, `rig_cursor_cli` | the Agent's CLI and config; only the enabled Agents run |
-| `rig_home_ownership` | hands `/home/<user>` to the Workspace user; always runs, last |
+| Role | Provision (`install`) | Authorize |
+| --- | --- | --- |
+| `rig_base` | wait for cloud-init, apt cache, base packages | |
+| `rig_workspace_user` | the [Workspace user](../GLOSSARY.md), its sudo rule, `/workspace`, `AGENTS.md` | SSH key copied from root, docker group |
+| `rig_git` | GitHub CLI and GitLab CLI, for the providers the Workspace's repos use | git author, provider tokens, git credential helper |
+| `rig_live_agent` | tmux | tmux config, helper scripts, Claude's state hooks, the default Agent's env exports |
+| `rig_code_server` | code-server and its config directory | browser password, systemd unit |
+| `rig_opencode`, `rig_claude_code`, `rig_cursor_cli` | the Agent's CLI and config; only the enabled Agents run | API key and credentials file; Claude's onboarding seed; Cursor's workspace trust |
+| `rig_mcp` | | render `.rig/mcp.json` into each enabled Agent's config |
+| `rig_home_ownership` | hands `/home/<user>` to the Workspace user; always runs, last | same, after everything that wrote into it |
+
+Authorize runs the roles in dependency order: the Agent roles seed `~/.claude.json` and `settings.json`, then `rig_mcp` merges into them and `rig_live_agent` adds its hooks. Each Agent role resolves only its own API key, so skipping a role also skips its key.
 
 ## Tags
 
@@ -26,7 +29,7 @@ Every task has three kinds of tag:
 2. **Group tag**: `<role>_<group>`, e.g. `rig_claude_code_install`, `rig_claude_code_config`, `rig_git_gh`, `rig_git_glab`, `rig_workspace_user_sudo`. Skips or selects one meaningful group of tasks.
 3. **Cross-cutting tags**: `packages`, `credentials`, `agents`, `mcp`, `git`. Select a kind of work across roles.
 
-`rig_home_ownership` is also tagged `always`, so it still runs when you use `--tags`. `--skip-tags always` skips it, and also skips every role (they are all included under `always`; the tags above only act inside them).
+`rig_mcp` has one group (`rig_mcp_servers`) because its steps share facts. `rig_home_ownership` is also tagged `always`, so it still runs when you use `--tags`. `--skip-tags always` skips it, and also skips every role (they are all included under `always`; the tags above only act inside them).
 
 List the exact tags with `grep -rn "tags:" src/cli/roles/<role>/` or in the installed package; a test keeps them consistent.
 

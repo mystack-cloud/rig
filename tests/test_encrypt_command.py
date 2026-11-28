@@ -361,13 +361,13 @@ def test_ensure_vscode_browser_password_generates_once(tmp_path, monkeypatch):
 
 
 def test_authnz_playbook_uses_vscode_browser_password():
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK, PROVISION_PLAYBOOK
+    from cli.remote_dev import PROVISION_PLAYBOOK
 
-    assert "vscode_browser_password" in AUTHORIZE_PLAYBOOK
-    assert "changeme" not in AUTHORIZE_PLAYBOOK
     sys.path.insert(0, os.path.dirname(__file__))
-    from _roles import role_text
+    from _roles import authorize_text, role_text
 
+    assert "vscode_browser_password" in authorize_text()
+    assert "changeme" not in authorize_text()
     assert "vscode_browser_password" not in PROVISION_PLAYBOOK + role_text()
 
 

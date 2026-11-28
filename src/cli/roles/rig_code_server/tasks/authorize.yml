@@ -1,0 +1,28 @@
+---
+# Authorize: the browser password (a secret) and the systemd unit.
+- name: code-server credentials
+  tags: [rig_code_server]
+  block:
+    - name: Configure code-server with vaulted browser password
+      copy:
+        dest: "/home/{{ rig_user }}/.config/code-server/config.yaml"
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
+        mode: "0600"
+        content: |
+          bind-addr: 0.0.0.0:{{ code_server_port }}
+          auth: password
+          password: "{{ vscode_browser_password }}"
+          cert: false
+      no_log: true
+      when: vscode_browser_password is defined and vscode_browser_password | length > 0
+      tags: [rig_code_server_password, credentials]
+
+    - name: Enable and start code-server for user
+      systemd:
+        name: "code-server@{{ rig_user }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: vscode_browser_password is defined and vscode_browser_password | length > 0
+      tags: [rig_code_server_service]

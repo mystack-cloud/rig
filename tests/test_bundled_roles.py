@@ -16,6 +16,7 @@ from _roles import ROLES_DIR, role_names, role_tasks
 
 from cli import remote_dev, snapshots
 from cli.remote_dev import (
+    AUTHORIZE_PLAYBOOK,
     BUNDLED_ROLES_DIR,
     PROVISION_PLAYBOOK,
     ProjectConfig,
@@ -93,6 +94,44 @@ def test_provision_playbook_is_thin_and_calls_the_roles_in_order():
         assert os.path.isfile(os.path.join(ROLES_DIR, role, "tasks", "install.yml")), role
 
 
+def test_authorize_playbook_is_thin_and_orders_the_roles_by_dependency():
+    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    names = []
+    for task in play["tasks"]:
+        include = task["include_role"]
+        assert include["tasks_from"] == "authorize"
+        assert task["tags"] == ["always"]
+        names.append(include["name"])
+    # The Agent roles seed ~/.claude.json and settings.json first; rig_mcp merges into them and
+    # rig_live_agent adds hooks to settings.json; ownership is handed over last.
+    assert names == [
+        "rig_workspace_user",
+        "rig_code_server",
+        "{{ _rig_agent_roles[item] }}",
+        "rig_mcp",
+        "rig_live_agent",
+        "rig_git",
+        "rig_home_ownership",
+    ]
+    assert len(AUTHORIZE_PLAYBOOK.splitlines()) < 80
+    for role in [n for n in names if n.startswith("rig_")] + list(play["vars"]["_rig_agent_roles"].values()):
+        assert os.path.isfile(os.path.join(ROLES_DIR, role, "tasks", "authorize.yml")), role
+
+
+def test_authorize_roles_never_install_packages():
+    """Packages belong to the cached image (provision); authorize is for credentials and per-run state."""
+    from _roles import authorize_tasks
+
+    assert not [t for t in authorize_tasks() if "apt" in t]
+
+
+def test_each_agent_role_resolves_only_its_own_key():
+    for role, var in (("rig_opencode", "opencode"), ("rig_claude_code", "claude"), ("rig_cursor_cli", "cursor")):
+        facts = [t["set_fact"] for t in role_tasks(role, "authorize") if "set_fact" in t]
+        assert facts
+        assert all(set(f) == {f"rig_{var}_api_key"} for f in facts), role
+
+
 def test_roles_search_path_puts_workspace_roles_first_and_bundled_last():
     parts = roles_search_path("/ws/.rig").split(os.pathsep)
     assert parts == ["/ws/.rig/local_roles", "/ws/.rig/roles", BUNDLED_ROLES_DIR]
@@ -123,12 +162,13 @@ def test_ansible_tag_args_merge_the_config_with_the_command_line():
 
 
 @pytest.mark.skipif(shutil.which("ansible-playbook") is None, reason="ansible-playbook not installed")
-def test_the_provision_playbook_passes_ansible_syntax_check(tmp_path):
-    (tmp_path / "provision.yml").write_text(PROVISION_PLAYBOOK.lstrip())
+@pytest.mark.parametrize(("stage", "playbook"), [("provision", PROVISION_PLAYBOOK), ("authorize", AUTHORIZE_PLAYBOOK)])
+def test_the_generated_playbooks_pass_ansible_syntax_check(tmp_path, stage, playbook):
+    (tmp_path / f"{stage}.yml").write_text(playbook.lstrip())
     (tmp_path / "inv.yml").write_text("all:\n  hosts:\n    remote_vm: {ansible_host: 127.0.0.1}\n")
     env = {**os.environ, "ANSIBLE_ROLES_PATH": BUNDLED_ROLES_DIR, "ANSIBLE_LOCAL_TEMP": str(tmp_path / "tmp")}
     result = subprocess.run(
-        ["ansible-playbook", "-i", "inv.yml", "provision.yml", "--syntax-check", "-e", "rig_user=dev"],
+        ["ansible-playbook", "-i", "inv.yml", f"{stage}.yml", "--syntax-check", "-e", "rig_user=dev"],
         cwd=tmp_path,
         env=env,
         capture_output=True,
