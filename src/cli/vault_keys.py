@@ -441,6 +441,7 @@ def is_personal_secret_name(name: str) -> bool:
         "coding_agent_api_key",
         "opencode_api_key",
         "claude_api_key",
+        "claude_auth_type",
         "cursor_api_key",
         "github_pat",
         "gitlab_pat",

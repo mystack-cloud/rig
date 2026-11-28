@@ -724,6 +724,54 @@ def prompt_and_store_git_pat(
     return password_vars
 
 
+def _resolve_claude_auth_type(api_key: str, input_fn: Callable[..., str] | None = None) -> str | None:
+    """Detect whether a Claude key is an OAuth token or an API key; ask if unsure.
+
+    Returns None when undetectable and the user gives no answer; the VM then
+    falls back to prefix detection (and API-key behaviour for unknown prefixes).
+    """
+    from cli.agents import detect_claude_auth_type
+
+    detected = detect_claude_auth_type(api_key)
+    if detected:
+        return detected
+    ask = input_fn or input
+    answer = (
+        ask(
+            "Can't tell what kind of Claude credential this is. "
+            "Is it an OAuth token from `claude setup-token` (o) or an Anthropic API key (k)? [o/k, Enter = API key]: "
+        )
+        .strip()
+        .lower()
+    )
+    if answer.startswith("o"):
+        return "oauth"
+    if answer.startswith("k"):
+        return "api_key"
+    return None
+
+
+def _store_claude_auth_type(
+    api_key: str,
+    *,
+    root: str,
+    key_path: str,
+    personal: bool,
+    input_fn: Callable[..., str] | None = None,
+) -> None:
+    from cli.agents import CLAUDE_AUTH_TYPE_VAR
+
+    kind = _resolve_claude_auth_type(api_key, input_fn)
+    if kind:
+        store_encrypted_var(
+            CLAUDE_AUTH_TYPE_VAR,
+            kind,
+            project_dir=root,
+            data_key_path=key_path,
+            personal=personal,
+        )
+
+
 def prompt_and_store_coding_agent_credentials(
     project_dir: str | None = None,
     data_key_path: str | None = None,
@@ -770,7 +818,7 @@ def prompt_and_store_coding_agent_credentials(
     elif agent_normalized == "cursor":
         skip_hint = " [Enter = skip; Cursor CLI needs CURSOR_API_KEY on the VM]"
     elif agent_normalized == "claude":
-        skip_hint = " [Enter = skip; Claude Code needs an Anthropic API key]"
+        skip_hint = " [Enter = skip; Claude Code needs an Anthropic API key or OAuth token]"
     else:
         skip_hint = ""
     api_key = _prompt_secret_with_env_fallback(
@@ -800,6 +848,8 @@ def prompt_and_store_coding_agent_credentials(
     )
     scope = "personal" if personal else "shared"
     print(f"Stored {stored_name} as a {scope} secret")
+    if agent_normalized == "claude":
+        _store_claude_auth_type(api_key, root=root, key_path=key_path, personal=bool(personal), input_fn=input_fn)
     return True
 
 
@@ -836,7 +886,7 @@ def prompt_and_store_coding_agents_credentials(
         elif agent == "cursor":
             skip_hint = " [Enter = skip; Cursor CLI needs CURSOR_API_KEY on the VM]"
         else:
-            skip_hint = " [Enter = skip; Claude Code needs an Anthropic API key]"
+            skip_hint = " [Enter = skip; Claude Code needs an Anthropic API key or OAuth token]"
         api_key = _prompt_secret_with_env_fallback(
             f"{label}{skip_hint}",
             AGENT_API_KEY_ENVS[agent],
@@ -871,6 +921,10 @@ def prompt_and_store_coding_agents_credentials(
                 personal=bool(personal),
             )
             print(f"Stored {var_name} as a {scope} secret")
+            if agent == "claude":
+                _store_claude_auth_type(
+                    api_key, root=root, key_path=key_path, personal=bool(personal), input_fn=input_fn
+                )
     return {agent: agent in collected for agent in selected}
 
 
