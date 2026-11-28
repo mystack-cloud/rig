@@ -4468,7 +4468,9 @@ AUTHORIZE_PLAYBOOK = r"""---
         mode: "0600"
         content: |
           CODING_AGENT_API_KEY={{ rig_claude_api_key }}
-          {% if rig_claude_api_key.startswith('sk-ant-oat01') %}
+          {# Only one of the two may be set. An explicit claude_auth_type (asked at setup) wins; else the key prefix decides. #}
+          {% set _kind = claude_auth_type | default('') %}
+          {% if _kind == 'oauth' or (_kind != 'api_key' and rig_claude_api_key.startswith('sk-ant-oat')) %}
           CLAUDE_CODE_OAUTH_TOKEN={{ rig_claude_api_key }}
           {% else %}
           ANTHROPIC_API_KEY={{ rig_claude_api_key }}

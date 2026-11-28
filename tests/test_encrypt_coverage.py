@@ -226,3 +226,62 @@ def test_detect_git_provider_self_hosted_gitlab(url, expected):
     from cli import encrypt as enc
 
     assert enc.detect_git_provider(url) == expected
+
+
+def test_detect_claude_auth_type():
+    from cli.agents import detect_claude_auth_type
+
+    assert detect_claude_auth_type("sk-ant-oat01-x") == "oauth"
+    assert detect_claude_auth_type("sk-ant-api03-x") == "api_key"
+    assert detect_claude_auth_type("mystery") is None
+    assert detect_claude_auth_type(None) is None
+
+
+def _store_claude_key(tmp_path, monkeypatch, key, answers, agents=None):
+    from cli import encrypt as enc
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "rig.yml").write_text("name: demo\nkind: workspace\n")
+    (tmp_path / ".rig").mkdir(exist_ok=True)
+    asked = []
+
+    def ask(prompt=""):
+        asked.append(prompt)
+        return answers
+
+    with (
+        patch("cli.encrypt.unlock_data_keys", return_value=("p", "s")),
+        patch("cli.encrypt.store_encrypted_var") as store,
+        patch("cli.encrypt._prompt_secret_with_env_fallback", return_value=key),
+    ):
+        if agents:
+            enc.prompt_and_store_coding_agents_credentials(
+                agents, project_dir=str(tmp_path), input_fn=ask, secret_fn=lambda *_: "", personal=True
+            )
+        else:
+            enc.prompt_and_store_coding_agent_credentials(
+                project_dir=str(tmp_path), agent_type="claude", input_fn=ask, secret_fn=lambda *_: "", personal=True
+            )
+    stored = {c.args[0]: c.args[1] for c in store.call_args_list}
+    return stored, asked
+
+
+def test_claude_auth_type_detected_without_asking(tmp_path, monkeypatch):
+    stored, asked = _store_claude_key(tmp_path, monkeypatch, "sk-ant-oat01-x", "")
+    assert stored["claude_auth_type"] == "oauth"
+    assert asked == []
+
+
+def test_claude_auth_type_asks_when_unknown(tmp_path, monkeypatch):
+    stored, asked = _store_claude_key(tmp_path, monkeypatch, "mystery", "o")
+    assert stored["claude_auth_type"] == "oauth"
+    assert len(asked) == 1
+    stored, _ = _store_claude_key(tmp_path, monkeypatch, "mystery", "k")
+    assert stored["claude_auth_type"] == "api_key"
+    stored, _ = _store_claude_key(tmp_path, monkeypatch, "mystery", "")
+    assert "claude_auth_type" not in stored
+
+
+def test_claude_auth_type_stored_for_multi_agent(tmp_path, monkeypatch):
+    stored, _ = _store_claude_key(tmp_path, monkeypatch, "sk-ant-api03-x", "", agents=["claude"])
+    assert stored["claude_auth_type"] == "api_key"

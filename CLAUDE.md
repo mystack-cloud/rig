@@ -6,7 +6,7 @@ Vocabulary is in `GLOSSARY.md`; decisions are in `docs/adr/`.
 
 Do every step, in order. Don't stop after the PR.
 
-1. **Branch** off `master`: `fix/<what>` or `feat/<what>`. Never commit to `master`.
+1. **Sync, then branch.** `git checkout master && git pull --ff-only origin master`, then branch off it: `fix/<what>` or `feat/<what>`. Never commit to `master`.
 2. **Test first.** Add a test that fails without the fix. Keep the diff to what the bug needs.
 3. **Run the CI gates locally** (same versions as CI):
    - `uvx ruff@0.17.5 check .` and `uvx ruff@0.17.5 format --check .` (run `format .` to fix)

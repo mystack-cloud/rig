@@ -847,7 +847,7 @@ def test_create_provider_override(tmp_path, monkeypatch, capsys):
     assert "gcp" in err
 
 
-def _render_claude_credentials(token):
+def _render_claude_credentials(token, **extra):
     import jinja2
     import yaml
 
@@ -857,7 +857,7 @@ def _render_claude_credentials(token):
     task = next(t for t in play["tasks"] if t["name"] == "Write Claude credentials env file")
     # Ansible templates with trim_blocks enabled.
     env = jinja2.Environment(trim_blocks=True)
-    return env.from_string(task["copy"]["content"]).render(rig_claude_api_key=token)
+    return env.from_string(task["copy"]["content"]).render(rig_claude_api_key=token, **extra)
 
 
 def test_claude_oauth_token_exported_as_claude_code_oauth_token():
@@ -871,6 +871,16 @@ def test_claude_api_key_still_exported_as_anthropic_api_key():
     out = _render_claude_credentials("sk-ant-api03-xyz")
     assert "ANTHROPIC_API_KEY=sk-ant-api03-xyz\n" in out
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in out
+
+
+def test_claude_auth_type_overrides_prefix_and_never_sets_both():
+    out = _render_claude_credentials("opaque-token", claude_auth_type="oauth")
+    assert "CLAUDE_CODE_OAUTH_TOKEN=opaque-token\n" in out
+    assert "ANTHROPIC_API_KEY" not in out
+    out = _render_claude_credentials("sk-ant-oat01-abc", claude_auth_type="api_key")
+    assert "ANTHROPIC_API_KEY=sk-ant-oat01-abc\n" in out
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in out
+    assert "{#" not in out and "\n\n" not in out
 
 
 def _authorize_tasks():

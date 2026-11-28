@@ -44,6 +44,24 @@ AGENT_API_KEY_ENVS = {
 
 LEGACY_CODING_AGENT_API_KEY = "coding_agent_api_key"
 
+# Claude Code takes either an OAuth token (``claude setup-token``) or an
+# Anthropic API key, and only one of CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY
+# may be set. The kind is detected from the key prefix; when that is not
+# conclusive the user is asked and the answer is stored here.
+CLAUDE_AUTH_TYPE_VAR = "claude_auth_type"
+CLAUDE_AUTH_TYPES = ("oauth", "api_key")
+
+
+def detect_claude_auth_type(key: str | None) -> str | None:
+    """Return ``"oauth"`` or ``"api_key"`` from the key prefix, or None if unsure."""
+    value = (key or "").strip()
+    if value.startswith("sk-ant-oat"):
+        return "oauth"
+    if value.startswith("sk-ant-api"):
+        return "api_key"
+    return None
+
+
 # Env var name referenced from generated configs; set by authorize.yml on the VM.
 CODING_AGENT_API_KEY_ENV = "CODING_AGENT_API_KEY"
 
