@@ -117,6 +117,9 @@ def _cmd_create(args: argparse.Namespace) -> int:
         force_workspace = bool(getattr(args, "force_workspace", False) or getattr(args, "force_playbooks", False))
         if not env.setup(project_dir=os.getcwd()):
             return 1
+        # The VM exists now: remember it before provisioning so a playbook
+        # failure still leaves `rig attach/delete` with a default target.
+        remember_last_env(env.name)
 
         # Provision via Ansible (system.yml then workspace.yml) with live output.
         # Matching snapshots skip covered playbooks unless --force-* is set.
@@ -129,7 +132,6 @@ def _cmd_create(args: argparse.Namespace) -> int:
             return 1
 
         log.info("Environment '%s' created", env.name)
-        remember_last_env(env.name)
         if getattr(args, "no_attach", False):
             log.info("Skipped agent attach; reconnect with: rig attach / rig dev")
             log.debug("Reconnect: rig attach %s", env.name)
