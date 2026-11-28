@@ -17,7 +17,7 @@ A folder containing `rig.yml` and a `.rig/` directory, which groups zero or more
 _Avoid_: Project (ambiguous with a Hetzner Cloud project)
 
 **Repo**:
-A git repository included in a Workspace and cloned onto its Environments.
+A git repository included in a Workspace and cloned onto its Environments. `rig repo` adds and removes them.
 _Avoid_: Project
 
 **Environment**:
