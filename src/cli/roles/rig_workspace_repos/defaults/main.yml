@@ -1,0 +1,3 @@
+---
+# rig_user, git.clone_repos and the PATs are supplied by rig / the vault.
+workspace_root: /workspace

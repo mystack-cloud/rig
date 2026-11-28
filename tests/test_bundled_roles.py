@@ -18,6 +18,8 @@ from cli import remote_dev, snapshots
 from cli.remote_dev import (
     AUTHORIZE_PLAYBOOK,
     BUNDLED_ROLES_DIR,
+    DESTROY_PLAYBOOK,
+    MATERIALIZE_PLAYBOOK,
     PROVISION_PLAYBOOK,
     ProjectConfig,
     RemoteDevEnvironment,
@@ -132,6 +134,31 @@ def test_each_agent_role_resolves_only_its_own_key():
         assert all(set(f) == {f"rig_{var}_api_key"} for f in facts), role
 
 
+def test_materialize_and_destroy_playbooks_are_thin_role_calls():
+    for playbook, role, stage in (
+        (MATERIALIZE_PLAYBOOK, "rig_workspace_repos", "materialize"),
+        (DESTROY_PLAYBOOK, "rig_destroy", "destroy"),
+    ):
+        (task,) = yaml.safe_load(playbook)[0]["tasks"]
+        assert task["include_role"] == {"name": role, "tasks_from": stage}
+        assert task["tags"] == ["always"]
+        assert os.path.isfile(os.path.join(ROLES_DIR, role, "tasks", f"{stage}.yml"))
+        assert len(playbook.splitlines()) < 30
+
+
+def test_the_clone_role_makes_sure_the_workspace_directory_exists():
+    """It must run alone (`rig apply --materialize`), so it cannot rely on provision's directory task."""
+    names = [t["name"] for t in role_tasks("rig_workspace_repos", "materialize")]
+    assert names == ["Ensure project workspace directory exists", "Clone configured git repositories"]
+    with open(os.path.join(ROLES_DIR, "rig_workspace_repos", "defaults", "main.yml")) as handle:
+        assert yaml.safe_load(handle)["workspace_root"] == "/workspace"
+
+
+def test_the_clone_group_carries_the_git_tag_users_already_pass_to_apply():
+    clone = next(t for t in role_tasks("rig_workspace_repos", "materialize") if "git" in t)
+    assert {"git", "rig_workspace_repos_clone", "rig_workspace_repos"} <= clone["_tags"]
+
+
 def test_roles_search_path_puts_workspace_roles_first_and_bundled_last():
     parts = roles_search_path("/ws/.rig").split(os.pathsep)
     assert parts == ["/ws/.rig/local_roles", "/ws/.rig/roles", BUNDLED_ROLES_DIR]
@@ -162,7 +189,15 @@ def test_ansible_tag_args_merge_the_config_with_the_command_line():
 
 
 @pytest.mark.skipif(shutil.which("ansible-playbook") is None, reason="ansible-playbook not installed")
-@pytest.mark.parametrize(("stage", "playbook"), [("provision", PROVISION_PLAYBOOK), ("authorize", AUTHORIZE_PLAYBOOK)])
+@pytest.mark.parametrize(
+    ("stage", "playbook"),
+    [
+        ("provision", PROVISION_PLAYBOOK),
+        ("authorize", AUTHORIZE_PLAYBOOK),
+        ("materialize", MATERIALIZE_PLAYBOOK),
+        ("destroy", DESTROY_PLAYBOOK),
+    ],
+)
 def test_the_generated_playbooks_pass_ansible_syntax_check(tmp_path, stage, playbook):
     (tmp_path / f"{stage}.yml").write_text(playbook.lstrip())
     (tmp_path / "inv.yml").write_text("all:\n  hosts:\n    remote_vm: {ansible_host: 127.0.0.1}\n")

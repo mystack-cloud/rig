@@ -985,10 +985,9 @@ def test_materialize_clone_retries_only_transient_network_errors():
     import re
 
     import yaml
+    from _roles import role_tasks
 
-    from cli.remote_dev import MATERIALIZE_PLAYBOOK
-
-    tasks = yaml.safe_load(MATERIALIZE_PLAYBOOK)[0]["tasks"]
+    tasks = role_tasks("rig_workspace_repos", "materialize")
     clone = next(t for t in tasks if t["name"] == "Clone configured git repositories")
     assert clone["retries"] >= 3 and clone["delay"] > 0
     until = " ".join(str(clone["until"]).split())

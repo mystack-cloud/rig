@@ -1,0 +1,10 @@
+---
+# Destroy: managed teardown before the VM is deleted. Nothing to tear down yet; a role so that
+# future managed teardown has a place (and tags) to live. Project hooks belong in finalize.yml.
+- name: Managed destroy
+  tags: [rig_destroy]
+  block:
+    - name: Managed destroy placeholder
+      debug:
+        msg: "No managed destroy tasks for {{ rig_env_name | default('env') }}"
+      tags: [rig_destroy_placeholder]
