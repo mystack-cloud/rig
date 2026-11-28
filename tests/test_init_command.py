@@ -12,6 +12,10 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from cli.main import main
+
+sys.path.insert(0, os.path.dirname(__file__))
+from _roles import role_text  # noqa: E402
+
 from cli.remote_dev import (
     ProjectConfig,
     Workspace,
@@ -405,7 +409,7 @@ def test_interactive_init_scaffolds_opencode_agent_files(tmp_path):
     assert config["model"].startswith("opencode/")
     assert "free" in config["model"] or config["model"] == "opencode/big-pickle"
     assert "CODING_AGENT_API_KEY" not in json.dumps(config)
-    system = (rig / ".rig" / "provision.yml").read_text()
+    system = (rig / ".rig" / "provision.yml").read_text() + role_text()
     assert "Install OpenCode CLI" in system
     assert 'test -s "$bin"' in system
     assert "creates:" not in system.split("Install OpenCode CLI", 1)[1].split("Symlink OpenCode", 1)[0]
@@ -436,7 +440,7 @@ def test_interactive_init_scaffolds_claude_agent_files(tmp_path):
     assert (rig / ".rig" / "AGENTS.md").is_file()
     assert (rig / ".rig" / ".claude" / "settings.json").is_file()
     assert not (rig / ".rig" / ".claude" / "mcp.json").exists()
-    system = (rig / ".rig" / "provision.yml").read_text()
+    system = (rig / ".rig" / "provision.yml").read_text() + role_text()
     assert "Deploy AGENTS.md as Claude global rules" in system
 
 
@@ -463,9 +467,9 @@ def test_interactive_init_scaffolds_cursor_agent_files(tmp_path):
     assert _derived(rig)["coding_agent_type"] == "cursor"
     assert (rig / ".rig" / ".cursor" / "cli-config.json").is_file()
     assert not (rig / ".rig" / ".cursor" / "mcp.json").exists()
-    system = (rig / ".rig" / "provision.yml").read_text()
+    system = (rig / ".rig" / "provision.yml").read_text() + role_text()
     assert "Install Cursor CLI" in system
-    assert "'cursor' in _rig_agent_types" in system
+    assert "cursor: rig_cursor_cli" in system
     authnz = (rig / ".rig" / "authorize.yml").read_text()
     assert "CURSOR_API_KEY" in authnz
     assert "CURSOR_API_KEY" not in system
@@ -503,9 +507,9 @@ def test_interactive_init_selects_multiple_agents(tmp_path):
     assert _derived(rig)["coding_agent_types"] == ["opencode", "claude"]
     assert (rig / ".rig" / ".opencode" / "opencode.json").is_file()
     assert (rig / ".rig" / ".claude" / "settings.json").is_file()
-    system = (rig / ".rig" / "provision.yml").read_text()
-    assert "'opencode' in _rig_agent_types" in system
-    assert "'claude' in _rig_agent_types" in system
+    system = (rig / ".rig" / "provision.yml").read_text() + role_text()
+    assert "opencode: rig_opencode" in system
+    assert "claude: rig_claude_code" in system
     authnz = (rig / ".rig" / "authorize.yml").read_text()
     assert "opencode_api_key" in authnz
     assert "claude_api_key" in authnz
@@ -658,7 +662,7 @@ def test_init_records_git_providers_for_system_playbook(tmp_path):
     assert _derived(root)["git_providers"] == ["github", "gitlab"]
     manifest = yaml.safe_load((root / "rig.yml").read_text())
     assert manifest["git_providers"] == ["github", "gitlab"]
-    system = (root / ".rig" / "provision.yml").read_text()
+    system = (root / ".rig" / "provision.yml").read_text() + role_text()
     assert "Install GitHub CLI (gh)" in system
     assert "Install GitLab CLI (glab)" in system
     assert "'github' in (git_providers | default([]))" in system

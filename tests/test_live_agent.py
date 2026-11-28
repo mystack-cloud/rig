@@ -487,11 +487,15 @@ def test_start_check_passes_for_a_running_agent(tm):
 # ---- wiring ------------------------------------------------------------------------
 
 
-def test_tmux_is_in_the_provision_packages_and_authorize_covers_older_environments():
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK, PROVISION_PLAYBOOK
+def test_tmux_is_installed_by_the_live_agent_role():
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
 
-    provision_packages = [t for t in yaml.safe_load(PROVISION_PLAYBOOK)[0]["tasks"] if "apt" in t]
-    assert any("tmux" in (t["apt"].get("name") or []) for t in provision_packages)
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _roles import role_tasks
+
+    installs = [t for t in role_tasks("rig_live_agent") if "apt" in t]
+    assert [t["apt"]["name"] for t in installs] == ["tmux"]
+    assert "rig_base_packages" not in installs[0]["apt"]["name"]
     authorize = {t["name"]: t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if "name" in t}
     assert authorize["Ensure tmux is installed"]["apt"]["name"] == "tmux"  # Environments from before this feature
 
@@ -503,6 +507,7 @@ def test_the_assets_ship_with_the_package():
     with open(os.path.join(root, "pyproject.toml"), "rb") as handle:
         data = tomllib.load(handle)
     assert "assets/*" in data["tool"]["setuptools"]["package-data"]["cli"]
+    assert "roles/**/*.yml" in data["tool"]["setuptools"]["package-data"]["cli"]
     for name in ("tmux.conf", "rig-agent-state", "rig-agent-queue"):
         assert os.path.isfile(os.path.join(la.ASSETS_DIR, name))
     assert os.access(os.path.join(la.ASSETS_DIR, "rig-agent-queue"), os.X_OK)

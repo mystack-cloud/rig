@@ -280,11 +280,13 @@ destroy playbooks:
 | --- | --- |
 | **init** | Scaffold `rig.yml` + `.rig/`. Collect Hetzner creds, repo PATs, agent choices and a key per agent. |
 | **create** | Boot VM (base/system snapshot). Run provision → configure → authorize → materialize. Snapshot after **configure** only. |
-| **apply** | Default: authorize → materialize. Flags: `--provision` / `--configure` / `--authorize` / `--materialize` / `--finalize` / `--destroy` (playbooks only; the VM stays). `--tags` is passed to every playbook in the run. |
+| **apply** | Default: authorize → materialize. Flags: `--provision` / `--configure` / `--authorize` / `--materialize` / `--finalize` / `--destroy` (playbooks only; the VM stays). `--tags` and `--skip-tags` are passed to every playbook in the run. |
 | **attach** | SSH TTY into the agent's [live agent](#live-agents) on `/workspace` (started if needed, joined if running). `--agent` picks among installed agents. |
 | **exec** | Start a live agent with a prompt and return; the work continues unattended. See [Live agents](#live-agents). |
 | **dev** | Open VS Code/Cursor via Remote-SSH on `/workspace` (or `--browser` for code-server). |
-| **delete** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. `--tags` is passed to both playbooks. |
+| **delete** | Run finalize → destroy playbooks, then delete VM / firewall / SSH key. `--tags` and `--skip-tags` are passed to both playbooks. |
+
+The managed playbooks only call [bundled roles](docs/roles.md); skip any part with `--skip-tags` (or `ansible.skip_tags` in `rig.yml`). See [ADR 0007](docs/adr/0007-managed-playbook-content-ships-as-bundled-roles.md).
 
 Put secret-free installs in `configure.yml` (cached). Put clone/setup that needs credentials in `materialize.yml`.
 

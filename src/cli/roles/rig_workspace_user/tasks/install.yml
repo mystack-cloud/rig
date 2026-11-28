@@ -1,0 +1,45 @@
+---
+# Provision: the workspace user, its sudo rule, /workspace and AGENTS.md.
+# Ansible itself still connects as root.
+- name: Workspace user and directory
+  tags: [rig_workspace_user]
+  block:
+    - name: Install acl (lets Ansible become the workspace user from root)
+      apt:
+        name: acl
+        state: present
+      tags: [rig_workspace_user_account, packages]
+
+    - name: Create the workspace user
+      user:
+        name: "{{ rig_user }}"
+        shell: /bin/bash
+        create_home: true
+        system: false
+        groups: sudo
+        append: true
+      tags: [rig_workspace_user_account]
+
+    - name: Allow the workspace user passwordless sudo
+      copy:
+        dest: "/etc/sudoers.d/90-rig-{{ rig_user }}"
+        mode: "0440"
+        content: "{{ rig_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        validate: /usr/sbin/visudo -cf %s
+      tags: [rig_workspace_user_sudo]
+
+    - name: Ensure project workspace directory exists
+      file:
+        path: "{{ workspace_root | default('/workspace') }}"
+        state: directory
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
+        mode: "0755"
+      tags: [rig_workspace_user_directory]
+
+    - name: Place AGENTS.md in workspace for agent discovery
+      copy:
+        src: "{{ playbook_dir }}/AGENTS.md"
+        dest: "{{ workspace_root | default('/workspace') }}/AGENTS.md"
+        mode: "0644"
+      tags: [rig_workspace_user_agents_md, agents]

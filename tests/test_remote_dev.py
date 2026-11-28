@@ -11,6 +11,13 @@ from pathlib import Path
 import yaml
 
 
+def _roles_text():
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _roles import role_text
+
+    return role_text()
+
+
 class TestRemoteDevConfig(unittest.TestCase):
     """Test configuration parsing for remote dev environments"""
 
@@ -229,7 +236,7 @@ class TestProjectConfig(unittest.TestCase):
             self.assertEqual(manifest["playbooks"]["destroy"], ".rig/destroy.yml")
             self.assertEqual(manifest["agent"]["credentials_var"], "coding_agent_api_key")
             with open(os.path.join(temp_dir, ".rig", "provision.yml")) as handle:
-                system_playbook = handle.read()
+                system_playbook = handle.read() + _roles_text()
             self.assertIn("code-server", system_playbook)
             self.assertIn("opencode", system_playbook)
             self.assertNotIn("coding_agent_api_key", system_playbook)

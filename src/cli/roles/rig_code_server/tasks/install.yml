@@ -1,0 +1,20 @@
+---
+# Provision: code-server (VS Code in the browser). The password and the systemd
+# unit are set in authorize because they are secrets.
+- name: code-server
+  tags: [rig_code_server]
+  block:
+    - name: Install code-server (VS Code)
+      shell: curl -fsSL https://code-server.dev/install.sh | sh
+      args:
+        creates: /usr/bin/code-server
+      tags: [rig_code_server_install]
+
+    - name: Ensure code-server config directory exists
+      file:
+        path: "/home/{{ rig_user }}/.config/code-server"
+        state: directory
+        owner: "{{ rig_user }}"
+        group: "{{ rig_user }}"
+        mode: "0700"
+      tags: [rig_code_server_config]

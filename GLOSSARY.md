@@ -67,3 +67,7 @@ _Avoid_: Project, devbox
 **Dev target**:
 The Repo and Dev Container pair that `rig dev` opens on an Environment.
 _Avoid_: Project, selection
+
+**Bundled role**:
+An Ansible role that ships inside rig and is called by the playbooks rig generates, so those playbooks stay short. A Workspace's own roles take precedence over a bundled role of the same name.
+_Avoid_: Built-in role, rig module, Galaxy role (that is one installed from Ansible Galaxy)

@@ -1,0 +1,60 @@
+---
+# Provision: OpenCode CLI. Selected by the playbook when 'opencode' is an enabled Agent.
+- name: OpenCode
+  tags: [rig_opencode, agents]
+  block:
+    # Do not use Ansible creates= here: a zero-byte stub is executable and would
+    # skip reinstall forever (ssh then fails with "opencode: Success").
+    - name: Install OpenCode CLI
+      shell: |
+        set -euo pipefail
+        bin=/home/{{ rig_user }}/.opencode/bin/opencode
+        if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
+          exit 0
+        fi
+        rm -f "$bin"
+        curl -fsSL https://opencode.ai/install | bash
+        test -s "$bin"
+        test -x "$bin"
+        "$bin" --version
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: /home/{{ rig_user }}
+      tags: [rig_opencode_install]
+
+    - name: Symlink OpenCode onto PATH
+      file:
+        src: /home/{{ rig_user }}/.opencode/bin/opencode
+        dest: /usr/local/bin/opencode
+        state: link
+        force: true
+      tags: [rig_opencode_install]
+
+    - name: Ensure OpenCode bin is on PATH for login shells
+      lineinfile:
+        path: /home/{{ rig_user }}/.bashrc
+        line: 'export PATH="$HOME/.opencode/bin:$PATH"'
+        create: true
+      tags: [rig_opencode_install]
+
+    - name: Ensure OpenCode config directory exists
+      file:
+        path: /home/{{ rig_user }}/.config/opencode
+        state: directory
+        mode: "0700"
+      tags: [rig_opencode_config]
+
+    - name: Deploy OpenCode config from .rig/.opencode
+      copy:
+        src: "{{ playbook_dir }}/.opencode/opencode.json"
+        dest: /home/{{ rig_user }}/.config/opencode/opencode.json
+        mode: "0600"
+      tags: [rig_opencode_config]
+
+    - name: Deploy AGENTS.md as OpenCode global rules
+      copy:
+        src: "{{ playbook_dir }}/AGENTS.md"
+        dest: /home/{{ rig_user }}/.config/opencode/AGENTS.md
+        mode: "0644"
+      tags: [rig_opencode_config]

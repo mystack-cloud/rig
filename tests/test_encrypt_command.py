@@ -365,7 +365,10 @@ def test_authnz_playbook_uses_vscode_browser_password():
 
     assert "vscode_browser_password" in AUTHORIZE_PLAYBOOK
     assert "changeme" not in AUTHORIZE_PLAYBOOK
-    assert "vscode_browser_password" not in PROVISION_PLAYBOOK
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _roles import role_text
+
+    assert "vscode_browser_password" not in PROVISION_PLAYBOOK + role_text()
 
 
 def test_read_vscode_browser_password_missing(tmp_path):

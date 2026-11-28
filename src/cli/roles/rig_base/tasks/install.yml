@@ -1,0 +1,22 @@
+---
+# Provision: wait for cloud-init, refresh apt and install the base packages.
+- name: Base system packages
+  tags: [rig_base]
+  block:
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+      tags: [rig_base_cloud_init]
+
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [rig_base_packages, packages]
+
+    - name: Install base packages
+      apt:
+        name: "{{ rig_base_packages }}"
+        state: present
+      tags: [rig_base_packages, packages]

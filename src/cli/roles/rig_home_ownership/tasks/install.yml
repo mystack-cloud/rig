@@ -1,0 +1,6 @@
+---
+# Everything before this runs as root, so hand the home directory to the workspace user.
+- name: Give the workspace user its home directory
+  command: "chown -R {{ rig_user }}:{{ rig_user }} /home/{{ rig_user }}"
+  changed_when: false
+  tags: [always, rig_home_ownership, rig_home_ownership_chown]

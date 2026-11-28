@@ -115,6 +115,8 @@ def _cmd_create(args: argparse.Namespace) -> int:
         )
         force_system = bool(getattr(args, "force_system", False) or getattr(args, "force_playbooks", False))
         force_workspace = bool(getattr(args, "force_workspace", False) or getattr(args, "force_playbooks", False))
+        skip_tags = getattr(args, "skip_tags", None)
+        env.bypass_snapshots = bool(skip_tags)
         if not env.setup(project_dir=os.getcwd()):
             return 1
         # The VM exists now: remember it before provisioning so a playbook
@@ -128,6 +130,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
             stream=True,
             force_system=force_system,
             force_workspace=force_workspace,
+            ansible_skip_tags=skip_tags,
         ):
             return 1
 
@@ -598,7 +601,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         log.info(
             "Usage: rig apply [name] "
             "[--provision|--configure|--authorize|--materialize|--finalize|--destroy] "
-            "[--tags TAGS]"
+            "[--tags TAGS] [--skip-tags TAGS]"
         )
         return 1
 
@@ -680,6 +683,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             soft_fail_materialize=False,
             action="apply",
             ansible_tags=getattr(args, "tags", None),
+            ansible_skip_tags=getattr(args, "skip_tags", None),
         )
         return 0 if ok else 1
     except Exception as e:
@@ -883,6 +887,7 @@ def _cmd_delete(args: argparse.Namespace) -> int:
             env.cleanup(
                 project_dir=os.getcwd(),
                 ansible_tags=getattr(args, "tags", None),
+                ansible_skip_tags=getattr(args, "skip_tags", None),
             )
             clear_last_env(name)
             clear_last_session(name)
@@ -1248,6 +1253,16 @@ def main(argv=None):
         action="store_true",
         help="Force materialize even when it would otherwise be skipped",
     )
+    create_parser.add_argument(
+        "--skip-tags",
+        action="append",
+        default=None,
+        metavar="TAGS",
+        help=(
+            "Ansible --skip-tags for every playbook (the run boots from the base image and caches no snapshot) (comma-separated; may be repeated). "
+            "Added to ansible.skip_tags from rig.yml. See docs/roles.md for the tags."
+        ),
+    )
 
     apply_parser = subparsers.add_parser(
         "apply",
@@ -1299,6 +1314,16 @@ def main(argv=None):
         default=None,
         metavar="TAGS",
         help=("Ansible --tags for every playbook in this run (comma-separated; may be repeated)."),
+    )
+    apply_parser.add_argument(
+        "--skip-tags",
+        action="append",
+        default=None,
+        metavar="TAGS",
+        help=(
+            "Ansible --skip-tags for every playbook in this run (comma-separated; may be repeated). "
+            "Added to ansible.skip_tags from rig.yml. See docs/roles.md for the tags."
+        ),
     )
     # Legacy aliases
     apply_parser.add_argument(
@@ -1564,6 +1589,16 @@ def main(argv=None):
         default=None,
         metavar="TAGS",
         help=("Ansible --tags for the finalize and destroy playbooks (comma-separated; may be repeated)"),
+    )
+    delete_parser.add_argument(
+        "--skip-tags",
+        action="append",
+        default=None,
+        metavar="TAGS",
+        help=(
+            "Ansible --skip-tags for the finalize and destroy playbooks (comma-separated; may be repeated). "
+            "Added to ansible.skip_tags from rig.yml. See docs/roles.md for the tags."
+        ),
     )
 
     vars_parser = subparsers.add_parser(
