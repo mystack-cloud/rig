@@ -851,10 +851,9 @@ def test_create_provider_override(tmp_path, monkeypatch, capsys):
 def _render_claude_credentials(token, **extra):
     import jinja2
     import yaml
+    from _roles import authorize_play
 
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
-
-    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    play = authorize_play()
     task = next(t for t in play["tasks"] if t["name"] == "Write Claude credentials env file")
     # Ansible templates with trim_blocks enabled.
     env = jinja2.Environment(trim_blocks=True)
@@ -886,10 +885,9 @@ def test_claude_auth_type_overrides_prefix_and_never_sets_both():
 
 def _authorize_tasks():
     import yaml
+    from _roles import authorize_play
 
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
-
-    return {t["name"]: t for t in yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"] if "name" in t}
+    return {t["name"]: t for t in authorize_play()["tasks"] if "name" in t}
 
 
 def test_claude_seed_runs_in_authorize_not_snapshotted_provision():
@@ -910,8 +908,7 @@ def test_claude_seed_merges_into_existing_files(tmp_path):
     import subprocess
 
     import yaml
-
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+    from _roles import authorize_play
 
     if shutil.which("ansible-playbook") is None:
         import pytest
@@ -927,7 +924,7 @@ def test_claude_seed_merges_into_existing_files(tmp_path):
         json.dumps({"permissions": {"allow": ["Edit(*)", "Read(*)", "Bash(git push:*)"], "deny": ["Read(.env)"]}})
     )
 
-    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    play = authorize_play()
     names = ("Ensure Claude config", "Check for existing Claude", "Read existing Claude", "Seed Claude")
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     tasks = json.loads(json.dumps(tasks).replace("/home/{{ rig_user }}", str(root)))
@@ -1062,8 +1059,9 @@ def _run_authorize_mcp_tasks(tmp_path, mcp_config, agents, extra_vars=None, file
     import subprocess
 
     import yaml
+    from _roles import authorize_play
 
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK, rig_filter_plugins_path
+    from cli.remote_dev import rig_filter_plugins_path
 
     root = tmp_path / "root"
     root.mkdir(exist_ok=True)
@@ -1079,7 +1077,7 @@ def _run_authorize_mcp_tasks(tmp_path, mcp_config, agents, extra_vars=None, file
         "Read existing Agent MCP",
         "Merge MCP servers into Agent",
     )
-    play = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]
+    play = authorize_play()
     tasks = [t for t in play["tasks"] if t.get("name", "").startswith(names)]
     assert len(tasks) == len(names)
     tasks = json.loads(json.dumps(tasks).replace("/home/{{ rig_user }}", str(root)))
@@ -1203,12 +1201,11 @@ def test_authorize_treats_empty_claude_state_files_as_empty_json():
     import yaml
 
     pytest.importorskip("ansible")
+    from _roles import authorize_play
     from ansible.parsing.dataloader import DataLoader
     from ansible.template import Templar, trust_as_template
 
-    from cli.remote_dev import AUTHORIZE_PLAYBOOK
-
-    tasks = yaml.safe_load(AUTHORIZE_PLAYBOOK)[0]["tasks"]
+    tasks = authorize_play()["tasks"]
     seed = next(t for t in tasks if t.get("name", "").startswith("Seed Claude Code onboarding"))
     results = [
         {"item": {"item": "/home/dev/.claude/settings.json"}, "content": ""},

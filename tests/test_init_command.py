@@ -470,7 +470,7 @@ def test_interactive_init_scaffolds_cursor_agent_files(tmp_path):
     system = (rig / ".rig" / "provision.yml").read_text() + role_text()
     assert "Install Cursor CLI" in system
     assert "cursor: rig_cursor_cli" in system
-    authnz = (rig / ".rig" / "authorize.yml").read_text()
+    authnz = (rig / ".rig" / "authorize.yml").read_text() + role_text(stage="authorize")
     assert "CURSOR_API_KEY" in authnz
     assert "CURSOR_API_KEY" not in system
 
@@ -510,7 +510,7 @@ def test_interactive_init_selects_multiple_agents(tmp_path):
     system = (rig / ".rig" / "provision.yml").read_text() + role_text()
     assert "opencode: rig_opencode" in system
     assert "claude: rig_claude_code" in system
-    authnz = (rig / ".rig" / "authorize.yml").read_text()
+    authnz = (rig / ".rig" / "authorize.yml").read_text() + role_text(stage="authorize")
     assert "opencode_api_key" in authnz
     assert "claude_api_key" in authnz
 

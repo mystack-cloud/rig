@@ -1,0 +1,63 @@
+---
+# Authorize: render .rig/mcp.json into each enabled Agent's own config (ADR 0003).
+# One group: the steps share facts, so skipping part of it would break the rest.
+- name: MCP servers
+  tags: [rig_mcp]
+  block:
+    # --- MCP servers: render .rig/mcp.json into each enabled Agent's own config ---
+    # Runs here (not in provision) because it needs vaulted values and because
+    # mcp.json is not part of the snapshot hash. Same-name servers are replaced;
+    # servers added by hand on the Environment are kept.
+    - name: Render MCP servers for each Agent
+      set_fact:
+        _rig_mcp: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/mcp.json', errors='ignore') | default('', true) | rig_mcp_render(_rig_agent_types, hostvars[inventory_hostname]) }}"
+        _rig_mcp_targets:
+          - {agent: claude, path: "/home/{{ rig_user }}/.claude.json", key: mcpServers, dir: "/home/{{ rig_user }}"}
+          - {agent: cursor, path: "/home/{{ rig_user }}/.cursor/mcp.json", key: mcpServers, dir: "/home/{{ rig_user }}/.cursor"}
+          - {agent: opencode, path: "/home/{{ rig_user }}/.config/opencode/opencode.json", key: mcp, dir: "/home/{{ rig_user }}/.config/opencode"}
+      no_log: true
+      tags: [rig_mcp_servers, mcp]
+
+    - name: Select Agents that have MCP servers to install
+      set_fact:
+        _rig_mcp_active: >-
+          {{ _rig_mcp_targets
+             | selectattr('agent', 'in', _rig_mcp | dict2items | selectattr('value') | map(attribute='key') | list)
+             | list }}
+      no_log: true
+      tags: [rig_mcp_servers, mcp]
+
+    - name: Ensure MCP config directories exist
+      file:
+        path: "{{ item.dir }}"
+        state: directory
+        mode: "0700"
+      loop: "{{ _rig_mcp_active }}"
+      loop_control:
+        label: "{{ item.agent }}"
+      tags: [rig_mcp_servers, mcp]
+
+    - name: Read existing Agent MCP configs
+      slurp:
+        src: "{{ item.path }}"
+      register: _rig_mcp_current
+      failed_when: false
+      no_log: true
+      loop: "{{ _rig_mcp_active }}"
+      loop_control:
+        label: "{{ item.agent }}"
+      tags: [rig_mcp_servers, mcp]
+
+    - name: Merge MCP servers into Agent configs
+      copy:
+        dest: "{{ item.path }}"
+        mode: "0600"
+        content: "{{ _existing | rig_mcp_merge(item.key, _rig_mcp[item.agent]) | to_nice_json }}\n"
+      vars:
+        _existing: "{{ (_rig_mcp_current.results[ansible_loop.index0].content | default('', true) | b64decode or '{}') | from_json }}"
+      no_log: true
+      loop: "{{ _rig_mcp_active }}"
+      loop_control:
+        label: "{{ item.agent }}"
+        extended: true
+      tags: [rig_mcp_servers, mcp]

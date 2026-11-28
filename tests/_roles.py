@@ -38,3 +38,29 @@ def _flatten(tasks, inherited):
         else:
             out.append({**task, "_tags": tags})
     return out
+
+
+def authorize_tasks():
+    """The authorize tasks of every bundled role, flat: each role's outer block is opened, inner blocks stay."""
+    out = []
+    for name in role_names():
+        path = os.path.join(ROLES_DIR, name, "tasks", "authorize.yml")
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or []
+        for task in data:
+            out.extend(task["block"] if "block" in task and "tags" in task and task["tags"][0] == name else [task])
+    return out
+
+
+def authorize_play():
+    """Stands in for the old inline authorize play: ``authorize_play()["tasks"]``."""
+    return {"tasks": authorize_tasks()}
+
+
+def authorize_text():
+    """The generated authorize playbook plus every role's authorize tasks, as one string."""
+    from cli.remote_dev import AUTHORIZE_PLAYBOOK
+
+    return AUTHORIZE_PLAYBOOK + role_text(stage="authorize")

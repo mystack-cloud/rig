@@ -1,0 +1,61 @@
+---
+# Authorize: cursor cli credentials and trust. Selected by the playbook when 'cursor' is an enabled Agent.
+- name: Cursor CLI credentials and trust
+  tags: [rig_cursor_cli, agents]
+  block:
+    - name: Resolve the Cursor CLI API key
+      set_fact:
+        rig_cursor_api_key: "{{ cursor_api_key | default('') }}"
+      no_log: true
+      tags: [rig_cursor_cli_credentials, credentials]
+
+    - name: Use legacy coding_agent_api_key for a single Cursor CLI install
+      set_fact:
+        rig_cursor_api_key: "{{ coding_agent_api_key }}"
+      no_log: true
+      when:
+        - _rig_agent_types | length == 1
+        - (_rig_agent_types[0] | string) == "cursor"
+        - rig_cursor_api_key | length == 0
+        - coding_agent_api_key is defined
+        - coding_agent_api_key | length > 0
+      tags: [rig_cursor_cli_credentials, credentials]
+
+    - name: Write Cursor credentials env file
+      copy:
+        dest: /home/{{ rig_user }}/.cursor/credentials.env
+        mode: "0600"
+        content: |
+          CODING_AGENT_API_KEY={{ rig_cursor_api_key }}
+          CURSOR_API_KEY={{ rig_cursor_api_key }}
+      no_log: true
+      when:
+        - "'cursor' in _rig_agent_types"
+        - rig_cursor_api_key | length > 0
+      tags: [rig_cursor_cli_credentials, credentials]
+
+    # Cursor keeps its trust marker at ~/.cursor/projects/<path slug>/.workspace-trusted.
+    - name: Create Cursor workspace trust directory
+      file:
+        path: "/home/{{ rig_user }}/.cursor/projects/{{ _cursor_slug }}"
+        state: directory
+        mode: "0700"
+      vars:
+        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
+      when: "'cursor' in _rig_agent_types"
+      tags: [rig_cursor_cli_trust]
+
+    - name: Trust the workspace for Cursor CLI
+      copy:
+        dest: "/home/{{ rig_user }}/.cursor/projects/{{ _cursor_slug }}/.workspace-trusted"
+        mode: "0600"
+        force: false
+        content: "{{ _cursor_trust | to_nice_json }}"
+      vars:
+        _cursor_slug: "{{ (workspace_root | default('/workspace')) | regex_replace('[^a-zA-Z0-9]', '-') | regex_replace('-+', '-') | regex_replace('^-|-$', '') }}"
+        _cursor_trust:
+          trustedAt: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%S.000Z') }}"
+          workspacePath: "{{ workspace_root | default('/workspace') }}"
+          trustMethod: rig
+      when: "'cursor' in _rig_agent_types"
+      tags: [rig_cursor_cli_trust]

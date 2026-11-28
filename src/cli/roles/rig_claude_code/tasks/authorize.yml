@@ -1,0 +1,111 @@
+---
+# Authorize: claude code credentials and first-run state. Selected by the playbook when 'claude' is an enabled Agent.
+- name: Claude Code credentials and first-run state
+  tags: [rig_claude_code, agents]
+  block:
+    - name: Resolve the Claude Code API key
+      set_fact:
+        rig_claude_api_key: "{{ claude_api_key | default('') }}"
+      no_log: true
+      tags: [rig_claude_code_credentials, credentials]
+
+    - name: Use legacy coding_agent_api_key for a single Claude Code install
+      set_fact:
+        rig_claude_api_key: "{{ coding_agent_api_key }}"
+      no_log: true
+      when:
+        - _rig_agent_types | length == 1
+        - (_rig_agent_types[0] | string) == "claude"
+        - rig_claude_api_key | length == 0
+        - coding_agent_api_key is defined
+        - coding_agent_api_key | length > 0
+      tags: [rig_claude_code_credentials, credentials]
+
+    - name: Write Claude credentials env file
+      copy:
+        dest: /home/{{ rig_user }}/.claude/credentials.env
+        mode: "0600"
+        content: |
+          CODING_AGENT_API_KEY={{ rig_claude_api_key }}
+          {# Only one of the two may be set. An explicit claude_auth_type (asked at setup) wins; else the key prefix decides. #}
+          {% set _kind = claude_auth_type | default('') %}
+          {% if _kind == 'oauth' or (_kind != 'api_key' and rig_claude_api_key.startswith('sk-ant-oat')) %}
+          CLAUDE_CODE_OAUTH_TOKEN={{ rig_claude_api_key }}
+          {% else %}
+          ANTHROPIC_API_KEY={{ rig_claude_api_key }}
+          {% endif %}
+      no_log: true
+      when:
+        - "'claude' in _rig_agent_types"
+        - rig_claude_api_key | length > 0
+      tags: [rig_claude_code_credentials, credentials]
+
+    # --- Skip first-run prompts (theme picker, login wizard, folder trust) ---
+    # Runs on every create (authorize is never snapshotted) and merges into any
+    # existing file: the installer can create ~/.claude.json before we get here.
+    # A file can be empty (a snapshot taken before its contents reached disk): read it as {}.
+    - name: Ensure Claude config directory exists for seeding
+      file:
+        path: /home/{{ rig_user }}/.claude
+        state: directory
+        mode: "0700"
+      when: "'claude' in _rig_agent_types"
+      tags: [rig_claude_code_onboarding]
+
+    - name: Check for existing Claude state files
+      stat:
+        path: "{{ item }}"
+      loop:
+        - /home/{{ rig_user }}/.claude.json
+        - /home/{{ rig_user }}/.claude/settings.json
+      register: _claude_state_files
+      when: "'claude' in _rig_agent_types"
+      tags: [rig_claude_code_onboarding]
+
+    - name: Read existing Claude state files
+      slurp:
+        src: "{{ item.item }}"
+      loop: "{{ _claude_state_files.results | default([]) | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list }}"
+      register: _claude_state_contents
+      when: "'claude' in _rig_agent_types"
+      tags: [rig_claude_code_onboarding]
+
+    - name: Seed Claude Code onboarding, theme and workspace trust
+      vars:
+        _existing: >-
+          {{ dict(_claude_state_contents.results | default([])
+                  | map(attribute='item.item') | zip(
+                    _claude_state_contents.results | default([])
+                    | map(attribute='content')
+                    | map('b64decode') | map('trim') | map('default', '{}', true)
+                    | map('from_json')) ) }}
+        _ws: "{{ workspace_root | default('/workspace') }}"
+        _state_seed:
+          hasCompletedOnboarding: true
+          shiftEnterKeyBindingInstalled: true
+          projects: "{{ {_ws: {'hasTrustDialogAccepted': true, 'hasCompletedProjectOnboarding': true}} }}"
+        _settings_seed:
+          theme: dark
+          # `rig exec` runs Claude in bypass mode; without this it stops at a first-use
+          # warning dialog (default answer: exit) that nobody is there to answer.
+          skipDangerousModePermissionPrompt: true
+        _merged: "{{ (_existing[item.path] | default({})) | combine(item.seed, recursive=True) }}"
+        # "Tool(*)" allow rules warn on current Claude Code; bare "Tool" is equivalent.
+        _final: >-
+          {{ _merged | combine({'permissions': {'allow':
+               _merged.permissions.allow | map('regex_replace', '[(][*][)]$', '') | unique | list}},
+             recursive=True)
+             if (_merged.permissions | default({})).allow is defined else _merged }}
+      copy:
+        dest: "{{ item.path }}"
+        mode: "0600"
+        content: "{{ _final | to_nice_json }}"
+      loop:
+        - path: /home/{{ rig_user }}/.claude.json
+          seed: "{{ _state_seed }}"
+        - path: /home/{{ rig_user }}/.claude/settings.json
+          seed: "{{ _settings_seed }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: "'claude' in _rig_agent_types"
+      tags: [rig_claude_code_onboarding]
