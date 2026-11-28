@@ -1,0 +1,51 @@
+---
+# Provision: Cursor CLI (`agent`). Selected by the playbook when 'cursor' is an enabled Agent.
+- name: Cursor CLI
+  tags: [rig_cursor_cli, agents]
+  block:
+    # Do not use creates= alone: verify the binary actually runs.
+    - name: Install Cursor CLI
+      shell: |
+        set -euo pipefail
+        bin=/home/{{ rig_user }}/.local/bin/agent
+        if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
+          exit 0
+        fi
+        curl -fsSL https://cursor.com/install | bash
+        test -s "$bin"
+        test -x "$bin"
+        "$bin" --version
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: /home/{{ rig_user }}
+      tags: [rig_cursor_cli_install]
+
+    - name: Ensure Cursor local bin is on PATH
+      lineinfile:
+        path: /home/{{ rig_user }}/.bashrc
+        line: 'export PATH="$HOME/.local/bin:$PATH"'
+        create: true
+      tags: [rig_cursor_cli_install]
+
+    - name: Symlink Cursor agent onto PATH
+      file:
+        src: /home/{{ rig_user }}/.local/bin/agent
+        dest: /usr/local/bin/agent
+        state: link
+        force: true
+      tags: [rig_cursor_cli_install]
+
+    - name: Ensure Cursor config directory exists
+      file:
+        path: /home/{{ rig_user }}/.cursor
+        state: directory
+        mode: "0700"
+      tags: [rig_cursor_cli_config]
+
+    - name: Deploy Cursor CLI config from .rig/.cursor
+      copy:
+        src: "{{ playbook_dir }}/.cursor/cli-config.json"
+        dest: /home/{{ rig_user }}/.cursor/cli-config.json
+        mode: "0600"
+      tags: [rig_cursor_cli_config]

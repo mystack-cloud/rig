@@ -8,7 +8,7 @@ import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from cli.remote_dev import AnsibleManager, ProjectConfig
+from cli.remote_dev import BUNDLED_ROLES_DIR, AnsibleManager, ProjectConfig
 
 
 def test_setup_requirements_writes_collections_and_roles(tmp_path):
@@ -68,7 +68,8 @@ def test_galaxy_roles_move_into_roles_and_local_roles_come_first(tmp_path):
     path = roles_search_path(cfg.rig_dir).split(os.pathsep)
     assert path[0].endswith(os.path.join(".rig", "local_roles"))
     assert path[1].endswith(os.path.join(".rig", "roles"))
-    assert len(path) == 2
+    assert len(path) == 3
+    assert path[2] == BUNDLED_ROLES_DIR  # rig's own roles come last, so a Workspace can shadow them
     assert not (tmp_path / ".rig" / "roles" / "app").exists()
 
 

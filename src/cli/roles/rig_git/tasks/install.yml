@@ -1,0 +1,65 @@
+---
+# Provision: GitHub CLI (gh) and GitLab CLI (glab) for the providers the
+# Workspace's repos use (git_providers).
+- name: Git provider CLIs
+  tags: [rig_git]
+  block:
+    - name: Install the GitHub CLI (gh)
+      when: "'github' in (git_providers | default([]))"
+      tags: [rig_git_gh, git]
+      block:
+        - name: Ensure apt keyrings directory exists
+          file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: "0755"
+
+        - name: Add GitHub CLI apt keyring
+          get_url:
+            url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+            dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            mode: "0644"
+
+        - name: Add GitHub CLI apt repository
+          copy:
+            dest: /etc/apt/sources.list.d/github-cli.list
+            mode: "0644"
+            content: |
+              deb [arch={{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }} signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main
+
+        - name: Update apt cache for GitHub CLI
+          apt:
+            update_cache: true
+
+        - name: Install GitHub CLI (gh)
+          apt:
+            name: gh
+            state: present
+
+    - name: Install GitLab CLI (glab)
+      shell: |
+        set -euo pipefail
+        if command -v glab >/dev/null 2>&1; then
+          exit 0
+        fi
+        arch="$(dpkg --print-architecture)"
+        version="$(curl -fsSL https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest \
+          | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")"
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL -o "$tmp/glab.tgz" \
+          "https://gitlab.com/gitlab-org/cli/-/releases/v${version}/downloads/glab_${version}_linux_${arch}.tar.gz"
+        tar -xzf "$tmp/glab.tgz" -C "$tmp"
+        if [ -x "$tmp/bin/glab" ]; then
+          install -m 0755 "$tmp/bin/glab" /usr/local/bin/glab
+        elif [ -x "$tmp/glab" ]; then
+          install -m 0755 "$tmp/glab" /usr/local/bin/glab
+        else
+          find "$tmp" -type f -name glab -executable -exec install -m 0755 {} /usr/local/bin/glab \;
+        fi
+        command -v glab >/dev/null
+      args:
+        creates: /usr/local/bin/glab
+        executable: /bin/bash
+      when: "'gitlab' in (git_providers | default([]))"
+      tags: [rig_git_glab, git]

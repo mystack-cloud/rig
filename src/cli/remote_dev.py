@@ -404,9 +404,16 @@ def rig_filter_plugins_path(existing: str | None = None) -> str:
     return os.pathsep.join(p for p in (own, existing) if p)
 
 
+BUNDLED_ROLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "roles")
+
+
 def roles_search_path(rig_dir: str) -> str:
-    """Ansible role search path: committed roles, then Galaxy installs."""
-    return os.pathsep.join(os.path.join(rig_dir, name) for name in (LOCAL_ROLES_DIRNAME, ROLES_DIRNAME))
+    """Ansible role search path: committed roles, Galaxy installs, then rig's bundled roles.
+
+    Bundled roles come last so a Workspace can shadow one by name.
+    """
+    workspace = [os.path.join(rig_dir, name) for name in (LOCAL_ROLES_DIRNAME, ROLES_DIRNAME)]
+    return os.pathsep.join([*workspace, BUNDLED_ROLES_DIR])
 
 
 def ensure_local_roles_dir(rig_dir: str) -> bool:
@@ -1968,6 +1975,9 @@ class RemoteDevEnvironment:
         self.boot_source: str = "base"  # base | system | workspace
         self.boot_snapshot_description: str | None = None
         self.skip_playbooks: tuple = ()
+        # Set for a run limited by --skip-tags: boot from the base image, because a
+        # cached image was built with a different set of tasks.
+        self.bypass_snapshots: bool = False
 
     def resolve_boot_image(
         self,
@@ -1985,6 +1995,9 @@ class RemoteDevEnvironment:
         self.boot_source = "base"
         self.boot_snapshot_description = None
         self.skip_playbooks = ()
+        if self.bypass_snapshots:
+            log.info("Booting from the base image: this run is limited with --skip-tags")
+            return {"source": "base", "image_ref": base_image, "skip_playbooks": ()}
 
         try:
             from cli.snapshots import (
@@ -2309,6 +2322,7 @@ class RemoteDevEnvironment:
         stream: bool = True,
         force_system: bool = False,
         force_workspace: bool = False,
+        ansible_skip_tags: Sequence[str] | None = None,
     ) -> bool:
         """
         Run provision → configure → authorize → materialize against the remote VM.
@@ -2324,6 +2338,7 @@ class RemoteDevEnvironment:
             force_system=force_system,
             force_workspace=force_workspace,
             action="create",
+            ansible_skip_tags=ansible_skip_tags,
         )
 
     def apply_playbooks(
@@ -2337,6 +2352,7 @@ class RemoteDevEnvironment:
         force_workspace: bool = False,
         action: str | None = None,
         ansible_tags: Sequence[str] | None = None,
+        ansible_skip_tags: Sequence[str] | None = None,
     ) -> bool:
         """
         Re-run selected lifecycle playbooks against an existing remote VM.
@@ -2494,21 +2510,19 @@ class RemoteDevEnvironment:
         }
 
         materialize_failed = False
-        playbook_tags = ansible_tag_arg(ansible_tags)
+        tag_args = ansible_tag_args(ansible_tags, ansible_skip_tags, project.config)
+        # A run limited by --tags / --skip-tags on the command line is partial by
+        # definition, so it must not leave an image in the snapshot cache.
+        partial_run = bool(ansible_tag_arg(ansible_tags) or ansible_tag_arg(ansible_skip_tags))
         for kind in wanted:
             path = path_by_kind.get(kind)
             if not path or not os.path.exists(path):
                 log.error("%s playbook not found: %s", kind.capitalize(), path)
                 return False
             run_kwargs: dict[str, Any] = {"stream": stream}
-            if playbook_tags:
-                run_kwargs["ansible_args"] = ["--tags", playbook_tags]
-                log.info(
-                    "Running %s playbook %s --tags %s",
-                    kind,
-                    path,
-                    playbook_tags,
-                )
+            if tag_args:
+                run_kwargs["ansible_args"] = tag_args
+                log.info("Running %s playbook %s %s", kind, path, " ".join(tag_args))
             else:
                 log.info("Running %s playbook %s", kind, path)
             if not ansible._run_one_playbook(path, **run_kwargs):
@@ -2523,7 +2537,9 @@ class RemoteDevEnvironment:
             if captured and kind != "destroy":
                 self.manager.save_outputs(self.name, captured)
             # Snapshot only after configure (build layer); never after authorize.
-            if kind == SNAPSHOT_AFTER:
+            if kind == SNAPSHOT_AFTER and partial_run:
+                log.info("Not caching a snapshot: this run was limited with --tags/--skip-tags")
+            elif kind == SNAPSHOT_AFTER:
                 if not self._snapshot_after_playbook(kind, project):
                     log.warning("Continuing without a successful %s snapshot", kind)
 
@@ -2758,6 +2774,7 @@ class RemoteDevEnvironment:
         project_dir: str | None = None,
         stream: bool = True,
         ansible_tags: Sequence[str] | None = None,
+        ansible_skip_tags: Sequence[str] | None = None,
     ) -> bool:
         """
         Run ``finalize`` then ``destroy`` playbooks before deleting the VM.
@@ -2799,16 +2816,16 @@ class RemoteDevEnvironment:
         ansible.rig_vars = build_rig_ansible_vars(self, project, action="destroy")
 
         ok = True
-        playbook_tags = ansible_tag_arg(ansible_tags)
+        tag_args = ansible_tag_args(ansible_tags, ansible_skip_tags, project.config)
         for kind in STAGES_DESTROY:
             path = path_by_kind.get(kind)
             if not path or not os.path.exists(path):
                 log.debug("Skipping %s playbook (not found)", kind)
                 continue
             run_kwargs: dict[str, Any] = {"stream": stream}
-            if playbook_tags:
-                run_kwargs["ansible_args"] = ["--tags", playbook_tags]
-                log.info("Running %s playbook %s --tags %s", kind, path, playbook_tags)
+            if tag_args:
+                run_kwargs["ansible_args"] = tag_args
+                log.info("Running %s playbook %s %s", kind, path, " ".join(tag_args))
             else:
                 log.info("Running %s playbook %s", kind, path)
             if not ansible._run_one_playbook(path, **run_kwargs):
@@ -2820,6 +2837,7 @@ class RemoteDevEnvironment:
         self,
         project_dir: str | None = None,
         ansible_tags: Sequence[str] | None = None,
+        ansible_skip_tags: Sequence[str] | None = None,
     ):
         """Clean up the remote environment (finalize → destroy playbooks, then delete VM)."""
         log.info("Deleting remote environment '%s'", self.name)
@@ -2831,6 +2849,7 @@ class RemoteDevEnvironment:
             project_dir=project_dir,
             stream=True,
             ansible_tags=ansible_tags,
+            ansible_skip_tags=ansible_skip_tags,
         )
 
         if self.vm_id:
@@ -3798,10 +3817,45 @@ def ansible_tag_arg(tags: Sequence[str] | None) -> str | None:
     return ",".join(parts) or None
 
 
+def configured_skip_tags(config: dict[str, Any] | None) -> list[str]:
+    """Persistent skip tags from ``ansible.skip_tags`` in ``rig.yml`` (a list or comma-separated string)."""
+    section = (config or {}).get("ansible")
+    raw = section.get("skip_tags") if isinstance(section, dict) else None
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return (ansible_tag_arg([str(v) for v in raw]) or "").split(",") if raw else []
+
+
+def ansible_tag_args(
+    tags: Sequence[str] | None = None,
+    skip_tags: Sequence[str] | None = None,
+    config: dict[str, Any] | None = None,
+) -> list[str]:
+    """``ansible-playbook`` arguments for ``--tags`` and ``--skip-tags``.
+
+    Skip tags are the ``rig.yml`` list (``ansible.skip_tags``) plus the ones given for this run.
+    """
+    args: list[str] = []
+    wanted = ansible_tag_arg(tags)
+    if wanted:
+        args += ["--tags", wanted]
+    skipped = ansible_tag_arg([*configured_skip_tags(config), *(skip_tags or ())])
+    if skipped:
+        args += ["--skip-tags", skipped]
+    return args
+
+
 # Auto-generated provision playbook (.rig/provision.yml).
-# Referenced from root rig.yml playbooks.provision.
+# Referenced from root rig.yml playbooks.provision. The tasks live in the
+# bundled roles (src/cli/roles/); this file only says which run, and in what order.
+# Each include is tagged `always` so --tags / --skip-tags reach the role's own
+# tags (see docs/roles.md).
 PROVISION_PLAYBOOK = r"""---
-# Provision playbook: base packages, VS Code (code-server), coding agent.
+# Provision playbook: base packages, VS Code (code-server), coding agents.
+# The work is done by rig's bundled roles; skip any of it with --skip-tags
+# (role tags: rig_base, rig_workspace_user, rig_git, rig_code_server, rig_<agent>, ...).
 - name: Provision remote system
   hosts: remote_vm
   become: true
@@ -3810,319 +3864,53 @@ PROVISION_PLAYBOOK = r"""---
     coding_agent_type: "{{ coding_agent_type | default('opencode') }}"
     _rig_agent_types: "{{ coding_agent_types | default([coding_agent_type]) }}"
     code_server_port: "{{ code_server_port | default(8080) }}"
+    _rig_agent_roles:
+      opencode: rig_opencode
+      claude: rig_claude_code
+      cursor: rig_cursor_cli
   tasks:
-    - name: Wait for cloud-init to finish
-      command: cloud-init status --wait
-      changed_when: false
-      failed_when: false
+    - name: Base packages
+      include_role:
+        name: rig_base
+        tasks_from: install
+      tags: [always]
 
-    - name: Update apt cache
-      apt:
-        update_cache: true
-        cache_valid_time: 3600
+    - name: Workspace user and directory
+      include_role:
+        name: rig_workspace_user
+        tasks_from: install
+      tags: [always]
 
-    - name: Install base packages
-      apt:
-        name:
-          - curl
-          - wget
-          - ca-certificates
-          - gnupg
-          - git
-          - python3
-          - python3-pip
-          - vim
-          - htop
-          - tmux
-          - build-essential
-        state: present
+    - name: Git provider CLIs
+      include_role:
+        name: rig_git
+        tasks_from: install
+      tags: [always]
 
-    # The workspace user: the one account you SSH in as, run agents as, and that
-    # code-server and Dev Containers use. Ansible itself still connects as root.
-    - name: Install acl (lets Ansible become the workspace user from root)
-      apt:
-        name: acl
-        state: present
+    - name: Live agent prerequisites
+      include_role:
+        name: rig_live_agent
+        tasks_from: install
+      tags: [always]
 
-    - name: Create the workspace user
-      user:
-        name: "{{ rig_user }}"
-        shell: /bin/bash
-        create_home: true
-        system: false
-        groups: sudo
-        append: true
+    - name: code-server
+      include_role:
+        name: rig_code_server
+        tasks_from: install
+      tags: [always]
 
-    - name: Allow the workspace user passwordless sudo
-      copy:
-        dest: "/etc/sudoers.d/90-rig-{{ rig_user }}"
-        mode: "0440"
-        content: "{{ rig_user }} ALL=(ALL) NOPASSWD:ALL\n"
-        validate: /usr/sbin/visudo -cf %s
+    - name: Coding agents
+      include_role:
+        name: "{{ _rig_agent_roles[item] }}"
+        tasks_from: install
+      loop: "{{ _rig_agent_types | select('in', _rig_agent_roles) | list }}"
+      tags: [always]
 
-    - name: Ensure project workspace directory exists
-      file:
-        path: "{{ workspace_root | default('/workspace') }}"
-        state: directory
-        owner: "{{ rig_user }}"
-        group: "{{ rig_user }}"
-        mode: "0755"
-
-    # --- GitHub CLI (gh) when workspace repos use github.com ---
-    - name: Ensure apt keyrings directory exists
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: "0755"
-      when: "'github' in (git_providers | default([]))"
-
-    - name: Add GitHub CLI apt keyring
-      get_url:
-        url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
-        dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
-        mode: "0644"
-      when: "'github' in (git_providers | default([]))"
-
-    - name: Add GitHub CLI apt repository
-      copy:
-        dest: /etc/apt/sources.list.d/github-cli.list
-        mode: "0644"
-        content: |
-          deb [arch={{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }} signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main
-      when: "'github' in (git_providers | default([]))"
-
-    - name: Update apt cache for GitHub CLI
-      apt:
-        update_cache: true
-      when: "'github' in (git_providers | default([]))"
-
-    - name: Install GitHub CLI (gh)
-      apt:
-        name: gh
-        state: present
-      when: "'github' in (git_providers | default([]))"
-
-    # --- GitLab CLI (glab) when workspace repos use gitlab.com ---
-    - name: Install GitLab CLI (glab)
-      shell: |
-        set -euo pipefail
-        if command -v glab >/dev/null 2>&1; then
-          exit 0
-        fi
-        arch="$(dpkg --print-architecture)"
-        version="$(curl -fsSL https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest \
-          | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")"
-        tmp="$(mktemp -d)"
-        trap 'rm -rf "$tmp"' EXIT
-        curl -fsSL -o "$tmp/glab.tgz" \
-          "https://gitlab.com/gitlab-org/cli/-/releases/v${version}/downloads/glab_${version}_linux_${arch}.tar.gz"
-        tar -xzf "$tmp/glab.tgz" -C "$tmp"
-        if [ -x "$tmp/bin/glab" ]; then
-          install -m 0755 "$tmp/bin/glab" /usr/local/bin/glab
-        elif [ -x "$tmp/glab" ]; then
-          install -m 0755 "$tmp/glab" /usr/local/bin/glab
-        else
-          find "$tmp" -type f -name glab -executable -exec install -m 0755 {} /usr/local/bin/glab \;
-        fi
-        command -v glab >/dev/null
-      args:
-        creates: /usr/local/bin/glab
-        executable: /bin/bash
-      when: "'gitlab' in (git_providers | default([]))"
-
-    - name: Install code-server (VS Code)
-      shell: curl -fsSL https://code-server.dev/install.sh | sh
-      args:
-        creates: /usr/bin/code-server
-
-    - name: Ensure code-server config directory exists
-      file:
-        path: "/home/{{ rig_user }}/.config/code-server"
-        state: directory
-        owner: "{{ rig_user }}"
-        group: "{{ rig_user }}"
-        mode: "0700"
-      # Password + systemd start live in authorize.yml (secrets; not snapshotted).
-
-    # --- Coding agent: OpenCode ---
-    # Do not use Ansible creates= here: a zero-byte stub is executable and would
-    # skip reinstall forever (ssh then fails with "opencode: Success").
-    - name: Install OpenCode CLI
-      shell: |
-        set -euo pipefail
-        bin=/home/{{ rig_user }}/.opencode/bin/opencode
-        if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
-          exit 0
-        fi
-        rm -f "$bin"
-        curl -fsSL https://opencode.ai/install | bash
-        test -s "$bin"
-        test -x "$bin"
-        "$bin" --version
-      args:
-        executable: /bin/bash
-      environment:
-        HOME: /home/{{ rig_user }}
-      when: "'opencode' in _rig_agent_types"
-
-    - name: Symlink OpenCode onto PATH
-      file:
-        src: /home/{{ rig_user }}/.opencode/bin/opencode
-        dest: /usr/local/bin/opencode
-        state: link
-        force: true
-      when: "'opencode' in _rig_agent_types"
-
-    - name: Ensure OpenCode bin is on PATH for login shells
-      lineinfile:
-        path: /home/{{ rig_user }}/.bashrc
-        line: 'export PATH="$HOME/.opencode/bin:$PATH"'
-        create: true
-      when: "'opencode' in _rig_agent_types"
-
-    - name: Ensure OpenCode config directory exists
-      file:
-        path: /home/{{ rig_user }}/.config/opencode
-        state: directory
-        mode: "0700"
-      when: "'opencode' in _rig_agent_types"
-
-    - name: Deploy OpenCode config from .rig/.opencode
-      copy:
-        src: "{{ playbook_dir }}/.opencode/opencode.json"
-        dest: /home/{{ rig_user }}/.config/opencode/opencode.json
-        mode: "0600"
-      when: "'opencode' in _rig_agent_types"
-
-    - name: Deploy AGENTS.md as OpenCode global rules
-      copy:
-        src: "{{ playbook_dir }}/AGENTS.md"
-        dest: /home/{{ rig_user }}/.config/opencode/AGENTS.md
-        mode: "0644"
-      when: "'opencode' in _rig_agent_types"
-
-    # --- Coding agent: Claude Code ---
-    # Do not use creates= alone: verify the binary actually runs (same as OpenCode).
-    - name: Install Claude Code CLI
-      shell: |
-        set -euo pipefail
-        bin=/home/{{ rig_user }}/.local/bin/claude
-        if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
-          exit 0
-        fi
-        rm -f "$bin"
-        curl -fsSL https://claude.ai/install.sh | bash
-        # Installer may place the binary under ~/.local/bin or elsewhere on PATH.
-        if [ ! -x "$bin" ] || [ ! -s "$bin" ]; then
-          found="$(command -v claude || true)"
-          if [ -n "$found" ] && [ -x "$found" ]; then
-            mkdir -p "$(dirname "$bin")"
-            ln -sfn "$found" "$bin"
-          fi
-        fi
-        test -s "$bin"
-        test -x "$bin"
-        "$bin" --version
-      args:
-        executable: /bin/bash
-      environment:
-        HOME: /home/{{ rig_user }}
-      when: "'claude' in _rig_agent_types"
-
-    - name: Ensure Claude local bin is on PATH
-      lineinfile:
-        path: /home/{{ rig_user }}/.bashrc
-        line: 'export PATH="$HOME/.local/bin:$PATH"'
-        create: true
-      when: "'claude' in _rig_agent_types"
-
-    - name: Symlink Claude onto PATH
-      file:
-        src: /home/{{ rig_user }}/.local/bin/claude
-        dest: /usr/local/bin/claude
-        state: link
-        force: true
-      when: "'claude' in _rig_agent_types"
-
-    - name: Ensure Claude config directory exists
-      file:
-        path: /home/{{ rig_user }}/.claude
-        state: directory
-        mode: "0700"
-      when: "'claude' in _rig_agent_types"
-
-    - name: Deploy Claude settings from .rig/.claude
-      copy:
-        src: "{{ playbook_dir }}/.claude/settings.json"
-        dest: /home/{{ rig_user }}/.claude/settings.json
-        mode: "0600"
-      when: "'claude' in _rig_agent_types"
-
-    - name: Deploy AGENTS.md as Claude global rules (CLAUDE.md)
-      copy:
-        src: "{{ playbook_dir }}/AGENTS.md"
-        dest: /home/{{ rig_user }}/.claude/CLAUDE.md
-        mode: "0644"
-      when: "'claude' in _rig_agent_types"
-
-    - name: Place AGENTS.md in workspace for agent discovery
-      copy:
-        src: "{{ playbook_dir }}/AGENTS.md"
-        dest: "{{ workspace_root | default('/workspace') }}/AGENTS.md"
-        mode: "0644"
-
-    # --- Coding agent: Cursor CLI (`agent`) ---
-    # Do not use creates= alone: verify the binary actually runs.
-    - name: Install Cursor CLI
-      shell: |
-        set -euo pipefail
-        bin=/home/{{ rig_user }}/.local/bin/agent
-        if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
-          exit 0
-        fi
-        curl -fsSL https://cursor.com/install | bash
-        test -s "$bin"
-        test -x "$bin"
-        "$bin" --version
-      args:
-        executable: /bin/bash
-      environment:
-        HOME: /home/{{ rig_user }}
-      when: "'cursor' in _rig_agent_types"
-
-    - name: Ensure Cursor local bin is on PATH
-      lineinfile:
-        path: /home/{{ rig_user }}/.bashrc
-        line: 'export PATH="$HOME/.local/bin:$PATH"'
-        create: true
-      when: "'cursor' in _rig_agent_types"
-
-    - name: Symlink Cursor agent onto PATH
-      file:
-        src: /home/{{ rig_user }}/.local/bin/agent
-        dest: /usr/local/bin/agent
-        state: link
-        force: true
-      when: "'cursor' in _rig_agent_types"
-
-    - name: Ensure Cursor config directory exists
-      file:
-        path: /home/{{ rig_user }}/.cursor
-        state: directory
-        mode: "0700"
-      when: "'cursor' in _rig_agent_types"
-
-    - name: Deploy Cursor CLI config from .rig/.cursor
-      copy:
-        src: "{{ playbook_dir }}/.cursor/cli-config.json"
-        dest: /home/{{ rig_user }}/.cursor/cli-config.json
-        mode: "0600"
-      when: "'cursor' in _rig_agent_types"
-
-    # Everything above runs as root, so hand the home directory to the workspace user.
-    - name: Give the workspace user its home directory
-      command: "chown -R {{ rig_user }}:{{ rig_user }} /home/{{ rig_user }}"
-      changed_when: false
+    - name: Home directory ownership
+      include_role:
+        name: rig_home_ownership
+        tasks_from: install
+      tags: [always]
 """
 
 # User image customization (.rig/configure.yml). Cached with provision; never secrets.

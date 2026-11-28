@@ -1,0 +1,10 @@
+---
+# Provision: tmux, which hosts the Live agents (see docs/adr/0004).
+- name: Live agent prerequisites
+  tags: [rig_live_agent]
+  block:
+    - name: Install tmux
+      apt:
+        name: tmux
+        state: present
+      tags: [rig_live_agent_tmux, packages]

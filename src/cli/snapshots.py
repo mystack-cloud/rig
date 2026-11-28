@@ -148,6 +148,56 @@ def _read_text(path: str) -> str:
         return ""
 
 
+BUNDLED_ROLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "roles")
+
+# Role task files for later Stages. They are never part of a cached image, so editing
+# them must not discard it.
+_UNCACHED_ROLE_TASKS = ("authorize", "materialize", "destroy")
+
+
+def _role_files(role_dir: str, *, cached_only: bool) -> list[str]:
+    """Relative paths of a role's files, sorted; optionally without the uncached Stages' tasks."""
+    found: list[str] = []
+    for base, _dirs, names in os.walk(role_dir):
+        for name in names:
+            rel = os.path.relpath(os.path.join(base, name), role_dir).replace(os.sep, "/")
+            stem = rel.split("/", 1)[1].split(".", 1)[0] if rel.startswith("tasks/") else ""
+            if cached_only and stem.startswith(_UNCACHED_ROLE_TASKS):
+                continue
+            found.append(rel)
+    return sorted(found)
+
+
+def bundled_roles_digest(project_dir: str | None = None) -> bytes:
+    """
+    Digest of the bundled roles whose tasks end up in the cached image.
+
+    A role counts when it has ``tasks/install.yml`` (the provision entry point).
+    Its authorize/materialize/destroy task files are left out. A Workspace role in
+    ``.rig/local_roles`` with the same name shadows the bundled one, so it is hashed too.
+    """
+    digest = hashlib.sha256()
+    if not os.path.isdir(BUNDLED_ROLES_DIR):
+        return b""
+    for role in sorted(os.listdir(BUNDLED_ROLES_DIR)):
+        role_dir = os.path.join(BUNDLED_ROLES_DIR, role)
+        if not os.path.isfile(os.path.join(role_dir, "tasks", "install.yml")):
+            continue
+        sources = [("bundled", role_dir)]
+        if project_dir:
+            shadow = os.path.join(project_dir, ".rig", "local_roles", role)
+            if os.path.isdir(shadow):
+                sources.append(("local", shadow))
+        for origin, root in sources:
+            for rel in _role_files(root, cached_only=origin == "bundled"):
+                digest.update(f"{origin}:{role}/{rel}".encode())
+                digest.update(b"\0")
+                with open(os.path.join(root, rel), "rb") as handle:
+                    digest.update(handle.read())
+                digest.update(b"\0")
+    return digest.digest()
+
+
 def system_content_hash(
     project=None,
     *,
@@ -206,6 +256,11 @@ def system_content_hash(
                 configure_body = ""
 
     requirements = _read_text(os.path.join(root, ".rig", "requirements.yml")) if root else ""
+    skip_tags: list[str] = []
+    if project is not None:
+        from cli.remote_dev import configured_skip_tags
+
+        skip_tags = sorted(set(configured_skip_tags(getattr(project, "config", None))))
     parts = [
         b"system-vars",
         _canonical_json(var_map).encode("utf-8"),
@@ -216,6 +271,10 @@ def system_content_hash(
     ]
     if requirements:
         parts.extend([b"requirements", requirements.encode("utf-8")])
+    parts.extend([b"bundled-roles", bundled_roles_digest(root)])
+    if skip_tags:
+        # A skip list builds a different image, so it gets its own cache entry.
+        parts.extend([b"skip-tags", ",".join(skip_tags).encode("utf-8")])
     return _hash_bytes(*parts)
 
 

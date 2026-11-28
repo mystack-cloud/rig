@@ -38,7 +38,7 @@ rig = "cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cli = ["assets/*"]
+cli = ["assets/*", "roles/**/*.yml"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"

@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from cli.main import main
-from cli.remote_dev import AnsibleManager, ProjectConfig, RemoteDevEnvironment
+from cli.remote_dev import BUNDLED_ROLES_DIR, AnsibleManager, ProjectConfig, RemoteDevEnvironment
 
 
 def test_agent_remote_command_opencode_claude_and_cursor():
@@ -795,7 +795,8 @@ def test_verbose_playbook_streams_tasks_and_passes_ansible_verbosity(tmp_path, m
     search = captured["env"]["ANSIBLE_ROLES_PATH"].split(os.pathsep)
     assert search[0].endswith(os.path.join(".rig", "local_roles"))
     assert search[1].endswith(os.path.join(".rig", "roles"))
-    assert len(search) == 2
+    assert len(search) == 3
+    assert search[2] == BUNDLED_ROLES_DIR  # rig's own roles come last, so a Workspace can shadow them
     rig_log.configure_logging()
 
 
@@ -895,7 +896,10 @@ def test_claude_seed_runs_in_authorize_not_snapshotted_provision():
     """Provision is cached in the system snapshot, so seeding there goes stale."""
     from cli.remote_dev import PROVISION_PLAYBOOK
 
-    assert "hasCompletedOnboarding" not in PROVISION_PLAYBOOK
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _roles import role_text
+
+    assert "hasCompletedOnboarding" not in PROVISION_PLAYBOOK + role_text()
     assert "Seed Claude Code onboarding, theme and workspace trust" in _authorize_tasks()
 
 
@@ -1011,8 +1015,11 @@ def test_materialize_clone_retries_only_transient_network_errors():
 def test_provision_no_longer_deploys_per_agent_mcp_files():
     from cli.remote_dev import PROVISION_PLAYBOOK
 
+    sys.path.insert(0, os.path.dirname(__file__))
+    from _roles import role_text
+
     for retired in ("MCP config", "Merge OpenCode MCP", "/home/dev/.mcp.json", "mcp.json"):
-        assert retired not in PROVISION_PLAYBOOK, retired
+        assert retired not in PROVISION_PLAYBOOK + role_text(), retired
 
 
 def test_authorize_renders_mcp_servers_with_the_hostvars_mapping():

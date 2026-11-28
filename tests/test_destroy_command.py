@@ -126,6 +126,7 @@ def test_cleanup_resolves_then_deletes():
         project_dir="/tmp/project",
         stream=True,
         ansible_tags=None,
+        ansible_skip_tags=None,
     )
     env.manager.delete_vm.assert_called_once_with(11)
     env.manager.delete_firewall.assert_called_once_with(33)

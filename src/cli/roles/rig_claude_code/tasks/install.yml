@@ -1,0 +1,67 @@
+---
+# Provision: Claude Code CLI. Selected by the playbook when 'claude' is an enabled Agent.
+- name: Claude Code
+  tags: [rig_claude_code, agents]
+  block:
+    # Do not use creates= alone: verify the binary actually runs (same as OpenCode).
+    - name: Install Claude Code CLI
+      shell: |
+        set -euo pipefail
+        bin=/home/{{ rig_user }}/.local/bin/claude
+        if [ -x "$bin" ] && [ -s "$bin" ] && "$bin" --version >/dev/null 2>&1; then
+          exit 0
+        fi
+        rm -f "$bin"
+        curl -fsSL https://claude.ai/install.sh | bash
+        # Installer may place the binary under ~/.local/bin or elsewhere on PATH.
+        if [ ! -x "$bin" ] || [ ! -s "$bin" ]; then
+          found="$(command -v claude || true)"
+          if [ -n "$found" ] && [ -x "$found" ]; then
+            mkdir -p "$(dirname "$bin")"
+            ln -sfn "$found" "$bin"
+          fi
+        fi
+        test -s "$bin"
+        test -x "$bin"
+        "$bin" --version
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: /home/{{ rig_user }}
+      tags: [rig_claude_code_install]
+
+    - name: Ensure Claude local bin is on PATH
+      lineinfile:
+        path: /home/{{ rig_user }}/.bashrc
+        line: 'export PATH="$HOME/.local/bin:$PATH"'
+        create: true
+      tags: [rig_claude_code_install]
+
+    - name: Symlink Claude onto PATH
+      file:
+        src: /home/{{ rig_user }}/.local/bin/claude
+        dest: /usr/local/bin/claude
+        state: link
+        force: true
+      tags: [rig_claude_code_install]
+
+    - name: Ensure Claude config directory exists
+      file:
+        path: /home/{{ rig_user }}/.claude
+        state: directory
+        mode: "0700"
+      tags: [rig_claude_code_config]
+
+    - name: Deploy Claude settings from .rig/.claude
+      copy:
+        src: "{{ playbook_dir }}/.claude/settings.json"
+        dest: /home/{{ rig_user }}/.claude/settings.json
+        mode: "0600"
+      tags: [rig_claude_code_config]
+
+    - name: Deploy AGENTS.md as Claude global rules (CLAUDE.md)
+      copy:
+        src: "{{ playbook_dir }}/AGENTS.md"
+        dest: /home/{{ rig_user }}/.claude/CLAUDE.md
+        mode: "0644"
+      tags: [rig_claude_code_config]
